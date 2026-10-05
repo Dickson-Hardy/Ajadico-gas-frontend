@@ -147,53 +147,78 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
 
                 const SizedBox(height: 12),
 
-                // Customer Data Table
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: DataTable(
-                        headingTextStyle: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.ink),
-                        columns: const [
-                          DataColumn(label: Text('Customer Account')),
-                          DataColumn(label: Text('Outstanding Debt', textAlign: TextAlign.right), numeric: true),
-                          DataColumn(label: Text('Last Repayment')),
-                          DataColumn(label: Text('Payment Terms')),
-                          DataColumn(label: Text('Status')),
-                        ],
-                        rows: customers.map((cust) {
-                          return DataRow(
-                            cells: [
-                              DataCell(Text(cust.name, style: const TextStyle(fontWeight: FontWeight.bold))),
-                              DataCell(Text(CurrencyFormatter.formatNaira(cust.outstanding), style: const TextStyle(fontWeight: FontWeight.bold))),
-                              DataCell(Text(cust.lastRepayment)),
-                              DataCell(Text(cust.dueDate)),
-                              DataCell(
-                                StatusChip(
-                                  label: cust.status == CustomerCreditStatus.current
-                                      ? 'Current'
-                                      : cust.status == CustomerCreditStatus.overdue
-                                          ? 'Overdue'
-                                          : 'Settled',
-                                  type: cust.status == CustomerCreditStatus.current
-                                      ? ChipType.ok
-                                      : cust.status == CustomerCreditStatus.overdue
-                                          ? ChipType.bad
-                                          : ChipType.ok,
+                // Customer Data Table or Empty State
+                if (customers.isEmpty)
+                  const Card(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(vertical: 40, horizontal: 20),
+                      child: Center(
+                        child: Column(
+                          children: [
+                            Icon(Icons.people_outline, size: 48, color: AppColors.muted),
+                            SizedBox(height: 12),
+                            Text(
+                              'No Credit Customers Registered',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              'Authorized commercial fleet accounts will appear here once registered by the Director.',
+                              style: TextStyle(fontSize: 13, color: AppColors.muted),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: DataTable(
+                          headingTextStyle: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.ink),
+                          columns: const [
+                            DataColumn(label: Text('Customer Account')),
+                            DataColumn(label: Text('Outstanding Debt', textAlign: TextAlign.right), numeric: true),
+                            DataColumn(label: Text('Last Repayment')),
+                            DataColumn(label: Text('Payment Terms')),
+                            DataColumn(label: Text('Status')),
+                          ],
+                          rows: customers.map((cust) {
+                            return DataRow(
+                              cells: [
+                                DataCell(Text(cust.name, style: const TextStyle(fontWeight: FontWeight.bold))),
+                                DataCell(Text(CurrencyFormatter.formatNaira(cust.outstanding), style: const TextStyle(fontWeight: FontWeight.bold))),
+                                DataCell(Text(cust.lastRepayment)),
+                                DataCell(Text(cust.dueDate)),
+                                DataCell(
+                                  StatusChip(
+                                    label: cust.status == CustomerCreditStatus.current
+                                        ? 'Current'
+                                        : cust.status == CustomerCreditStatus.overdue
+                                            ? 'Overdue'
+                                            : 'Settled',
+                                    type: cust.status == CustomerCreditStatus.current
+                                        ? ChipType.ok
+                                        : cust.status == CustomerCreditStatus.overdue
+                                            ? ChipType.bad
+                                            : ChipType.ok,
+                                  ),
                                 ),
-                              ),
-                            ],
-                          );
-                        }).toList(),
+                              ],
+                            );
+                          }).toList(),
+                        ),
                       ),
                     ),
                   ),
-                ),
 
                 const SizedBox(height: 8),
                 const Text(
-                  'Note: Only Directors can authorize new credit customers. Names above are active demo accounts.',
+                  'Note: Only Directors can authorize new credit customers and set credit limits (§4.10).',
                   style: TextStyle(fontSize: 13, color: AppColors.muted),
                 ),
               ],
