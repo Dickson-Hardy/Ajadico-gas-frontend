@@ -324,6 +324,8 @@ class _AppShellState extends State<AppShell> {
           onOpenVerificationQueue: () => setState(() => _currentView = AppView.verifySubmission),
           onOpenCashCount: () => setState(() => _currentView = AppView.dailyCashCount),
           onOpenCreditCustomers: () => setState(() => _currentView = AppView.creditCustomers),
+          onOpenTankDip: () => setState(() => _currentView = AppView.tankDip),
+          onOpenFuelDelivery: () => setState(() => _currentView = AppView.fuelDelivery),
           onLogout: _logout,
         );
 

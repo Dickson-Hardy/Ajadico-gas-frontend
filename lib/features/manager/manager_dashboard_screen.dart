@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
+import '../../core/widgets/forecourt_tank_gauge.dart';
 import '../../core/widgets/status_chip.dart';
 import '../../state/station_app_state.dart';
 
@@ -8,6 +9,8 @@ class ManagerDashboardScreen extends StatefulWidget {
   final VoidCallback onOpenVerificationQueue;
   final VoidCallback onOpenCashCount;
   final VoidCallback onOpenCreditCustomers;
+  final VoidCallback? onOpenTankDip;
+  final VoidCallback? onOpenFuelDelivery;
   final VoidCallback onLogout;
 
   const ManagerDashboardScreen({
@@ -15,6 +18,8 @@ class ManagerDashboardScreen extends StatefulWidget {
     required this.onOpenVerificationQueue,
     required this.onOpenCashCount,
     required this.onOpenCreditCustomers,
+    this.onOpenTankDip,
+    this.onOpenFuelDelivery,
     required this.onLogout,
   });
 
@@ -137,7 +142,88 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                   },
                 ),
 
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
+
+                // Graphical Underground Storage Tanks (UST) Real-Time Levels
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Underground Fuel Tanks (UST)',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.ink,
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Live physical dip levels, calculated book stock & tanker discharge ullage.',
+                          style: TextStyle(fontSize: 13, color: AppColors.muted),
+                        ),
+                      ],
+                    ),
+                    if (widget.onOpenTankDip != null)
+                      OutlinedButton.icon(
+                        onPressed: widget.onOpenTankDip,
+                        icon: const Icon(Icons.straighten, size: 16),
+                        label: const Text('Record Daily Dip'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.ink,
+                          side: const BorderSide(color: AppColors.line),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Visual Tank Gauge Grid
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isMobile = constraints.maxWidth < 750;
+                    return isMobile
+                        ? Column(
+                            children: state.tanks.map((t) {
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: ForecourtTankGauge(
+                                  tankCode: t.code,
+                                  productName: t.product,
+                                  capacityLitres: t.capacity,
+                                  currentLitres: t.physicalDip,
+                                  calculatedStockLitres: t.bookStock,
+                                  lastDipTime: t.lastDipTime,
+                                  onTap: widget.onOpenTankDip,
+                                ),
+                              );
+                            }).toList(),
+                          )
+                        : Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: state.tanks.map((t) {
+                              return Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                                  child: ForecourtTankGauge(
+                                    tankCode: t.code,
+                                    productName: t.product,
+                                    capacityLitres: t.capacity,
+                                    currentLitres: t.physicalDip,
+                                    calculatedStockLitres: t.bookStock,
+                                    lastDipTime: t.lastDipTime,
+                                    onTap: widget.onOpenTankDip,
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          );
+                  },
+                ),
+                const SizedBox(height: 20),
 
                 // Operational Summary Cards
                 LayoutBuilder(

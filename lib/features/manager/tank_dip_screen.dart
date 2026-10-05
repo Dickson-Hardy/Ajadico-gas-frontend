@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
+import '../../core/widgets/forecourt_tank_gauge.dart';
 import '../../core/widgets/status_chip.dart';
+import '../../state/station_app_state.dart';
 
 class TankDipItem {
   final String code;
@@ -39,20 +41,32 @@ class TankDipScreen extends StatefulWidget {
 }
 
 class _TankDipScreenState extends State<TankDipScreen> {
-  final List<TankDipItem> _tanks = [
-    TankDipItem(code: 'T1', product: 'PMS', capacity: 45000, calculatedStock: 32100, physicalDip: 32100),
-    TankDipItem(code: 'T2', product: 'PMS', capacity: 45000, calculatedStock: 28520, physicalDip: 28400),
-    TankDipItem(code: 'T3', product: 'AGO', capacity: 33000, calculatedStock: 14200, physicalDip: 14200),
-  ];
-
+  final state = StationAppState.instance;
+  late List<TankDipItem> _tanks;
   late Map<String, TextEditingController> _controllers;
 
   @override
   void initState() {
     super.initState();
+    _initTanks();
+  }
+
+  void _initTanks() {
+    _tanks = state.tanks.map((t) {
+      return TankDipItem(
+        code: t.code,
+        product: t.product,
+        capacity: t.capacity,
+        calculatedStock: t.bookStock,
+        physicalDip: t.physicalDip,
+      );
+    }).toList();
+
     _controllers = {
       for (var t in _tanks)
-        t.code: TextEditingController(text: t.physicalDip?.toStringAsFixed(0) ?? '')
+        t.code: TextEditingController(
+          text: t.physicalDip != null ? t.physicalDip!.toStringAsFixed(0) : '',
+        ),
     };
   }
 
@@ -72,10 +86,19 @@ class _TankDipScreenState extends State<TankDipScreen> {
   }
 
   void _submit() {
+    for (var t in _tanks) {
+      final dipVal = t.physicalDip ?? t.calculatedStock;
+      state.recordTankDipAudit(
+        tankCode: t.code,
+        physicalDipLitres: dipVal,
+        dipStickCm: 0.0,
+      );
+    }
+
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         backgroundColor: AppColors.ok,
-        content: Text('Daily tank dip readings saved. Stock variance updated in manager dashboard.'),
+        content: Text('Daily tank dip readings saved. Real-time variances updated across all manager & director screens.'),
       ),
     );
     widget.onSuccess();
@@ -93,7 +116,7 @@ class _TankDipScreenState extends State<TankDipScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Daily Tank Dip Readings', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('Stock Audit & Dip Variance (§3.2, §3.3)', style: TextStyle(fontSize: 13, color: Colors.white70)),
+            Text('Underground Storage Tanks (UST) · Physical Audit (§3.2, §3.3)', style: TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
       ),
@@ -101,7 +124,7 @@ class _TankDipScreenState extends State<TankDipScreen> {
         padding: const EdgeInsets.all(20),
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 800),
+            constraints: const BoxConstraints(maxWidth: 850),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -115,81 +138,72 @@ class _TankDipScreenState extends State<TankDipScreen> {
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Physical dip measurement compared with calculated meter/delivery book stock.',
+                  'Record manual dip stick readings to compare measured stock against calculated book stock.',
                   style: TextStyle(fontSize: 15, color: AppColors.muted),
                 ),
                 const SizedBox(height: 16),
 
                 ..._tanks.map((tank) {
                   final v = tank.variance;
+                  final currentLevel = tank.physicalDip ?? tank.calculatedStock;
+
                   return Card(
+                    margin: const EdgeInsets.only(bottom: 16),
                     child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Tank ${tank.code} · ${tank.product}',
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.ink,
-                                ),
-                              ),
-                              StatusChip(
-                                label: v == 0
-                                    ? 'Balanced'
-                                    : (v < 0 ? '${CurrencyFormatter.formatLitres(v)}' : '+${CurrencyFormatter.formatLitres(v)}'),
-                                type: v == 0 ? ChipType.ok : (v.abs() > 100 ? ChipType.bad : ChipType.warn),
-                              ),
-                            ],
+                          // Graphical Gauge showing dynamic live animation as manager types
+                          ForecourtTankGauge(
+                            tankCode: tank.code,
+                            productName: tank.product,
+                            capacityLitres: tank.capacity,
+                            currentLitres: currentLevel,
+                            calculatedStockLitres: tank.calculatedStock,
                           ),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 16),
+
+                          // Dip Input Field & Quick Adjustment
                           Row(
                             children: [
                               Expanded(
+                                flex: 2,
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text('Capacity', style: TextStyle(fontSize: 13, color: AppColors.muted)),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      CurrencyFormatter.formatLitres(tank.capacity),
-                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                    const Text(
+                                      'Enter Measured Physical Dip (Litres):',
+                                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.ink),
                                     ),
-                                  ],
-                                ),
-                              ),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('Calculated Stock', style: TextStyle(fontSize: 13, color: AppColors.muted)),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      CurrencyFormatter.formatLitres(tank.calculatedStock),
-                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('Physical Dip (L)', style: TextStyle(fontSize: 13, color: AppColors.muted)),
-                                    const SizedBox(height: 4),
+                                    const SizedBox(height: 6),
                                     TextField(
                                       controller: _controllers[tank.code],
                                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                      decoration: const InputDecoration(
-                                        hintText: 'Enter litres',
-                                        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                      decoration: InputDecoration(
+                                        hintText: 'e.g. 32,100',
+                                        suffixText: 'Litres',
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                                       ),
                                       onChanged: (val) => _onDipChanged(tank, val),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                flex: 1,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Audit Status', style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                                    const SizedBox(height: 8),
+                                    StatusChip(
+                                      label: v == 0
+                                          ? 'Balanced'
+                                          : (v < 0 ? '${CurrencyFormatter.formatLitres(v)}' : '+${CurrencyFormatter.formatLitres(v)}'),
+                                      type: v == 0 ? ChipType.ok : (v.abs() > 100 ? ChipType.bad : ChipType.warn),
                                     ),
                                   ],
                                 ),
@@ -200,7 +214,7 @@ class _TankDipScreenState extends State<TankDipScreen> {
                       ),
                     ),
                   );
-                }).toList(),
+                }),
               ],
             ),
           ),
@@ -209,26 +223,25 @@ class _TankDipScreenState extends State<TankDipScreen> {
       bottomNavigationBar: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         decoration: const BoxDecoration(
-          color: AppColors.background,
+          color: Colors.white,
           border: Border(top: BorderSide(color: AppColors.line)),
         ),
-        child: Row(
-          children: [
-            Expanded(
-              flex: 2,
-              child: ElevatedButton(
-                onPressed: _submit,
-                child: const Text('Save tank dip records'),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: OutlinedButton(
+        child: SafeArea(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              OutlinedButton(
                 onPressed: widget.onBack,
                 child: const Text('Cancel'),
               ),
-            ),
-          ],
+              const SizedBox(width: 12),
+              ElevatedButton.icon(
+                onPressed: _submit,
+                icon: const Icon(Icons.check_circle_outline),
+                label: const Text('Save & Submit Dip Audit'),
+              ),
+            ],
+          ),
         ),
       ),
     );
