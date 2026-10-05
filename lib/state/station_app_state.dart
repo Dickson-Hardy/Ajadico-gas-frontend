@@ -131,7 +131,7 @@ class SalaryAdjustment {
   final String station;
   final String shiftRef;
   final double amount; // negative for shortage
-  String status; // 'Pending Review', 'Salary Deduction Approved', 'Waived by Senior'
+  String status; // 'Pending Review', 'Salary Deduction Approved', 'Waived by Director'
   final DateTime recordedAt;
 
   SalaryAdjustment({
@@ -741,7 +741,7 @@ class StationAppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Senior approves salary deduction
+  /// Director approves salary deduction
   void approveSalaryDeduction(String adjustmentId) {
     final adj = _salaryAdjustments.firstWhere((a) => a.id == adjustmentId);
     adj.status = 'Salary Deduction Approved';
@@ -757,23 +757,23 @@ class StationAppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Senior waives attendant shortage
+  /// Director waives attendant shortage
   void waiveShortage(String adjustmentId) {
     final adj = _salaryAdjustments.firstWhere((a) => a.id == adjustmentId);
-    adj.status = 'Waived by Senior';
+    adj.status = 'Waived by Director';
 
     _syncService.enqueue(
       actionType: SyncActionType.salaryAdjustment,
       payload: {
         'id': adjustmentId,
-        'status': 'Waived by Senior',
+        'status': 'Waived by Director',
       },
     );
 
     notifyListeners();
   }
 
-  /// Senior confirms bank deposit against bank alert (§4.3, §5.5)
+  /// Director confirms bank deposit against bank alert (§4.3, §5.5)
   void confirmBankDeposit(String depositId) {
     final dep = _deposits.firstWhere((d) => d.id == depositId);
     dep.isConfirmed = true;

@@ -40,7 +40,7 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
         backgroundColor: AppColors.bad,
         behavior: SnackBarBehavior.floating,
         content: Text(
-          'Salary deduction of ${CurrencyFormatter.formatNaira(adj.amount.abs())} approved by Senior for ${adj.attendantName}.',
+          'Salary deduction of ${CurrencyFormatter.formatNaira(adj.amount.abs())} approved by Director for ${adj.attendantName}.',
         ),
       ),
     );
@@ -72,7 +72,7 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Attendant Salary Deductions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('Senior · Forecourt Discrepancy & Payroll Adjustments (§4.6, §4.7)', style: TextStyle(fontSize: 13, color: Colors.white70)),
+            Text('Director · Forecourt Discrepancy & Payroll Adjustments (§4.6, §4.7)', style: TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
       ),
@@ -94,7 +94,7 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Shift variances are recorded automatically. Unresolved shortfalls reduce the attendant’s salary; Senior decides large or disputed items (§4.7).',
+                  'Shift variances are recorded automatically. Unresolved shortfalls reduce the attendant’s salary; Director decides large or disputed items (§4.7).',
                   style: TextStyle(fontSize: 15, color: AppColors.muted),
                 ),
                 const SizedBox(height: 16),
@@ -145,7 +145,7 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                                 fontWeight: FontWeight.bold,
                                 color: adj.status == 'Salary Deduction Approved'
                                     ? AppColors.bad
-                                    : (adj.status == 'Waived by Senior' ? AppColors.ok : AppColors.warn),
+                                    : (adj.status == 'Waived by Director' ? AppColors.ok : AppColors.warn),
                               ),
                             ),
                             const SizedBox(height: 14),

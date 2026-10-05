@@ -51,10 +51,10 @@ class UserProfile {
     ),
     UserProfile(
       id: 'director-1',
-      displayName: 'Senior',
-      fullName: 'Senior Director',
+      displayName: 'Engr. Dickson (Director)',
+      fullName: 'Dickson Hardy (Managing Director)',
       role: UserRole.director,
-      stationName: 'All Branches',
+      stationName: 'HQ · All 5 Stations',
     ),
   ];
 }

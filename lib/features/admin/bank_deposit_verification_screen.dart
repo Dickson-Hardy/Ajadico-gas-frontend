@@ -40,7 +40,7 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
         backgroundColor: AppColors.ok,
         behavior: SnackBarBehavior.floating,
         content: Text(
-          'Deposit ${dep.id} of ${CurrencyFormatter.formatNaira(dep.amount)} confirmed against bank credit alert by Senior (§4.3, §5.5).',
+          'Deposit ${dep.id} of ${CurrencyFormatter.formatNaira(dep.amount)} confirmed against bank credit alert by Director (§4.3, §5.5).',
         ),
       ),
     );
@@ -62,7 +62,7 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Bank Deposit Approvals', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('Senior · Commercial Bank Alert Verification (§4.3, §5.5)', style: TextStyle(fontSize: 13, color: Colors.white70)),
+            Text('Director · Commercial Bank Alert Verification (§4.3, §5.5)', style: TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
       ),
@@ -84,7 +84,7 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Cash handed over by station cashiers remains held in "Awaiting bank" state until Senior matches the bank SMS/email credit alert (§5.5).',
+                  'Cash handed over by station cashiers remains held in "Awaiting bank" state until Director matches the bank SMS/email credit alert (§5.5).',
                   style: TextStyle(fontSize: 15, color: AppColors.muted),
                 ),
                 const SizedBox(height: 16),

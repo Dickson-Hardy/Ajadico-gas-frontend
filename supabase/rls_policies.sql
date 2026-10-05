@@ -24,7 +24,7 @@ ALTER TABLE public.fuel_deliveries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.attendant_salary_adjustments ENABLE ROW LEVEL SECURITY;
 
 -- -----------------------------------------------------------------------------
--- Helper Function: Check if current user is Senior / Director / Admin
+-- Helper Function: Check if current user is Director / Admin
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.is_central_admin()
 RETURNS BOOLEAN AS $$
@@ -110,7 +110,7 @@ CREATE POLICY "Read authorized credit customers"
 ON public.credit_customers FOR SELECT
 USING (true);
 
-CREATE POLICY "Only Senior can create credit customers"
+CREATE POLICY "Only Director can create credit customers"
 ON public.credit_customers FOR INSERT
 WITH CHECK (public.is_central_admin() OR auth.uid() IS NULL);
 
@@ -129,7 +129,7 @@ USING (
   OR auth.uid() IS NULL
 );
 
-CREATE POLICY "Only Senior approve or waive salary deductions"
+CREATE POLICY "Only Director approve or waive salary deductions"
 ON public.attendant_salary_adjustments FOR UPDATE
 USING (public.is_central_admin() OR auth.uid() IS NULL);
 

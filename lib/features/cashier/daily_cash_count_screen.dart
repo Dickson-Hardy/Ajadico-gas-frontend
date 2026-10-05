@@ -280,7 +280,7 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
                                         const SizedBox(width: 8),
                                         Expanded(
                                           child: Text(
-                                            '${CurrencyFormatter.formatNaira(state.totalHandedOverDeposits)} handed over to bank, awaiting Senior credit alert verification (§5.5).',
+                                            '${CurrencyFormatter.formatNaira(state.totalHandedOverDeposits)} handed over to bank, awaiting Director credit alert verification (§5.5).',
                                             style: const TextStyle(fontSize: 12, color: AppColors.muted),
                                           ),
                                         ),

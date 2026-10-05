@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS public.fuel_prices (
     price_per_litre NUMERIC(10, 2) NOT NULL CHECK (price_per_litre > 0),
     effective_from TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     effective_to TIMESTAMPTZ, -- NULL means currently active
-    authorised_by VARCHAR(100) NOT NULL, -- Authorized by Senior (§2.8)
+    authorised_by VARCHAR(100) NOT NULL, -- Authorized by Director (§2.8)
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -105,7 +105,7 @@ CREATE TYPE public.user_role AS ENUM ('attendant', 'cashier', 'manager', 'direct
 
 CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    station_id UUID REFERENCES public.stations(id) ON DELETE SET NULL, -- NULL for Director (Senior) with all-branch access
+    station_id UUID REFERENCES public.stations(id) ON DELETE SET NULL, -- NULL for Director with all-branch access
     full_name VARCHAR(100) NOT NULL,
     display_name VARCHAR(50) NOT NULL, -- e.g. 'Amaka O.'
     role public.user_role NOT NULL DEFAULT 'attendant',
@@ -219,7 +219,7 @@ CREATE TABLE IF NOT EXISTS public.attendant_salary_adjustments (
     amount NUMERIC(14, 2) NOT NULL,
     adjustment_type public.adjustment_type NOT NULL,
     status public.adjustment_status DEFAULT 'pending_review',
-    decided_by UUID REFERENCES public.profiles(id), -- Approved by Senior (§4.7)
+    decided_by UUID REFERENCES public.profiles(id), -- Approved by Director (§4.7)
     decision_notes TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -239,7 +239,7 @@ CREATE TABLE IF NOT EXISTS public.credit_customers (
     outstanding_balance NUMERIC(14, 2) DEFAULT 0.00,
     payment_terms_days INT DEFAULT 14,
     status public.credit_status DEFAULT 'current',
-    authorised_by VARCHAR(100) NOT NULL, -- Authorised by Senior/Directors (§4.10)
+    authorised_by VARCHAR(100) NOT NULL, -- Authorised by Director (§4.10)
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -268,7 +268,7 @@ CREATE TABLE IF NOT EXISTS public.credit_repayments (
     bank_reference VARCHAR(100),
     proof_url TEXT,
     recorded_by UUID NOT NULL REFERENCES public.profiles(id),
-    confirmed_by_senior BOOLEAN DEFAULT false,
+    confirmed_by_director BOOLEAN DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -303,10 +303,10 @@ CREATE TABLE IF NOT EXISTS public.daily_cash_counts (
     ) STORED,
     
     -- Handed over deposit tracking (§5.4, §5.5)
-    deposit_status VARCHAR(30) DEFAULT 'awaiting_bank', -- 'awaiting_bank', 'confirmed_by_senior'
+    deposit_status VARCHAR(30) DEFAULT 'awaiting_bank', -- 'awaiting_bank', 'confirmed_by_director'
     deposit_bank_name VARCHAR(100),
     deposit_slip_url TEXT,
-    confirmed_by_senior_id UUID REFERENCES public.profiles(id),
+    confirmed_by_director_id UUID REFERENCES public.profiles(id),
     confirmed_at TIMESTAMPTZ,
     
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -419,7 +419,7 @@ DECLARE
     v_attendant_amaka UUID;
     v_cashier_chidi UUID;
     v_manager_bello UUID;
-    v_director_senior UUID;
+    v_director UUID;
 BEGIN
     -- 1. Create Lekki Road Station
     INSERT INTO public.stations (code, name, address, manager_name, phone)
@@ -433,8 +433,8 @@ BEGIN
     -- 2. Fuel Prices
     INSERT INTO public.fuel_prices (station_id, product_id, price_per_litre, authorised_by)
     VALUES 
-    (v_station_id, v_pms_id, 1050.00, 'Senior'),
-    (v_station_id, v_ago_id, 1320.00, 'Senior');
+    (v_station_id, v_pms_id, 1050.00, 'Director'),
+    (v_station_id, v_ago_id, 1320.00, 'Director');
 
     -- 3. Tanks
     INSERT INTO public.tanks (station_id, code, product_id, capacity_litres, current_dip_litres, calculated_stock_litres)
@@ -474,12 +474,12 @@ BEGIN
 
     INSERT INTO public.profiles (station_id, full_name, display_name, role, pin_hash, phone)
     VALUES 
-    (NULL, 'Senior Executive Director', 'Senior', 'director', '1234', '08099990000') RETURNING id INTO v_director_senior;
+    (NULL, 'Dickson Hardy (Managing Director)', 'Director', 'director', '1234', '08099990000') RETURNING id INTO v_director;
 
     -- 6. Credit Customers
     INSERT INTO public.credit_customers (station_id, company_name, contact_person, credit_limit, outstanding_balance, payment_terms_days, status, authorised_by)
     VALUES 
-    (v_station_id, 'Sample Haulage Ltd', 'Capt. Danladi', 5000000.00, 1240000.00, 30, 'current', 'Senior'),
-    (v_station_id, 'Sample Farms', 'Mallam Musa', 1000000.00, 310000.00, 14, 'overdue', 'Senior'),
-    (v_station_id, 'Sample Clinic', 'Dr. Adeyemi', 500000.00, 0.00, 14, 'settled', 'Senior');
+    (v_station_id, 'Sample Haulage Ltd', 'Capt. Danladi', 5000000.00, 1240000.00, 30, 'current', 'Director'),
+    (v_station_id, 'Sample Farms', 'Mallam Musa', 1000000.00, 310000.00, 14, 'overdue', 'Director'),
+    (v_station_id, 'Sample Clinic', 'Dr. Adeyemi', 500000.00, 0.00, 14, 'settled', 'Director');
 END $$;

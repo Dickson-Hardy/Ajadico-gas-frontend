@@ -56,7 +56,7 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Credit Customers Ledger', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('Senior · All Branches Corporate Accounts (§4.8–§4.10)', style: TextStyle(fontSize: 13, color: Colors.white70)),
+            Text('Director · All Branches Corporate Accounts (§4.8–§4.10)', style: TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
       ),
@@ -130,7 +130,7 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
                           onPressed: () {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
-                                content: Text('New credit customer addition requires Senior / Director authorization (§4.10).'),
+                                content: Text('New credit customer addition requires Director authorization (§4.10).'),
                               ),
                             );
                           },
@@ -193,7 +193,7 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
 
                 const SizedBox(height: 8),
                 const Text(
-                  'Note: Only Senior and directors can add customers. Names above are active demo accounts.',
+                  'Note: Only Directors can authorize new credit customers. Names above are active demo accounts.',
                   style: TextStyle(fontSize: 13, color: AppColors.muted),
                 ),
               ],

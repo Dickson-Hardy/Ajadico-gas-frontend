@@ -91,7 +91,7 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
         backgroundColor: AppColors.bad,
         behavior: SnackBarBehavior.floating,
         content: Text(
-          'Shift flagged as unresolved! Shortfall of ${CurrencyFormatter.formatVariance(sub.variance)} routed to Senior salary ledger.',
+          'Shift flagged as unresolved! Shortfall of ${CurrencyFormatter.formatVariance(sub.variance)} routed to Director salary ledger.',
         ),
       ),
     );

@@ -216,7 +216,7 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                                   ),
                                   const Divider(color: AppColors.line),
                                   const Text(
-                                    'Active Prices (Authorized by Senior):',
+                                    'Active Prices (Authorized by Director):',
                                     style: TextStyle(fontSize: 13, color: AppColors.muted),
                                   ),
                                   const SizedBox(height: 4),

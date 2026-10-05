@@ -23,7 +23,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
 
   String _selectedProduct = 'PMS';
   late TextEditingController _newPriceController;
-  final TextEditingController _authorizedReasonController = TextEditingController(text: 'Depot wholesale price adjustment authorized by Senior');
+  final TextEditingController _authorizedReasonController = TextEditingController(text: 'Depot wholesale price adjustment authorized by Director');
   late Map<int, TextEditingController> _meterControllers;
 
   @override
@@ -112,7 +112,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Fuel Price Authorization', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('Senior · Central Price Governance (§2.8, §2.9)', style: TextStyle(fontSize: 13, color: Colors.white70)),
+            Text('Director · Central Price Governance (§2.8, §2.9)', style: TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
       ),
@@ -187,7 +187,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
                         const SizedBox(height: 6),
                         TextField(
                           controller: _authorizedReasonController,
-                          decoration: const InputDecoration(hintText: 'e.g. NNPC depot rate revision approved by Senior'),
+                          decoration: const InputDecoration(hintText: 'e.g. NNPC depot rate revision approved by Director'),
                           maxLines: 2,
                         ),
                       ],

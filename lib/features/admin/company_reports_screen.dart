@@ -88,7 +88,7 @@ class CompanyReportsScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Company Consolidated Reports', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('Senior · 5 Branch Stations Consolidated P&L (§6.1, §6.4)', style: TextStyle(fontSize: 13, color: Colors.white70)),
+            Text('Director · 5 Branch Stations Consolidated P&L (§6.1, §6.4)', style: TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
       ),
