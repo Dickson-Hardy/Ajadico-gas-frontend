@@ -211,6 +211,36 @@ CREATE TABLE IF NOT EXISTS public.remittance_evidence (
 );
 
 -- -----------------------------------------------------------------------------
+-- 7b. INTRA-SHIFT CASH DROPS & POS TRANSACTIONS (§2.6, §4.1, §4.4)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.interim_cash_drops (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    shift_id UUID,
+    station_id UUID REFERENCES public.stations(id) ON DELETE CASCADE,
+    attendant_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    amount NUMERIC(14, 2) NOT NULL,
+    status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'acknowledged'
+    acknowledged_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    acknowledged_at TIMESTAMPTZ,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.shift_pos_transactions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    shift_id UUID,
+    station_id UUID REFERENCES public.stations(id) ON DELETE CASCADE,
+    attendant_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    payment_channel VARCHAR(30) NOT NULL, -- 'pos_card', 'pos_transfer', 'bank_transfer'
+    amount NUMERIC(14, 2) NOT NULL,
+    terminal_name VARCHAR(50),
+    reference_number VARCHAR(100),
+    storage_path TEXT,
+    customer_vehicle VARCHAR(30),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- -----------------------------------------------------------------------------
 -- 8. ATTENDANT SALARY SHORTAGE/EXCESS ADJUSTMENTS (§4.6, §4.7)
 -- -----------------------------------------------------------------------------
 CREATE TYPE public.adjustment_type AS ENUM ('shortage', 'excess');

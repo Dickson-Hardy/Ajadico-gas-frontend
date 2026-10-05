@@ -1,7 +1,9 @@
 import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/credit_customer.dart';
+import '../../models/interim_cash_drop.dart';
 import '../../models/nozzle.dart';
+import '../../models/pos_transaction.dart';
 import '../../models/station.dart';
 import '../../models/user_profile.dart';
 import '../config/supabase_config.dart';
@@ -359,6 +361,150 @@ class SupabaseRepository {
       return true;
     } catch (e) {
       return false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // INTRA-SHIFT CASH DROPS & IN-BETWEEN POS TRANSACTIONS (§2.6, §4.1, §4.4)
+  // ---------------------------------------------------------------------------
+
+  /// Fetch today's interim cash drops for the station
+  Future<List<InterimCashDrop>> fetchInterimCashDrops([String? stationCode]) async {
+    if (!_isConnected) return [];
+    try {
+      final res = await client
+          .from('interim_cash_drops')
+          .select('*, profiles(full_name, display_name)')
+          .order('created_at', ascending: false);
+
+      return (res as List)
+          .map((row) => InterimCashDrop.fromJson(Map<String, dynamic>.from(row)))
+          .toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /// Attendant submits an intra-shift cash drop to Cashier
+  Future<InterimCashDrop?> createInterimCashDrop({
+    required String stationCode,
+    required String attendantId,
+    required String attendantName,
+    required double amount,
+    String? notes,
+    String? shiftId,
+  }) async {
+    if (!_isConnected) {
+      return InterimCashDrop(
+        id: 'drop-${DateTime.now().millisecondsSinceEpoch}',
+        shiftId: shiftId,
+        stationId: stationCode,
+        attendantId: attendantId,
+        attendantName: attendantName,
+        amount: amount,
+        notes: notes,
+        status: 'pending',
+        createdAt: DateTime.now(),
+      );
+    }
+
+    try {
+      final res = await client.from('interim_cash_drops').insert({
+        'station_id': stationCode,
+        'attendant_id': attendantId,
+        'amount': amount,
+        'notes': notes,
+        'status': 'pending',
+        'shift_id': shiftId,
+      }).select().single();
+
+      return InterimCashDrop.fromJson(Map<String, dynamic>.from(res));
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Cashier acknowledges and accepts the interim cash drop into drawer
+  Future<bool> acknowledgeInterimCashDrop({
+    required String dropId,
+    required String cashierId,
+  }) async {
+    if (!_isConnected) return true;
+    try {
+      await client.from('interim_cash_drops').update({
+        'status': 'acknowledged',
+        'acknowledged_by': cashierId,
+        'acknowledged_at': DateTime.now().toIso8601String(),
+      }).eq('id', dropId);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Fetch in-between POS & bank transfer transactions
+  Future<List<PosTransaction>> fetchShiftPosTransactions([String? stationCode]) async {
+    if (!_isConnected) return [];
+    try {
+      final res = await client
+          .from('shift_pos_transactions')
+          .select('*, profiles(full_name, display_name)')
+          .order('created_at', ascending: false);
+
+      return (res as List)
+          .map((row) => PosTransaction.fromJson(Map<String, dynamic>.from(row)))
+          .toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /// Attendant logs in-between POS card or transfer sale
+  Future<PosTransaction?> recordShiftPosTransaction({
+    required String stationCode,
+    required String attendantId,
+    required String attendantName,
+    required String paymentChannel,
+    required double amount,
+    String? terminalName,
+    String? referenceNumber,
+    String? storagePath,
+    String? customerVehicle,
+    String? shiftId,
+  }) async {
+    if (!_isConnected) {
+      return PosTransaction(
+        id: 'pos-${DateTime.now().millisecondsSinceEpoch}',
+        shiftId: shiftId,
+        stationId: stationCode,
+        attendantId: attendantId,
+        attendantName: attendantName,
+        paymentChannel: paymentChannel,
+        amount: amount,
+        terminalName: terminalName,
+        referenceNumber: referenceNumber,
+        storagePath: storagePath,
+        customerVehicle: customerVehicle,
+        createdAt: DateTime.now(),
+      );
+    }
+
+    try {
+      final res = await client.from('shift_pos_transactions').insert({
+        'station_id': stationCode,
+        'attendant_id': attendantId,
+        'payment_channel': paymentChannel,
+        'amount': amount,
+        'terminal_name': terminalName,
+        'reference_number': referenceNumber,
+        'storage_path': storagePath,
+        'customer_vehicle': customerVehicle,
+        'shift_id': shiftId,
+      }).select().single();
+
+      return PosTransaction.fromJson(Map<String, dynamic>.from(res));
+    } catch (e) {
+      return null;
     }
   }
 

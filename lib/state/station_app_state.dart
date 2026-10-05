@@ -6,7 +6,9 @@ import '../core/offline/offline_sync_service.dart';
 import '../core/offline/sync_queue_item.dart';
 import '../core/utils/currency_formatter.dart';
 import '../models/credit_customer.dart';
+import '../models/interim_cash_drop.dart';
 import '../models/nozzle.dart';
+import '../models/pos_transaction.dart';
 import '../models/station.dart';
 import '../models/user_profile.dart';
 
@@ -25,6 +27,9 @@ class ShiftSubmission {
   final double bankTransferDeclared;
   final double creditSalesDeclared;
   final List<String> evidencePhotos;
+  final List<InterimCashDrop> cashDrops;
+  final List<PosTransaction> posTransactions;
+  final double finalCashHandover;
   String status; // 'Pending Verification', 'Verified', 'Flagged Unresolved'
   String? cashierComment;
   DateTime? verifiedAt;
@@ -43,6 +48,9 @@ class ShiftSubmission {
     required this.bankTransferDeclared,
     required this.creditSalesDeclared,
     required this.evidencePhotos,
+    this.cashDrops = const [],
+    this.posTransactions = const [],
+    this.finalCashHandover = 0.0,
     this.status = 'Pending Verification',
     this.cashierComment,
     this.verifiedAt,
@@ -248,7 +256,68 @@ class StationAppState extends ChangeNotifier {
   List<UserProfile> _staff = [];
   List<UserProfile> get staff => List.unmodifiable(_staff);
 
-  // 12. Daily Cash Drawer State
+  // 12. Intra-Shift Cash Drops & POS Transactions (§2.6, §4.1, §4.4)
+  final List<InterimCashDrop> _cashDrops = [];
+  List<InterimCashDrop> get cashDrops => List.unmodifiable(_cashDrops);
+
+  final List<PosTransaction> _posTransactions = [];
+  List<PosTransaction> get posTransactions => List.unmodifiable(_posTransactions);
+
+  /// Total acknowledged cash drops for an attendant
+  double totalAttendantAcknowledgedDrops([String? attendantId]) {
+    final targetId = attendantId ?? _currentUser.id;
+    return _cashDrops
+        .where((d) => d.attendantId == targetId && d.isAcknowledged)
+        .fold(0.0, (sum, d) => sum + d.amount);
+  }
+
+  /// Total pending cash drops awaiting Cashier acknowledgement
+  double totalAttendantPendingDrops([String? attendantId]) {
+    final targetId = attendantId ?? _currentUser.id;
+    return _cashDrops
+        .where((d) => d.attendantId == targetId && !d.isAcknowledged)
+        .fold(0.0, (sum, d) => sum + d.amount);
+  }
+
+  /// Total POS Card transactions logged by attendant
+  double totalAttendantPosCard([String? attendantId]) {
+    final targetId = attendantId ?? _currentUser.id;
+    return _posTransactions
+        .where((p) => p.attendantId == targetId && p.paymentChannel == 'pos_card')
+        .fold(0.0, (sum, p) => sum + p.amount);
+  }
+
+  /// Total POS Transfer transactions logged by attendant
+  double totalAttendantPosTransfer([String? attendantId]) {
+    final targetId = attendantId ?? _currentUser.id;
+    return _posTransactions
+        .where((p) => p.attendantId == targetId && p.paymentChannel == 'pos_transfer')
+        .fold(0.0, (sum, p) => sum + p.amount);
+  }
+
+  /// Total Bank Transfer transactions logged by attendant
+  double totalAttendantBankTransfer([String? attendantId]) {
+    final targetId = attendantId ?? _currentUser.id;
+    return _posTransactions
+        .where((p) => p.attendantId == targetId && p.paymentChannel == 'bank_transfer')
+        .fold(0.0, (sum, p) => sum + p.amount);
+  }
+
+  /// Total current forecourt sales value across active nozzles
+  double get currentForecourtSalesValue {
+    return _nozzles.fold(0.0, (sum, n) => sum + n.salesValue);
+  }
+
+  /// Live estimated cash in attendant's pouch
+  double get attendantEstimatedCashInPouch {
+    final sales = currentForecourtSalesValue;
+    final drops = totalAttendantAcknowledgedDrops() + totalAttendantPendingDrops();
+    final nonCash = totalAttendantPosCard() + totalAttendantPosTransfer() + totalAttendantBankTransfer();
+    final balance = sales - (drops + nonCash);
+    return balance > 0 ? balance : 0.0;
+  }
+
+  // 13. Daily Cash Drawer State
   double _openingCash = 0.0;
   double get openingCash => _openingCash;
 
@@ -462,6 +531,16 @@ class StationAppState extends ChangeNotifier {
       if (remoteStaff.isNotEmpty) {
         _staff = remoteStaff;
       }
+
+      // 8. Fetch live interim cash drops (§2.6)
+      final remoteDrops = await repo.fetchInterimCashDrops(_currentStationCode);
+      _cashDrops.clear();
+      _cashDrops.addAll(remoteDrops);
+
+      // 9. Fetch live in-between POS & bank transfer sales (§4.4)
+      final remotePos = await repo.fetchShiftPosTransactions(_currentStationCode);
+      _posTransactions.clear();
+      _posTransactions.addAll(remotePos);
     } catch (e) {
       debugPrint('[Supabase Sync Error]: $e');
     } finally {
@@ -521,10 +600,16 @@ class StationAppState extends ChangeNotifier {
     required double bankTransfer,
     required double credit,
     required List<String> evidencePhotos,
+    List<InterimCashDrop>? drops,
+    List<PosTransaction>? posTransactions,
+    double finalCashHandover = 0.0,
   }) {
     final expectedSales = _nozzles.fold(0.0, (s, n) => s + n.salesValue);
     final totalExpected = expectedSales;
     final shiftId = 'SHIFT-${DateTime.now().millisecondsSinceEpoch}';
+
+    final attendantDrops = drops ?? _cashDrops.where((d) => d.attendantId == _currentUser.id).toList();
+    final attendantPos = posTransactions ?? _posTransactions.where((p) => p.attendantId == _currentUser.id).toList();
 
     final sub = ShiftSubmission(
       id: shiftId,
@@ -540,6 +625,9 @@ class StationAppState extends ChangeNotifier {
       bankTransferDeclared: bankTransfer,
       creditSalesDeclared: credit,
       evidencePhotos: evidencePhotos,
+      cashDrops: attendantDrops,
+      posTransactions: attendantPos,
+      finalCashHandover: finalCashHandover > 0 ? finalCashHandover : cash,
       status: 'Pending Verification',
     );
 
@@ -987,9 +1075,16 @@ class StationAppState extends ChangeNotifier {
     return _deposits.fold(0.0, (sum, d) => sum + d.amount);
   }
 
+  double get totalAcknowledgedInterimDrops {
+    return _cashDrops
+        .where((d) => d.isAcknowledged)
+        .fold(0.0, (sum, d) => sum + d.amount);
+  }
+
   double get expectedClosingCash {
     return _openingCash +
-        totalVerifiedCashReceipts -
+        totalVerifiedCashReceipts +
+        totalAcknowledgedInterimDrops -
         totalPhysicalCashExpenses -
         totalHandedOverDeposits;
   }
@@ -1258,6 +1353,118 @@ class StationAppState extends ChangeNotifier {
       }
     }
     return ok;
+  }
+
+  // ---------------------------------------------------------------------------
+  // INTRA-SHIFT CASH DROPS & POS TRANSACTIONS (§2.6, §4.1, §4.4)
+  // ---------------------------------------------------------------------------
+
+  /// Attendant submits an interim cash drop to Cashier (§2.6)
+  Future<InterimCashDrop?> recordInterimCashDrop({
+    required double amount,
+    String? notes,
+  }) async {
+    final repo = SupabaseRepository.instance;
+    final drop = await repo.createInterimCashDrop(
+      stationCode: _currentStationCode,
+      attendantId: _currentUser.id,
+      attendantName: _currentUser.displayName,
+      amount: amount,
+      notes: notes,
+    );
+
+    if (drop != null) {
+      _cashDrops.removeWhere((d) => d.id == drop.id);
+      _cashDrops.insert(0, drop);
+
+      // Queue in Offline Engine
+      _syncService.enqueue(
+        actionType: SyncActionType.branchExpense,
+        payload: drop.toJson(),
+      );
+
+      // Post high-priority notification to Cashier
+      _notifService.pushNotification(
+        ForecourtNotification(
+          id: 'NOTIF-DROP-${DateTime.now().millisecondsSinceEpoch}',
+          title: 'Incoming Interim Cash Drop',
+          body: '${_currentUser.displayName} submitted ₦${amount.toStringAsFixed(0)} cash drop for acknowledgement.',
+          type: ForecourtNotificationType.compliance,
+          timestamp: DateTime.now(),
+          actionRouteName: '16 Cashier Verification',
+        ),
+      );
+
+      notifyListeners();
+    }
+    return drop;
+  }
+
+  /// Cashier acknowledges receipt of interim cash drop (§4.1, §4.4)
+  Future<bool> acknowledgeCashDrop(String dropId) async {
+    final repo = SupabaseRepository.instance;
+    final ok = await repo.acknowledgeInterimCashDrop(
+      dropId: dropId,
+      cashierId: _currentUser.id,
+    );
+
+    final idx = _cashDrops.indexWhere((d) => d.id == dropId);
+    if (idx != -1) {
+      _cashDrops[idx].status = 'acknowledged';
+      _cashDrops[idx].acknowledgedBy = _currentUser.displayName;
+      _cashDrops[idx].acknowledgedAt = DateTime.now();
+
+      _notifService.pushNotification(
+        ForecourtNotification(
+          id: 'NOTIF-ACK-${DateTime.now().millisecondsSinceEpoch}',
+          title: 'Cash Drop Acknowledged',
+          body: 'Cashier ${_currentUser.displayName} confirmed receipt of ₦${_cashDrops[idx].amount.toStringAsFixed(0)}.',
+          type: ForecourtNotificationType.stock,
+          timestamp: DateTime.now(),
+          actionRouteName: 'Attendant Home',
+        ),
+      );
+
+      notifyListeners();
+    }
+    return ok;
+  }
+
+  /// Attendant logs in-between POS card or bank transfer payment (§4.4)
+  Future<PosTransaction?> recordPosTransaction({
+    required String paymentChannel,
+    required double amount,
+    String? terminalName,
+    String? referenceNumber,
+    String? storagePath,
+    String? customerVehicle,
+  }) async {
+    final repo = SupabaseRepository.instance;
+    final tx = await repo.recordShiftPosTransaction(
+      stationCode: _currentStationCode,
+      attendantId: _currentUser.id,
+      attendantName: _currentUser.displayName,
+      paymentChannel: paymentChannel,
+      amount: amount,
+      terminalName: terminalName,
+      referenceNumber: referenceNumber,
+      storagePath: storagePath,
+      customerVehicle: customerVehicle,
+    );
+
+    if (tx != null) {
+      _posTransactions.removeWhere((p) => p.id == tx.id);
+      _posTransactions.insert(0, tx);
+
+      // Queue in Offline Engine
+      _syncService.enqueue(
+        actionType: SyncActionType.evidencePhoto,
+        payload: tx.toJson(),
+      );
+
+      notifyListeners();
+    }
+    return tx;
   }
 }
 
