@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../core/offline/offline_sync_service.dart';
+import '../core/offline/sync_queue_item.dart';
 import '../core/utils/currency_formatter.dart';
 import '../models/credit_customer.dart';
 import '../models/nozzle.dart';
@@ -70,6 +72,7 @@ class LiveTankStock {
   });
 
   double get variance => physicalDip - bookStock;
+  double get variancePercent => (bookStock > 0) ? (variance / bookStock) * 100 : 0.0;
   bool get hasDeficit => variance < -50.0;
   bool get isLowStock => physicalDip < (capacity * 0.20);
 }
@@ -165,11 +168,14 @@ class BankDepositRecord {
 }
 
 /// Central Reactive State Store for the entire Filling Station System
+/// Integrates with OfflineSyncService (Phase 2), Camera (Phase 3), and Kiosk (Phase 4)
 class StationAppState extends ChangeNotifier {
   static final StationAppState instance = StationAppState._internal();
   StationAppState._internal() {
     _initDefaultState();
   }
+
+  final _syncService = OfflineSyncService.instance;
 
   // 1. Current Session
   UserProfile _currentUser = UserProfile.demoStaff[0]; // Amaka O.
@@ -357,7 +363,7 @@ class StationAppState extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
-  // REAL-TIME ACTIONS & RECONCILIATION LOGIC
+  // REAL-TIME ACTIONS & RECONCILIATION LOGIC (PHASE 1 & PHASE 2 QUEUING)
   // ---------------------------------------------------------------------------
 
   /// Attendant confirms opening reading on nozzle
@@ -371,16 +377,35 @@ class StationAppState extends ChangeNotifier {
 
   /// Record closing readings for current attendant shift
   void recordClosingReadings(Map<int, double> closingReadings) {
+    final List<Map<String, dynamic>> readingsPayload = [];
+
     for (var entry in closingReadings.entries) {
       final idx = _nozzles.indexWhere((n) => n.nozzleNumber == entry.key);
       if (idx != -1) {
         _nozzles[idx].closingReading = entry.value;
+        readingsPayload.add({
+          'nozzleNumber': entry.key,
+          'openingReading': _nozzles[idx].openingReading,
+          'closingReading': entry.value,
+          'pricePerLitre': _nozzles[idx].pricePerLitre,
+        });
       }
     }
+
+    // Queue in Offline Sync Engine
+    _syncService.enqueue(
+      actionType: SyncActionType.closingReadings,
+      payload: {
+        'shiftId': 'SHIFT-${DateTime.now().millisecondsSinceEpoch}',
+        'readings': readingsPayload,
+        'attendantId': _currentUser.id,
+      },
+    );
+
     notifyListeners();
   }
 
-  /// Submit shift remittance declaration (Pushes directly into Cashier verification queue)
+  /// Submit shift remittance declaration (Pushes directly into Cashier verification queue + Offline Queue)
   void submitRemittance({
     required double cash,
     required double posCard,
@@ -391,9 +416,10 @@ class StationAppState extends ChangeNotifier {
   }) {
     final expectedSales = _nozzles.fold(0.0, (s, n) => s + n.salesValue);
     final totalExpected = expectedSales > 0 ? expectedSales : 1250000.0;
+    final shiftId = 'SHIFT-${DateTime.now().millisecondsSinceEpoch}';
 
     final sub = ShiftSubmission(
-      id: 'SHIFT-${DateTime.now().millisecondsSinceEpoch}',
+      id: shiftId,
       attendantName: _currentUser.displayName,
       attendantId: _currentUser.id,
       shiftType: 'Morning',
@@ -421,6 +447,22 @@ class StationAppState extends ChangeNotifier {
         tank.bookStock -= n.litresSold;
       }
     }
+
+    // Dispatch to Offline Sync Service
+    _syncService.enqueue(
+      actionType: SyncActionType.remittanceSubmission,
+      payload: {
+        'shiftId': shiftId,
+        'attendantId': _currentUser.id,
+        'expectedSalesValue': totalExpected,
+        'cashDeclared': cash,
+        'posCardDeclared': posCard,
+        'posTransferDeclared': posTransfer,
+        'bankTransferDeclared': bankTransfer,
+        'creditSalesDeclared': credit,
+        'evidencePhotos': sub.evidencePhotos,
+      },
+    );
 
     notifyListeners();
   }
@@ -502,6 +544,20 @@ class StationAppState extends ChangeNotifier {
       status: CustomerCreditStatus.current,
     );
 
+    // Queue in Offline Sync Engine
+    _syncService.enqueue(
+      actionType: SyncActionType.creditSale,
+      payload: {
+        'customerId': customerId,
+        'customerName': customer.name,
+        'nozzleNumber': nozzleNumber,
+        'litres': litres,
+        'totalAmount': saleValue,
+        'vehicleReg': vehiclePlate,
+        'driverName': driverName,
+      },
+    );
+
     notifyListeners();
   }
 
@@ -512,10 +568,12 @@ class StationAppState extends ChangeNotifier {
     required String paymentSource,
     required String description,
   }) {
+    final expId = 'EXP-${DateTime.now().millisecondsSinceEpoch}';
+
     _expenses.insert(
       0,
       BranchExpense(
-        id: 'EXP-${DateTime.now().millisecondsSinceEpoch}',
+        id: expId,
         category: category,
         amount: amount,
         paymentSource: paymentSource,
@@ -523,6 +581,19 @@ class StationAppState extends ChangeNotifier {
         recordedBy: _currentUser.displayName,
         recordedAt: DateTime.now(),
       ),
+    );
+
+    // Queue in Offline Sync Engine
+    _syncService.enqueue(
+      actionType: SyncActionType.branchExpense,
+      payload: {
+        'id': expId,
+        'category': category,
+        'amount': amount,
+        'payment_source': paymentSource,
+        'description': description,
+        'station_id': 'lekki-01',
+      },
     );
 
     notifyListeners();
@@ -540,11 +611,12 @@ class StationAppState extends ChangeNotifier {
   }) {
     final received = (dipAfter > dipBefore) ? (dipAfter - dipBefore) : 0.0;
     final discrepancy = received - statedLitres;
+    final delId = 'DEL-${DateTime.now().millisecondsSinceEpoch}';
 
     _deliveries.insert(
       0,
       FuelDeliveryRecord(
-        id: 'DEL-${DateTime.now().millisecondsSinceEpoch}',
+        id: delId,
         tankCode: tankCode,
         supplier: supplier,
         waybillNumber: waybillNumber,
@@ -563,6 +635,71 @@ class StationAppState extends ChangeNotifier {
     tank.bookStock += received;
     tank.physicalDip = dipAfter;
     tank.lastDipTime = DateTime.now();
+
+    // Queue in Offline Sync Engine
+    _syncService.enqueue(
+      actionType: SyncActionType.fuelDelivery,
+      payload: {
+        'id': delId,
+        'tank_code': tankCode,
+        'supplier': supplier,
+        'waybill_number': waybillNumber,
+        'stated_litres': statedLitres,
+        'dip_before': dipBefore,
+        'dip_after': dipAfter,
+        'received_litres': received,
+        'discrepancy': discrepancy,
+        'purchase_price': purchasePrice,
+      },
+    );
+
+    notifyListeners();
+  }
+
+  /// Record Tank Dip Audit (§3.2, §3.3)
+  void recordTankDipAudit({
+    required String tankCode,
+    required double physicalDipLitres,
+    required double dipStickCm,
+  }) {
+    final tank = _tanks.firstWhere((t) => t.code == tankCode);
+    tank.physicalDip = physicalDipLitres;
+    tank.lastDipTime = DateTime.now();
+
+    _syncService.enqueue(
+      actionType: SyncActionType.tankDipAudit,
+      payload: {
+        'tank_id': tankCode,
+        'physical_dip_litres': physicalDipLitres,
+        'dip_stick_cm': dipStickCm,
+        'book_stock_litres': tank.bookStock,
+        'variance_litres': physicalDipLitres - tank.bookStock,
+        'recorded_at': DateTime.now().toIso8601String(),
+      },
+    );
+
+    notifyListeners();
+  }
+
+  /// Record Fuel Return to Tank (§3.5)
+  void recordFuelReturn({
+    required String tankCode,
+    required double litres,
+    required String reason,
+  }) {
+    final tank = _tanks.firstWhere((t) => t.code == tankCode);
+    tank.bookStock += litres;
+    tank.physicalDip += litres;
+
+    _syncService.enqueue(
+      actionType: SyncActionType.fuelReturn,
+      payload: {
+        'tankCode': tankCode,
+        'litres': litres,
+        'reason': reason,
+        'attendantId': _currentUser.id,
+      },
+    );
 
     notifyListeners();
   }
@@ -590,6 +727,17 @@ class StationAppState extends ChangeNotifier {
       }
     }
 
+    _syncService.enqueue(
+      actionType: SyncActionType.priceChange,
+      payload: {
+        'product': product,
+        'new_price': newPrice,
+        'reason': reason,
+        'meter_snapshots': meterSnapshots.map((k, v) => MapEntry(k.toString(), v)),
+        'authorized_at': DateTime.now().toIso8601String(),
+      },
+    );
+
     notifyListeners();
   }
 
@@ -597,6 +745,15 @@ class StationAppState extends ChangeNotifier {
   void approveSalaryDeduction(String adjustmentId) {
     final adj = _salaryAdjustments.firstWhere((a) => a.id == adjustmentId);
     adj.status = 'Salary Deduction Approved';
+
+    _syncService.enqueue(
+      actionType: SyncActionType.salaryAdjustment,
+      payload: {
+        'id': adjustmentId,
+        'status': 'Salary Deduction Approved',
+      },
+    );
+
     notifyListeners();
   }
 
@@ -604,6 +761,15 @@ class StationAppState extends ChangeNotifier {
   void waiveShortage(String adjustmentId) {
     final adj = _salaryAdjustments.firstWhere((a) => a.id == adjustmentId);
     adj.status = 'Waived by Senior';
+
+    _syncService.enqueue(
+      actionType: SyncActionType.salaryAdjustment,
+      payload: {
+        'id': adjustmentId,
+        'status': 'Waived by Senior',
+      },
+    );
+
     notifyListeners();
   }
 
@@ -612,6 +778,15 @@ class StationAppState extends ChangeNotifier {
     final dep = _deposits.firstWhere((d) => d.id == depositId);
     dep.isConfirmed = true;
     dep.confirmedAt = DateTime.now();
+
+    _syncService.enqueue(
+      actionType: SyncActionType.bankDepositConfirmation,
+      payload: {
+        'id': depositId,
+        'confirmed_at': dep.confirmedAt!.toIso8601String(),
+      },
+    );
+
     notifyListeners();
   }
 

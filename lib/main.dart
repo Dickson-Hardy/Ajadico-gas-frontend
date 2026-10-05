@@ -1,9 +1,18 @@
 import 'package:flutter/material.dart';
+import 'core/network/supabase_repository.dart';
 import 'core/theme/app_theme.dart';
 import 'features/shell/app_shell.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Supabase repository connection (Phase 1)
+  try {
+    await SupabaseRepository.instance.initialize();
+  } catch (e) {
+    debugPrint('Supabase initialization handled: $e');
+  }
+
   runApp(const AjadicoGasApp());
 }
 
@@ -13,7 +22,7 @@ class AjadicoGasApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Ajadico Fuel - Filling Station System',
+      title: 'Ajadico Energy - Forecourt Filling Station Management',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       home: const AppShell(),
