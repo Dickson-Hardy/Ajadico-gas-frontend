@@ -2,26 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/status_chip.dart';
-
-class DepositItem {
-  final String id;
-  final String stationName;
-  final String date;
-  final double amount;
-  final String cashierName;
-  final String bankName;
-  bool isConfirmed;
-
-  DepositItem({
-    required this.id,
-    required this.stationName,
-    required this.date,
-    required this.amount,
-    required this.cashierName,
-    required this.bankName,
-    this.isConfirmed = false,
-  });
-}
+import '../../state/station_app_state.dart';
 
 class BankDepositVerificationScreen extends StatefulWidget {
   final VoidCallback onBack;
@@ -33,45 +14,33 @@ class BankDepositVerificationScreen extends StatefulWidget {
 }
 
 class _BankDepositVerificationScreenState extends State<BankDepositVerificationScreen> {
-  final List<DepositItem> _deposits = [
-    DepositItem(
-      id: 'DEP-01',
-      stationName: 'Lekki Road Station',
-      date: 'Today · 12:40 PM',
-      amount: 500000.0,
-      cashierName: 'Chidi E.',
-      bankName: 'GTBank (Station Main Account)',
-      isConfirmed: false,
-    ),
-    DepositItem(
-      id: 'DEP-02',
-      stationName: 'Ikeja Branch',
-      date: 'Yesterday · 4:15 PM',
-      amount: 1200000.0,
-      cashierName: 'Funke O.',
-      bankName: 'Zenith Bank',
-      isConfirmed: false,
-    ),
-    DepositItem(
-      id: 'DEP-03',
-      stationName: 'Victoria Island Station',
-      date: '2 Oct 2026',
-      amount: 850000.0,
-      cashierName: 'Ahmed B.',
-      bankName: 'FirstBank',
-      isConfirmed: true,
-    ),
-  ];
+  final state = StationAppState.instance;
 
-  void _confirmDeposit(DepositItem item) {
-    setState(() {
-      item.isConfirmed = true;
-    });
+  @override
+  void initState() {
+    super.initState();
+    state.addListener(_onStateChanged);
+  }
+
+  @override
+  void dispose() {
+    state.removeListener(_onStateChanged);
+    super.dispose();
+  }
+
+  void _onStateChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _confirmDeposit(BankDepositRecord dep) {
+    state.confirmBankDeposit(dep.id);
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         backgroundColor: AppColors.ok,
+        behavior: SnackBarBehavior.floating,
         content: Text(
-          'Deposit of ${CurrencyFormatter.formatNaira(item.amount)} confirmed against bank credit alert by Senior (§4.3).',
+          'Deposit ${dep.id} of ${CurrencyFormatter.formatNaira(dep.amount)} confirmed against bank credit alert by Senior (§4.3, §5.5).',
         ),
       ),
     );
@@ -79,6 +48,10 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
 
   @override
   Widget build(BuildContext context) {
+    final deposits = state.deposits;
+    final totalPending = deposits.where((d) => !d.isConfirmed).fold(0.0, (s, d) => s + d.amount);
+    final totalConfirmed = deposits.where((d) => d.isConfirmed).fold(0.0, (s, d) => s + d.amount);
+
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -88,8 +61,8 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
         title: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Bank Deposit Verification', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('Senior · Multi-Branch Alert Verification (§4.3, §5.5)', style: TextStyle(fontSize: 13, color: Colors.white70)),
+            Text('Bank Deposit Approvals', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text('Senior · Commercial Bank Alert Verification (§4.3, §5.5)', style: TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
       ),
@@ -102,7 +75,7 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Bank deposit approvals',
+                  'Bank deposit confirmation',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -111,12 +84,58 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Senior verifies station cash handovers against corporate bank credit alerts before funds are confirmed (§4.3, §5.5).',
+                  'Cash handed over by station cashiers remains held in "Awaiting bank" state until Senior matches the bank SMS/email credit alert (§5.5).',
                   style: TextStyle(fontSize: 15, color: AppColors.muted),
                 ),
                 const SizedBox(height: 16),
 
-                ..._deposits.map((item) {
+                // Summary Stats
+                Row(
+                  children: [
+                    Expanded(
+                      child: Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Awaiting Bank Alert', style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                              const SizedBox(height: 6),
+                              Text(
+                                CurrencyFormatter.formatNaira(totalPending),
+                                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.bank),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Confirmed Bank Assets', style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                              const SizedBox(height: 6),
+                              Text(
+                                CurrencyFormatter.formatNaira(totalConfirmed),
+                                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.ok),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+
+                // Deposit Queue Cards
+                ...deposits.map((dep) {
                   return Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
@@ -127,7 +146,7 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text(
-                                item.stationName,
+                                '${dep.stationName} (${dep.id})',
                                 style: const TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.bold,
@@ -135,38 +154,44 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
                                 ),
                               ),
                               StatusChip(
-                                label: item.isConfirmed ? 'Confirmed in Bank' : 'Awaiting Bank Alert',
-                                type: item.isConfirmed ? ChipType.ok : ChipType.bank,
+                                label: dep.isConfirmed ? 'Confirmed in Bank' : 'Awaiting Bank Alert',
+                                type: dep.isConfirmed ? ChipType.ok : ChipType.bank,
                               ),
                             ],
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Amount: ${CurrencyFormatter.formatNaira(item.amount)} · Cashier: ${item.cashierName} · ${item.date}',
+                            'Amount: ${CurrencyFormatter.formatNaira(dep.amount)} · Cashier: ${dep.cashierName}',
                             style: const TextStyle(fontSize: 14, color: AppColors.muted),
                           ),
                           Text(
-                            'Destination: ${item.bankName}',
-                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.ink),
+                            'Target Account: ${dep.bankName}',
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.ink),
                           ),
                           const SizedBox(height: 12),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.end,
                             children: [
-                              if (!item.isConfirmed)
+                              if (!dep.isConfirmed)
                                 ElevatedButton.icon(
-                                  onPressed: () => _confirmDeposit(item),
-                                  icon: const Icon(Icons.verified),
-                                  label: const Text('Confirm against bank alert'),
+                                  onPressed: () => _confirmDeposit(dep),
+                                  icon: const Icon(Icons.verified, size: 18),
+                                  label: const Text('Confirm against bank credit alert'),
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: AppColors.bank,
-                                    minimumSize: const Size(220, 44),
+                                    minimumSize: const Size(260, 44),
                                   ),
                                 )
                               else
-                                const Text(
-                                  '✓ Verified by Senior',
-                                  style: TextStyle(color: AppColors.ok, fontWeight: FontWeight.bold),
+                                const Row(
+                                  children: [
+                                    Icon(Icons.check_circle, color: AppColors.ok, size: 18),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      'Verified & Locked into Company Bank Ledger',
+                                      style: TextStyle(color: AppColors.ok, fontWeight: FontWeight.bold),
+                                    ),
+                                  ],
                                 ),
                             ],
                           ),

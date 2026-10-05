@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../models/nozzle.dart';
+import '../../state/station_app_state.dart';
 
 class PriceChangeScreen extends StatefulWidget {
   final VoidCallback onBack;
@@ -18,19 +19,24 @@ class PriceChangeScreen extends StatefulWidget {
 }
 
 class _PriceChangeScreenState extends State<PriceChangeScreen> {
-  String _selectedProduct = 'PMS';
-  final TextEditingController _newPriceController = TextEditingController(text: '1080');
-  final TextEditingController _authorizedReasonController = TextEditingController();
+  final state = StationAppState.instance;
 
-  final List<NozzleItem> _nozzles = NozzleItem.getDemoNozzles();
+  String _selectedProduct = 'PMS';
+  late TextEditingController _newPriceController;
+  final TextEditingController _authorizedReasonController = TextEditingController(text: 'Depot wholesale price adjustment authorized by Senior');
   late Map<int, TextEditingController> _meterControllers;
 
   @override
   void initState() {
     super.initState();
+    _newPriceController = TextEditingController(
+      text: (_selectedProduct == 'PMS' ? state.pmsPrice + 30 : state.agoPrice + 40).toStringAsFixed(0),
+    );
     _meterControllers = {
-      for (var n in _nozzles)
-        n.nozzleNumber: TextEditingController(text: n.openingReading.toStringAsFixed(1))
+      for (var n in state.nozzles)
+        n.nozzleNumber: TextEditingController(
+          text: (n.closingReading ?? n.openingReading + 250).toStringAsFixed(1),
+        )
     };
   }
 
@@ -44,28 +50,58 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
     super.dispose();
   }
 
+  void _onProductChanged(String? prod) {
+    if (prod == null) return;
+    setState(() {
+      _selectedProduct = prod;
+      _newPriceController.text = (prod == 'PMS' ? state.pmsPrice + 30 : state.agoPrice + 40).toStringAsFixed(0);
+    });
+  }
+
   void _submit() {
     final newPrice = double.tryParse(_newPriceController.text.trim()) ?? 0.0;
     if (newPrice <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid fuel price')),
+        const SnackBar(
+          backgroundColor: AppColors.bad,
+          behavior: SnackBarBehavior.floating,
+          content: Text('Please enter a valid retail price'),
+        ),
       );
       return;
     }
 
+    // Collect meter snapshots
+    final Map<int, double> snapshots = {};
+    for (var n in state.nozzles.where((n) => n.productName == _selectedProduct)) {
+      final dial = double.tryParse(_meterControllers[n.nozzleNumber]?.text ?? '') ?? n.openingReading;
+      snapshots[n.nozzleNumber] = dial;
+    }
+
+    state.authorizePriceChange(
+      product: _selectedProduct,
+      newPrice: newPrice,
+      reason: _authorizedReasonController.text.trim(),
+      meterSnapshots: snapshots,
+    );
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         backgroundColor: AppColors.ok,
+        behavior: SnackBarBehavior.floating,
         content: Text(
-          'Price change to ${CurrencyFormatter.formatNaira(newPrice)}/L authorized by Senior. Meter readings snapshot recorded (§2.9).',
+          '$_selectedProduct price changed to ${CurrencyFormatter.formatNaira(newPrice)}/L! Transition meter dials captured across all nozzles.',
         ),
       ),
     );
+
     widget.onSuccess();
   }
 
   @override
   Widget build(BuildContext context) {
+    final currentPrice = _selectedProduct == 'PMS' ? state.pmsPrice : state.agoPrice;
+
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -76,7 +112,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Fuel Price Authorization', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('Senior / Central Management (§2.8, §2.9)', style: TextStyle(fontSize: 13, color: Colors.white70)),
+            Text('Senior · Central Price Governance (§2.8, §2.9)', style: TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
       ),
@@ -89,7 +125,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Authorize price change',
+                  'Authorize retail price adjustment',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -98,7 +134,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Records meter reading snapshot at price change time to close old-price sales and start new-price period (§2.9).',
+                  'At a price change, the system captures transition meter readings across all nozzles. Previous sales are locked at old price; new sales calculate at new price (§2.9).',
                   style: TextStyle(fontSize: 15, color: AppColors.muted),
                 ),
                 const SizedBox(height: 16),
@@ -115,15 +151,15 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Product', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                                  const Text('Product', style: TextStyle(fontSize: 13, color: AppColors.muted)),
                                   const SizedBox(height: 6),
                                   DropdownButtonFormField<String>(
                                     value: _selectedProduct,
-                                    items: const [
-                                      DropdownMenuItem(value: 'PMS', child: Text('PMS (Petrol) - Current: ₦1,050')),
-                                      DropdownMenuItem(value: 'AGO', child: Text('AGO (Diesel) - Current: ₦1,320')),
+                                    items: [
+                                      DropdownMenuItem(value: 'PMS', child: Text('PMS (Current: ${CurrencyFormatter.formatNaira(state.pmsPrice)})')),
+                                      DropdownMenuItem(value: 'AGO', child: Text('AGO (Current: ${CurrencyFormatter.formatNaira(state.agoPrice)})')),
                                     ],
-                                    onChanged: (v) => setState(() => _selectedProduct = v!),
+                                    onChanged: _onProductChanged,
                                   ),
                                 ],
                               ),
@@ -133,7 +169,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('New Retail Price (₦/L)', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                                  const Text('New Retail Price (₦/L) *', style: TextStyle(fontSize: 13, color: AppColors.ink, fontWeight: FontWeight.bold)),
                                   const SizedBox(height: 6),
                                   TextField(
                                     controller: _newPriceController,
@@ -147,11 +183,11 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
                         ),
                         const SizedBox(height: 16),
 
-                        const Text('Authorization Directive / Reason', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                        const Text('Authorization Directive / Commercial Justification', style: TextStyle(fontSize: 13, color: AppColors.muted)),
                         const SizedBox(height: 6),
                         TextField(
                           controller: _authorizedReasonController,
-                          decoration: const InputDecoration(hintText: 'e.g. Market depot wholesale rate adjustment approved by Senior'),
+                          decoration: const InputDecoration(hintText: 'e.g. NNPC depot rate revision approved by Senior'),
                           maxLines: 2,
                         ),
                       ],
@@ -161,7 +197,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
 
                 const SizedBox(height: 8),
 
-                // Meter Snapshot Card
+                // Transition Meter Readings
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
@@ -173,21 +209,27 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
                           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
                         ),
                         const SizedBox(height: 4),
-                        const Text(
-                          'Enter current physical meter reading on each nozzle to lock the old-price period.',
-                          style: TextStyle(fontSize: 13, color: AppColors.muted),
+                        Text(
+                          'Enter current physical meter reading on each $_selectedProduct nozzle at the moment of price change:',
+                          style: const TextStyle(fontSize: 13, color: AppColors.muted),
                         ),
                         const SizedBox(height: 12),
-                        ..._nozzles.where((n) => n.productName == _selectedProduct).map((n) {
+                        ...state.nozzles.where((n) => n.productName == _selectedProduct).map((n) {
                           return Padding(
                             padding: const EdgeInsets.symmetric(vertical: 6),
                             child: Row(
                               children: [
                                 SizedBox(
-                                  width: 120,
-                                  child: Text('Nozzle ${n.nozzleNumber} (${n.productName})', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                  width: 140,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Nozzle ${n.nozzleNumber} (${n.productName})', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                      Text('Tank ${n.tankCode}', style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+                                    ],
+                                  ),
                                 ),
-                                const SizedBox(width: 10),
+                                const SizedBox(width: 12),
                                 Expanded(
                                   child: TextField(
                                     controller: _meterControllers[n.nozzleNumber],
@@ -221,9 +263,10 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
           children: [
             Expanded(
               flex: 2,
-              child: ElevatedButton(
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.security_update_good),
                 onPressed: _submit,
-                child: const Text('Apply new price & split periods'),
+                label: const Text('Authorize & apply new price'),
               ),
             ),
             const SizedBox(width: 10),

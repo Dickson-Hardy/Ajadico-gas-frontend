@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/status_chip.dart';
-import '../../models/nozzle.dart';
 import '../../models/user_profile.dart';
+import '../../state/station_app_state.dart';
 
 class AttendantHomeScreen extends StatefulWidget {
   final UserProfile user;
@@ -24,28 +24,40 @@ class AttendantHomeScreen extends StatefulWidget {
 }
 
 class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
-  late List<NozzleItem> _nozzles;
+  final state = StationAppState.instance;
 
   @override
   void initState() {
     super.initState();
-    _nozzles = NozzleItem.getDemoNozzles();
+    state.addListener(_onStateChanged);
   }
 
-  void _confirmNozzle(int index) {
-    setState(() {
-      _nozzles[index].isOpeningConfirmed = true;
-    });
+  @override
+  void dispose() {
+    state.removeListener(_onStateChanged);
+    super.dispose();
+  }
+
+  void _onStateChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _confirmNozzle(int nozzleNumber) {
+    state.confirmOpeningReading(nozzleNumber);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Nozzle ${_nozzles[index].nozzleNumber} opening reading confirmed.'),
+        backgroundColor: AppColors.ok,
+        behavior: SnackBarBehavior.floating,
+        content: Text('Nozzle $nozzleNumber opening meter confirmed.'),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final unconfirmedCount = _nozzles.where((n) => !n.isOpeningConfirmed).length;
+    final nozzles = state.nozzles;
+    final unconfirmedCount = nozzles.where((n) => !n.isOpeningConfirmed).length;
+    final hasClosingEntered = nozzles.any((n) => n.closingReading != null);
 
     return Scaffold(
       appBar: AppBar(
@@ -75,18 +87,39 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Good morning, ${widget.user.displayName.split(" ")[0]}',
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.ink,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  'Your nozzles and what is left to submit.',
-                  style: TextStyle(fontSize: 15, color: AppColors.muted),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Good morning, ${widget.user.displayName.split(" ")[0]}',
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.ink,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Your assigned nozzles and shift checklist.',
+                          style: TextStyle(fontSize: 15, color: AppColors.muted),
+                        ),
+                      ],
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppColors.ink.withOpacity(0.06),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'PMS: ${CurrencyFormatter.formatNaira(state.pmsPrice)}/L | AGO: ${CurrencyFormatter.formatNaira(state.agoPrice)}/L',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.ink),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 16),
 
@@ -97,9 +130,7 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                     return Wrap(
                       spacing: 12,
                       runSpacing: 12,
-                      children: _nozzles.asMap().entries.map((entry) {
-                        final idx = entry.key;
-                        final nozzle = entry.value;
+                      children: nozzles.map((nozzle) {
                         return SizedBox(
                           width: isNarrow ? double.infinity : (constraints.maxWidth - 24) / 3,
                           child: Card(
@@ -119,10 +150,10 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                                           color: AppColors.ink,
                                         ),
                                       ),
-                                      GestureDetector(
+                                      InkWell(
                                         onTap: nozzle.isOpeningConfirmed
                                             ? null
-                                            : () => _confirmNozzle(idx),
+                                            : () => _confirmNozzle(nozzle.nozzleNumber),
                                         child: StatusChip(
                                           label: nozzle.isOpeningConfirmed
                                               ? 'Confirmed'
@@ -136,9 +167,16 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                                   ),
                                   const SizedBox(height: 8),
                                   Text(
-                                    'Opening ${CurrencyFormatter.formatLitres(nozzle.openingReading)} · Tank ${nozzle.tankCode}',
+                                    'Opening: ${CurrencyFormatter.formatLitres(nozzle.openingReading)} · Tank ${nozzle.tankCode}',
                                     style: const TextStyle(fontSize: 13, color: AppColors.muted),
                                   ),
+                                  if (nozzle.closingReading != null) ...[
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Closing: ${CurrencyFormatter.formatLitres(nozzle.closingReading!)} (Sold: ${CurrencyFormatter.formatLitres(nozzle.litresSold)})',
+                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.ok),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),
@@ -149,9 +187,9 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                   },
                 ),
 
-                const SizedBox(height: 8),
+                const SizedBox(height: 12),
 
-                // Shift Progress Checklist Card
+                // Shift Checklist Card
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
@@ -159,7 +197,7 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'This shift',
+                          'This shift status',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
@@ -171,25 +209,23 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                           'Confirm opening readings',
                           unconfirmedCount == 0
                               ? const StatusChip(label: 'All Confirmed', type: ChipType.ok)
-                              : StatusChip(label: '$unconfirmedCount left', type: ChipType.warn),
+                              : StatusChip(label: '$unconfirmedCount left to confirm', type: ChipType.warn),
                         ),
                         _buildChecklistRow(
                           'Submit closing readings',
-                          const StatusChip(label: 'Not started', type: ChipType.draft),
+                          hasClosingEntered
+                              ? const StatusChip(label: 'Entered (Ready)', type: ChipType.ok)
+                              : const StatusChip(label: 'Not started', type: ChipType.draft),
                         ),
                         _buildChecklistRow(
                           'Submit remittance',
-                          const StatusChip(label: 'Not started', type: ChipType.draft),
+                          const StatusChip(label: 'Pending', type: ChipType.draft),
                         ),
                         _buildChecklistRow(
-                          'Credit entries today',
-                          const Text(
-                            '2',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.ink,
-                            ),
+                          'Credit sales recorded',
+                          Text(
+                            '${state.creditCustomers.where((c) => c.outstanding > 0).length}',
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
                           ),
                         ),
                       ],
@@ -211,16 +247,18 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
           children: [
             Expanded(
               flex: 2,
-              child: ElevatedButton(
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.speed, size: 20),
                 onPressed: widget.onOpenClosingReadings,
-                child: const Text('Submit closing readings'),
+                label: const Text('Enter closing readings'),
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: OutlinedButton(
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.receipt_long, size: 18),
                 onPressed: widget.onOpenRemittance,
-                child: const Text('Remittance'),
+                label: const Text('Remittance'),
               ),
             ),
             const SizedBox(width: 10),
@@ -238,14 +276,11 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
 
   Widget _buildChecklistRow(String title, Widget trailing) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            title,
-            style: const TextStyle(fontSize: 15, color: AppColors.ink),
-          ),
+          Text(title, style: const TextStyle(fontSize: 15, color: AppColors.ink)),
           trailing,
         ],
       ),

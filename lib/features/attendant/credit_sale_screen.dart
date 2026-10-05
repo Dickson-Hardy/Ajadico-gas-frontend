@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../models/credit_customer.dart';
-import '../../models/nozzle.dart';
+import '../../state/station_app_state.dart';
 
 class CreditSaleScreen extends StatefulWidget {
   final VoidCallback onBack;
@@ -19,19 +19,31 @@ class CreditSaleScreen extends StatefulWidget {
 }
 
 class _CreditSaleScreenState extends State<CreditSaleScreen> {
+  final state = StationAppState.instance;
+
   CreditCustomer? _selectedCustomer;
   int _selectedNozzleNumber = 1;
   final TextEditingController _litresController = TextEditingController();
   final TextEditingController _vehicleController = TextEditingController();
   final TextEditingController _driverController = TextEditingController();
 
-  final double _pmsPrice = 1050.0;
-  final double _agoPrice = 1320.0;
   bool _requisitionUploaded = false;
 
-  double get _currentPrice => _selectedNozzleNumber == 3 ? _agoPrice : _pmsPrice;
+  double get _currentPrice {
+    final nozzle = state.nozzles.firstWhere((n) => n.nozzleNumber == _selectedNozzleNumber);
+    return nozzle.pricePerLitre;
+  }
+
   double get _litres => double.tryParse(_litresController.text.trim()) ?? 0.0;
   double get _totalAmount => _litres * _currentPrice;
+
+  @override
+  void initState() {
+    super.initState();
+    if (state.creditCustomers.isNotEmpty) {
+      _selectedCustomer = state.creditCustomers.first;
+    }
+  }
 
   @override
   void dispose() {
@@ -44,7 +56,7 @@ class _CreditSaleScreenState extends State<CreditSaleScreen> {
   void _submit() {
     if (_selectedCustomer == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a registered credit customer')),
+        const SnackBar(content: Text('Please select an authorized credit customer')),
       );
       return;
     }
@@ -56,25 +68,35 @@ class _CreditSaleScreenState extends State<CreditSaleScreen> {
     }
     if (_vehicleController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter the vehicle registration number')),
+        const SnackBar(content: Text('Please enter the vehicle registration plate number')),
       );
       return;
     }
 
+    state.recordCreditSale(
+      customerId: _selectedCustomer!.id,
+      nozzleNumber: _selectedNozzleNumber,
+      litres: _litres,
+      vehiclePlate: _vehicleController.text.trim(),
+      driverName: _driverController.text.trim(),
+    );
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         backgroundColor: AppColors.ok,
+        behavior: SnackBarBehavior.floating,
         content: Text(
-          'Credit sale of ${CurrencyFormatter.formatNaira(_totalAmount)} logged for ${_selectedCustomer!.name}.',
+          'Credit sale of ${CurrencyFormatter.formatNaira(_totalAmount)} logged for ${_selectedCustomer!.name}!',
         ),
       ),
     );
+
     widget.onSuccess();
   }
 
   @override
   Widget build(BuildContext context) {
-    final customers = CreditCustomer.getDemoCustomers();
+    final customers = state.creditCustomers;
 
     return Scaffold(
       appBar: AppBar(
@@ -82,11 +104,11 @@ class _CreditSaleScreenState extends State<CreditSaleScreen> {
           icon: const Icon(Icons.arrow_back),
           onPressed: widget.onBack,
         ),
-        title: const Column(
+        title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Add Credit Sale', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('Attendant Entry · Pump Island', style: TextStyle(fontSize: 13, color: Colors.white70)),
+            const Text('Pump Credit Sale Entry', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text('${state.currentUser.displayName} · Authorized Fleet Dispensing (§4.8)', style: const TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
       ),
@@ -99,7 +121,7 @@ class _CreditSaleScreenState extends State<CreditSaleScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Record credit fuel sale',
+                  'Record credit fuel dispensing',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -108,7 +130,7 @@ class _CreditSaleScreenState extends State<CreditSaleScreen> {
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Dispensed on signed requisition. Updates customer debt and attendant shift reconciliation.',
+                  'Dispensed on signed requisition. Updates the customer ledger balance and ensures attendant shift remittance reconciles without shortage (§4.8).',
                   style: TextStyle(fontSize: 15, color: AppColors.muted),
                 ),
                 const SizedBox(height: 16),
@@ -119,14 +141,11 @@ class _CreditSaleScreenState extends State<CreditSaleScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Select registered customer',
-                          style: TextStyle(fontSize: 14, color: AppColors.muted),
-                        ),
+                        const Text('Authorized Credit Customer', style: TextStyle(fontSize: 13, color: AppColors.muted)),
                         const SizedBox(height: 6),
                         DropdownButtonFormField<CreditCustomer>(
                           value: _selectedCustomer,
-                          hint: const Text('Choose authorized account'),
+                          hint: const Text('Choose customer account'),
                           items: customers.map((c) {
                             return DropdownMenuItem(
                               value: c,
@@ -147,15 +166,16 @@ class _CreditSaleScreenState extends State<CreditSaleScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Dispensing Nozzle', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                                  const Text('Dispenser Nozzle', style: TextStyle(fontSize: 13, color: AppColors.muted)),
                                   const SizedBox(height: 6),
                                   DropdownButtonFormField<int>(
                                     value: _selectedNozzleNumber,
-                                    items: const [
-                                      DropdownMenuItem(value: 1, child: Text('Nozzle 1 · PMS (₦1050)')),
-                                      DropdownMenuItem(value: 2, child: Text('Nozzle 2 · PMS (₦1050)')),
-                                      DropdownMenuItem(value: 3, child: Text('Nozzle 3 · AGO (₦1320)')),
-                                    ],
+                                    items: state.nozzles.map((n) {
+                                      return DropdownMenuItem(
+                                        value: n.nozzleNumber,
+                                        child: Text('Nozzle ${n.nozzleNumber} · ${n.productName} (${CurrencyFormatter.formatNaira(n.pricePerLitre)})'),
+                                      );
+                                    }).toList(),
                                     onChanged: (v) => setState(() => _selectedNozzleNumber = v!),
                                   ),
                                 ],
@@ -166,13 +186,13 @@ class _CreditSaleScreenState extends State<CreditSaleScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Litres Dispensed', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                                  const Text('Litres Dispensed *', style: TextStyle(fontSize: 13, color: AppColors.ink, fontWeight: FontWeight.bold)),
                                   const SizedBox(height: 6),
                                   TextField(
                                     controller: _litresController,
                                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                     decoration: const InputDecoration(
-                                      hintText: 'e.g. 50.0',
+                                      hintText: 'e.g. 100.0',
                                       suffixText: 'L',
                                     ),
                                     onChanged: (_) => setState(() {}),
@@ -191,7 +211,7 @@ class _CreditSaleScreenState extends State<CreditSaleScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Vehicle Number', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                                  const Text('Vehicle Number Plate *', style: TextStyle(fontSize: 13, color: AppColors.muted)),
                                   const SizedBox(height: 6),
                                   TextField(
                                     controller: _vehicleController,
@@ -205,7 +225,7 @@ class _CreditSaleScreenState extends State<CreditSaleScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Driver Name', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                                  const Text('Driver Name', style: TextStyle(fontSize: 13, color: AppColors.muted)),
                                   const SizedBox(height: 6),
                                   TextField(
                                     controller: _driverController,
@@ -219,13 +239,12 @@ class _CreditSaleScreenState extends State<CreditSaleScreen> {
 
                         const SizedBox(height: 16),
 
-                        // Requisition Photo Upload
                         InkWell(
                           onTap: () {
                             setState(() => _requisitionUploaded = !_requisitionUploaded);
                           },
                           child: Container(
-                            height: 100,
+                            height: 90,
                             decoration: BoxDecoration(
                               color: AppColors.background,
                               borderRadius: BorderRadius.circular(8),
@@ -242,7 +261,7 @@ class _CreditSaleScreenState extends State<CreditSaleScreen> {
                                   const SizedBox(width: 10),
                                   Text(
                                     _requisitionUploaded
-                                        ? 'Signed Requisition Document Attached'
+                                        ? 'Signed Driver Requisition Slip Attached'
                                         : 'Tap to photograph signed customer requisition',
                                     style: TextStyle(
                                       color: _requisitionUploaded ? AppColors.ok : AppColors.muted,
@@ -259,7 +278,7 @@ class _CreditSaleScreenState extends State<CreditSaleScreen> {
                   ),
                 ),
 
-                // Live Value Summary Card
+                // Live Value Summary
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
@@ -268,7 +287,7 @@ class _CreditSaleScreenState extends State<CreditSaleScreen> {
                       children: [
                         const Text(
                           'Total Credit Value',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
                         ),
                         Text(
                           CurrencyFormatter.formatNaira(_totalAmount),
@@ -297,9 +316,10 @@ class _CreditSaleScreenState extends State<CreditSaleScreen> {
           children: [
             Expanded(
               flex: 2,
-              child: ElevatedButton(
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.check),
                 onPressed: _submit,
-                child: const Text('Confirm credit sale'),
+                label: const Text('Confirm credit sale & debit customer'),
               ),
             ),
             const SizedBox(width: 10),

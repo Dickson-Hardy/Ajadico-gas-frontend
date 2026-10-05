@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ajadico Filling Station Management System - Full Documentation</title>
+<style>
+  @page {
+    size: A4;
+    margin: 16mm 14mm 16mm 14mm;
+    @bottom-right {
+      content: counter(page);
+    }
+  }
+
+  *, *:before, *:after {
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    color: #16202A;
+    background: #ffffff;
+    line-height: 1.5;
+    font-size: 13px;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Cover Page */
+  .cover {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 60px 40px;
+    page-break-after: always;
+    border-left: 8px solid #0F7B6C;
+    background: linear-gradient(135deg, #F8FAFB 0%, #EEF1F4 100%);
+  }
+
+  .cover-header b {
+    font-size: 16px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #0F7B6C;
+  }
+
+  .cover-title {
+    margin-top: 120px;
+  }
+
+  .cover-title h1 {
+    font-size: 36px;
+    font-weight: 800;
+    line-height: 1.15;
+    color: #16202A;
+    margin: 0 0 16px;
+  }
+
+  .cover-title p {
+    font-size: 17px;
+    color: #5B6773;
+    max-width: 600px;
+    line-height: 1.4;
+    margin: 0 0 24px;
+  }
+
+  .badge-tag {
+    display: inline-block;
+    padding: 6px 14px;
+    background: #16202A;
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 4px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .cover-meta {
+    border-top: 2px solid #D5DBE1;
+    padding-top: 24px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+
+  .cover-meta div b {
+    display: block;
+    font-size: 11px;
+    color: #7A8591;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+  }
+
+  .cover-meta div span {
+    font-size: 13px;
+    font-weight: 600;
+    color: #16202A;
+  }
+
+  /* Content Styling */
+  .page-break {
+    page-break-before: always;
+  }
+
+  h1 {
+    font-size: 22px;
+    color: #16202A;
+    border-bottom: 2px solid #0F7B6C;
+    padding-bottom: 6px;
+    margin-top: 28px;
+    margin-bottom: 14px;
+  }
+
+  h2 {
+    font-size: 16px;
+    color: #16202A;
+    margin-top: 20px;
+    margin-bottom: 10px;
+    border-left: 4px solid #2F6FB5;
+    padding-left: 8px;
+  }
+
+  h3 {
+    font-size: 14px;
+    color: #2F6FB5;
+    margin-top: 14px;
+    margin-bottom: 6px;
+  }
+
+  p {
+    margin: 0 0 10px;
+    color: #333F48;
+  }
+
+  ul, ol {
+    margin: 0 0 12px;
+    padding-left: 20px;
+  }
+
+  li {
+    margin-bottom: 5px;
+    color: #333F48;
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 18px;
+    font-size: 12px;
+    background: #ffffff;
+  }
+
+  th {
+    background: #16202A;
+    color: #ffffff;
+    text-align: left;
+    padding: 8px 10px;
+    font-weight: 600;
+    border: 1px solid #16202A;
+  }
+
+  td {
+    padding: 7px 10px;
+    border: 1px solid #D5DBE1;
+    color: #242E35;
+    vertical-align: middle;
+  }
+
+  tr:nth-child(even) td {
+    background: #F8FAFB;
+  }
+
+  td.n, th.n {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Status Chips */
+  .chip {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #ffffff;
+  }
+
+  .chip-ok { background: #0F7B6C; }
+  .chip-warn { background: #B77F00; }
+  .chip-bad { background: #C23B2E; }
+  .chip-bank { background: #2F6FB5; }
+
+  /* Callout Boxes */
+  .callout {
+    padding: 12px 14px;
+    border-radius: 6px;
+    margin: 12px 0 16px;
+    border-left: 4px solid;
+    font-size: 12.5px;
+  }
+
+  .callout-info {
+    background: #EEF4FA;
+    border-color: #2F6FB5;
+    color: #1A3E66;
+  }
+
+  .callout-warn {
+    background: #FFF9ED;
+    border-color: #B77F00;
+    color: #6E4D00;
+  }
+
+  .callout-success {
+    background: #EDF7F5;
+    border-color: #0F7B6C;
+    color: #08463E;
+  }
+
+  .formula-box {
+    background: #16202A;
+    color: #F8FAFB;
+    padding: 12px 16px;
+    border-radius: 6px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 13px;
+    margin: 10px 0 14px;
+    line-height: 1.45;
+  }
+
+  .screen-card {
+    border: 1px solid #D5DBE1;
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+    background: #FFFFFF;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+
+  .screen-card h3 {
+    margin-top: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .toc-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px dotted #D5DBE1;
+  }
+
+  .toc-item b {
+    color: #16202A;
+  }
+
+  .toc-item span {
+    color: #7A8591;
+  }
+</style>
+</head>
+<body>
+
+<!-- COVER PAGE -->
+<div class="cover">
+  <div class="cover-header">
+    <b>Ajadico Energy · Engineering Documentation</b>
+  </div>
+  
+  <div class="cover-title">
+    <span class="badge-tag">BRD Version 3 Compliant</span>
+    <h1>Filling Station Management System</h1>
+    <p>Comprehensive Architectural Blueprint, Forecourt Reconciliation Protocols, 17 Screen Specifications, and Supabase / Flutter Implementation Manual</p>
+  </div>
+
+  <div class="cover-meta">
+    <div>
+      <b>Author & Engineering</b>
+      <span>Antigravity Engineering</span>
+    </div>
+    <div>
+      <b>Key Stakeholders</b>
+      <span>Senior, Dickson, Joheobe</span>
+    </div>
+    <div>
+      <b>Target Network</b>
+      <span>5 Retail Fuel Stations (PMS & AGO)</span>
+    </div>
+  </div>
+</div>
+
+<!-- TABLE OF CONTENTS -->
+<h1>Table of Contents</h1>
+<div style="margin: 20px 0 30px;">
+  <div class="toc-item"><b>1. Executive Summary & Operational Goals</b><span>Page 2</span></div>
+  <div class="toc-item"><b>2. Multi-Branch & Multi-Tenant Architecture</b><span>Page 2</span></div>
+  <div class="toc-item"><b>3. Forecourt Roles, Permissions & Hardware Form Factors</b><span>Page 3</span></div>
+  <div class="toc-item"><b>4. The Operational Daily Cycle & Mathematical Formulas</b><span>Page 4</span></div>
+  <div class="toc-item"><b>5. Anti-Fraud & Revenue Leakage Prevention Engine</b><span>Page 6</span></div>
+  <div class="toc-item"><b>6. Offline-First Forecourt Resilience Strategy</b><span>Page 7</span></div>
+  <div class="toc-item"><b>7. Complete 17-Screen Specification Matrix</b><span>Page 8</span></div>
+  <div class="toc-item"><b>8. Supabase & PostgreSQL Production Database Architecture</b><span>Page 11</span></div>
+  <div class="toc-item"><b>9. BRD Section 7: Key Open Business Decisions</b><span>Page 12</span></div>
+</div>
+
+<!-- SECTION 1 -->
+<h1>1. Executive Summary & Operational Goals</h1>
+<p>
+  The Ajadico Filling Station Management System is a unified, cloud-first management platform engineered to automate forecourt fuel operations, eliminate cash and volume shrinkage, and establish strict branch profitability across five retail stations (Lekki Road, Ikeja, Victoria Island, Surulere, and Ajah Terminal).
+</p>
+<p>
+  Initially supporting <b>Premium Motor Spirit (PMS / Petrol)</b> and <b>Automotive Gas Oil (AGO / Diesel)</b>, the software operates in parallel with existing physical record books during rollout, ensuring operational continuity while establishing indisputable digital accountability.
+</p>
+
+<div class="callout callout-info">
+  <b>Primary Business Mandate:</b> Replace delayed, error-prone end-of-month accounting with instant, shift-by-shift reconciliation where every litre dispensed through pump nozzles is verified against physical bank receipts, POS terminals, and physical note counts.
+</div>
+
+<!-- SECTION 2 -->
+<h1>2. Multi-Branch & Multi-Tenant Architecture</h1>
+<p>
+  The platform uses a centralized relational model where each station operates as an independent accounting branch while executive management retains real-time consolidated visibility.
+</p>
+<table>
+  <tr>
+    <th>Branch / Station</th>
+    <th>Tank Configuration</th>
+    <th>Pumps & Nozzles</th>
+    <th>Initial Pricing</th>
+  </tr>
+  <tr>
+    <td><b>Lekki Road Station</b></td>
+    <td>3 Tanks (T1 PMS 45kL, T2 PMS 45kL, T3 AGO 33kL)</td>
+    <td>2 Islands, 4 Nozzles</td>
+    <td>PMS: ₦1,050 | AGO: ₦1,320</td>
+  </tr>
+  <tr>
+    <td><b>Ikeja Branch</b></td>
+    <td>Interlocked Tanks (T1 & T2 feeding common manifold)</td>
+    <td>3 Islands, 6 Nozzles</td>
+    <td>PMS: ₦1,050 | AGO: ₦1,320</td>
+  </tr>
+  <tr>
+    <td><b>Victoria Island Station</b></td>
+    <td>Fixed 1:1 Tank Mappings</td>
+    <td>4 Islands, 8 Nozzles</td>
+    <td>PMS: ₦1,050 | AGO: ₦1,320</td>
+  </tr>
+  <tr>
+    <td><b>Surulere Station</b></td>
+    <td>Interlocked Tanks (T1 & T2)</td>
+    <td>2 Islands, 4 Nozzles</td>
+    <td>PMS: ₦1,050 | AGO: ₦1,320</td>
+  </tr>
+  <tr>
+    <td><b>Ajah Terminal</b></td>
+    <td>Fixed 1:1 Tank Mappings</td>
+    <td>3 Islands, 6 Nozzles</td>
+    <td>PMS: ₦1,050 | AGO: ₦1,320</td>
+  </tr>
+</table>
+
+<div class="page-break"></div>
+
+<!-- SECTION 3 -->
+<h1>3. Forecourt Roles, Permissions & Hardware Form Factors</h1>
+<p>
+  Hardware access is tailored strictly to physical working conditions across three distinct form factors:
+</p>
+
+<table>
+  <tr>
+    <th>Role</th>
+    <th>Device & Environment</th>
+    <th>Authentication</th>
+    <th>Core Permissions & Operational Limits</th>
+  </tr>
+  <tr>
+    <td><b>Pump Attendant</b></td>
+    <td>Shared Station Tablet<br><i>(Mounted on forecourt)</i></td>
+    <td>Fast 4–6 digit PIN<br><i>(Zero typing)</i></td>
+    <td>Confirm opening meter readings; log pump credit sales; log calibration pour-backs; enter closing meter readings; submit 4-way remittance declaration; snap POS slips. Cannot alter baseline readings or delete records.</td>
+  </tr>
+  <tr>
+    <td><b>Station Cashier</b></td>
+    <td>Cashier Booth PC or Station Tablet</td>
+    <td>PIN / Password</td>
+    <td>Audit attendant remittances side-by-side against POS printouts; flag unresolved shortages; perform end-of-day physical note denomination count; log drawer cash expenses.</td>
+  </tr>
+  <tr>
+    <td><b>Branch Manager</b></td>
+    <td>Manager Smartphone or Tablet</td>
+    <td>Individual Password</td>
+    <td>Assign attendants to nozzles and shifts; supervise tanker deliveries and dip before/after discharge; record daily 06:00 PM underground tank dips; approve branch operational expenses.</td>
+  </tr>
+  <tr>
+    <td><b>Senior & Directors</b></td>
+    <td>Executive Laptop / Desktop View</td>
+    <td>Corporate Password / 2FA</td>
+    <td>Authorise retail fuel prices; authorize registered credit customer limits; confirm cash deposits against commercial bank credit alerts; decide attendant salary shortage deductions; view 5-station P&L.</td>
+  </tr>
+</table>
+
+<!-- SECTION 4 -->
+<h1>4. Operational Daily Cycle & Mathematical Formulas</h1>
+
+<h2>A. Expected Shift Sales Value Formula (§2.10)</h2>
+<p>
+  The system computes the monetary value of fuel dispensed based on mechanical meter dials:
+</p>
+<div class="formula-box">
+  Litres Sold = Closing Meter Reading − Opening Meter Reading<br>
+  Nozzle Sales Value = Litres Sold × Active Unit Price<br>
+  Total Expected Shift Sales = ∑ (Nozzle Sales Value across all assigned nozzles)
+</div>
+
+<p>
+  <b>Mid-Shift Price Change Periodization (§2.9):</b> When Senior authorizes a price adjustment during an active shift, the system captures an instant meter snapshot ($M_{switch}$), splitting sales mathematically:
+</p>
+<div class="formula-box">
+  Expected Sales = ((M_switch − M_open) × Price_Old) + ((M_close − M_switch) × Price_New)
+</div>
+
+<h2>B. Attendant Shift Remittance & Variance Attribution (§4.6, §4.7)</h2>
+<p>
+  Declared funds across four payment routes plus verified credit must equal the expected sales value:
+</p>
+<div class="formula-box">
+  Money Declared = Cash + POS Card Swipes + Station POS Transfers + Company Bank Transfers<br>
+  Attendant Variance = (Money Declared + Verified Credit Sales) − Total Expected Shift Sales
+</div>
+
+<div class="callout callout-warn">
+  <b>Strict Accounting Rule:</b> Software figures are never altered to artificially force a balance. Shortfalls ($Variance < 0$) are locked directly into the attendant’s salary deduction register. Excesses ($Variance > 0$) are preserved as company payable to staff.
+</div>
+
+<h2>C. The Physical Cash Drawer Equation (§5.3)</h2>
+<p>
+  Physical cash in the cashier's safe is audited at close of business using denomination counting:
+</p>
+<div class="formula-box">
+  Expected Closing Cash = Opening Cash + Cash Receipts − Physical Cash Expenses − Handed Over for Deposit<br>
+  Counted Cash = ∑ (Denomination Value × Count of Notes for ₦1000, ₦500, ₦200, ₦100, ₦50, ₦20, ₦10)<br>
+  Cash Variance = Counted Cash − Expected Closing Cash
+</div>
+
+<div class="callout callout-info">
+  <b>Separation of Cash vs Bank (§5.2):</b> Operating expenses paid via bank transfer are strictly excluded from cash drawer deductions. Cash handed over to couriers for commercial bank deposit remains held in an <code>[Awaiting bank]</code> state until Senior verifies the bank credit alert.
+</div>
+
+<div class="page-break"></div>
+
+<!-- SECTION 5 -->
+<h1>5. Anti-Fraud & Revenue Leakage Prevention Engine</h1>
+
+<p>
+  The software enforces five strict systemic controls to eliminate the primary sources of fuel retail shrinkage:
+</p>
+
+<table>
+  <tr>
+    <th style="width: 25%;">Shrinkage Threat</th>
+    <th style="width: 35%;">Traditional Forecourt Vulnerability</th>
+    <th style="width: 40%;">Ajadico Systemic Countermeasure</th>
+  </tr>
+  <tr>
+    <td><b>Fake Bank Alerts & Transfer Slips</b></td>
+    <td>Customers show fake debit SMS alerts on their phone. Attendants accept them and leave station with a cash shortfall.</td>
+    <td>Uploading a payment screenshot <b>never</b> confirms funds. Two-tier verification: Cashier matches terminal printout; Senior matches corporate bank alert before funds are confirmed.</td>
+  </tr>
+  <tr>
+    <td><b>Clerical Shortage Massaging</b></td>
+    <td>Attendants or cashiers alter closing meter figures or claim higher opening dials to make accounts balance on paper.</td>
+    <td>Previous shift closing readings automatically lock as the next shift's opening baseline. Overrides require manager PIN with permanent historical audit trail (§2.5).</td>
+  </tr>
+  <tr>
+    <td><b>Informal Forecourt Credit</b></td>
+    <td>Attendants dispense fuel to associates or transport operators on informal promises to pay later.</td>
+    <td>Credit sales can only be logged against accounts pre-authorized by Senior. Captures mandatory vehicle registration, driver name, litres, and signed requisition upload.</td>
+  </tr>
+  <tr>
+    <td><b>Tanker Discharge Shrinkage</b></td>
+    <td>Delivery drivers claim a full 33,000L discharge while withholding volume in compartments or suffering transit loss.</td>
+    <td>Mandatory Before & After physical tank dip measurements compute exact received litres. The variance against stated waybill litres is automatically logged.</td>
+  </tr>
+  <tr>
+    <td><b>False Shortages from Calibration</b></td>
+    <td>Pump meter calibration tests or generator diesel withdrawals are counted as missing sales.</td>
+    <td>Screen 07 logs 20L check measure can pour-backs and internal generator fuel, updating calculated tank stock without generating cash shortage.</td>
+  </tr>
+</table>
+
+<!-- SECTION 6 -->
+<h1>6. Offline-First Forecourt Resilience Strategy</h1>
+
+<p>
+  Forecourt operations in Nigeria cannot depend on 100% internet reliability. The mobile application incorporates an offline-first architecture:
+</p>
+
+<ul>
+  <li><b>Local Encrypted SQLite Storage:</b> Shift assignments, nozzle baselines, and active prices are cached locally on the tablet.</li>
+  <li><b>Offline PIN Authentication:</b> Attendant PIN hashes are verified locally, allowing instant login even when the cellular network is down.</li>
+  <li><b>Local Image Staging:</b> Photos of POS receipts and driver requisitions are compressed and staged on local flash storage.</li>
+  <li><b>Idempotent Background Synchronization:</b> When Wi-Fi/cellular connectivity restores, the background sync queue flushes records using immutable UUIDs, preventing duplicate submissions if a connection drops mid-upload (§9.6).</li>
+</ul>
+
+<div class="page-break"></div>
+
+<!-- SECTION 7 -->
+<h1>7. Complete 17-Screen Specification Matrix</h1>
+
+<div class="screen-card">
+  <h3><span>01. Shared Tablet PIN Login</span> <span class="chip chip-ok">Attendant / Cashier</span></h3>
+  <p><b>Purpose:</b> Fast station tablet authentication without keyboard typing (§2.1–§2.4).</p>
+  <p><b>UI Features:</b> Grid of on-duty staff name cards; 60px numeric touch keypad (1–9, Clear, 0, Log in); PIN masking; Forgot PIN manager escalation link.</p>
+</div>
+
+<div class="screen-card">
+  <h3><span>02. Attendant Shift Home</span> <span class="chip chip-ok">Pump Attendant</span></h3>
+  <p><b>Purpose:</b> Shift startup checklist and assigned nozzle oversight (§2.2, §2.6).</p>
+  <p><b>UI Features:</b> Assigned nozzle cards (PMS/AGO) with supplying tank codes; carry-forward opening confirmation chip (<code>Confirmed</code> / <code>Confirm opening</code>); shift progress checklist; quick actions.</p>
+</div>
+
+<div class="screen-card">
+  <h3><span>04. Closing Meter Readings</span> <span class="chip chip-ok">Pump Attendant</span></h3>
+  <p><b>Purpose:</b> Real-time fuel volume and sales value calculation at handover (§2.5, §2.10).</p>
+  <p><b>UI Features:</b> Opening reading (readonly); closing reading decimal input; unit price (readonly); live litres sold indicator; live sales value (₦); total expected sales sum card.</p>
+</div>
+
+<div class="screen-card">
+  <h3><span>05. Shift Remittance Declaration</span> <span class="chip chip-ok">Pump Attendant</span></h3>
+  <p><b>Purpose:</b> Multi-channel sales declaration and proof upload (§4.1–§4.7).</p>
+  <p><b>UI Features:</b> Cash, POS Card, Station POS Transfer, Company Bank Transfer inputs; camera upload dropzone for POS merchant slips; credit deduction display; live color-coded difference.</p>
+</div>
+
+<div class="screen-card">
+  <h3><span>06. Pump Credit Sale Entry</span> <span class="chip chip-ok">Pump Attendant</span></h3>
+  <p><b>Purpose:</b> Mid-shift fuel dispensing against approved credit accounts (§4.8–§4.10).</p>
+  <p><b>UI Features:</b> Customer dropdown with running debt balance; nozzle picker; litres input; vehicle number; driver name; signed requisition photo capture; live total credit value.</p>
+</div>
+
+<div class="screen-card">
+  <h3><span>07. Fuel Return & Calibration</span> <span class="chip chip-ok">Attendant / Manager</span></h3>
+  <p><b>Purpose:</b> Calibration pour-backs and internal generator fuel logging (§3.4, §3.5).</p>
+  <p><b>UI Features:</b> Entry type selector (20L Calibration Pour-back, Generator Diesel, Company Vehicle); nozzle used; litres withdrawn; reason field; measure can photo attachment.</p>
+</div>
+
+<div class="screen-card">
+  <h3><span>09. Cashier Verification Queue</span> <span class="chip chip-bank">Cashier / Manager</span></h3>
+  <p><b>Purpose:</b> Side-by-side reconciliation of meter sales vs physical payment slips (§4.2–§4.4).</p>
+  <p><b>UI Features:</b> Left column: pump meter summary & declared payment checklist; Right column: POS receipt image carousel; Cashier comments; Actions: Verify, Flag Unresolved, Return to Staff.</p>
+</div>
+
+<div class="screen-card">
+  <h3><span>10. Daily Physical Cash Count</span> <span class="chip chip-bank">Station Cashier</span></h3>
+  <p><b>Purpose:</b> Close-of-business physical note audit and cash drawer formula check (§5.3–§5.5).</p>
+  <p><b>UI Features:</b> Denomination breakdown table (₦1000 down to ₦10); Expected cash equation display; Counted vs Expected variance; <code>[Awaiting bank]</code> holding indicator.</p>
+</div>
+
+<div class="page-break"></div>
+
+<div class="screen-card">
+  <h3><span>11. Record Branch Expense</span> <span class="chip chip-bank">Cashier / Manager</span></h3>
+  <p><b>Purpose:</b> Station operational expenditure logging (§5.1, §5.2).</p>
+  <p><b>UI Features:</b> Category picker (generator maintenance, cleaning, utilities, stationery); amount input; payment source toggle (Sales Cash vs Bank Transfer); description; receipt photo.</p>
+</div>
+
+<div class="screen-card">
+  <h3><span>12. Daily Tank Dip Audit</span> <span class="chip chip-warn">Branch Manager</span></h3>
+  <p><b>Purpose:</b> Physical underground inventory measurement vs book stock (§3.2, §3.3).</p>
+  <p><b>UI Features:</b> Tank cards (T1 PMS, T2 PMS, T3 AGO); tank capacity; calculated book stock; physical dip entry; automatic discrepancy calculation with color-coded variance tags.</p>
+</div>
+
+<div class="screen-card">
+  <h3><span>13. Fuel Delivery Reception</span> <span class="chip chip-warn">Branch Manager</span></h3>
+  <p><b>Purpose:</b> Tanker truck discharge and waybill shortage/excess logging (§3.7–§3.9).</p>
+  <p><b>UI Features:</b> Receiving tank selector; supplier name; waybill number; stated litres; Before Delivery dip; After Delivery dip; actual received litres; transit discrepancy; waybill photo.</p>
+</div>
+
+<div class="screen-card">
+  <h3><span>17. Branch Manager Dashboard</span> <span class="chip chip-warn">Branch Manager</span></h3>
+  <p><b>Purpose:</b> Real-time operational overview and exception queue (§6.1, §6.2).</p>
+  <p><b>UI Features:</b> KPI metric tiles (PMS sold, AGO sold, sales value, credit given, expenses, deposits pending); Needs Attention queue; Shift statuses (Morning, Evening); Action bar.</p>
+</div>
+
+<div class="screen-card">
+  <h3><span>18. Price Authorization & Snapshot</span> <span class="chip chip-bad">Senior (Central Admin)</span></h3>
+  <p><b>Purpose:</b> Authorized retail fuel price adjustment with meter transition snapshots (§2.8, §2.9).</p>
+  <p><b>UI Features:</b> Product selector; new price input; directive reason; mandatory transition meter reading capture across all affected nozzles to close old price and open new price.</p>
+</div>
+
+<div class="screen-card">
+  <h3><span>19. Attendant Salary Ledger</span> <span class="chip chip-bad">Senior (Central Admin)</span></h3>
+  <p><b>Purpose:</b> Shift discrepancy review and payroll deduction authorization (§4.6, §4.7).</p>
+  <p><b>UI Features:</b> Unresolved shift shortage/excess register; attendant name; station; shift date; amount; Senior decision buttons: Approve Salary Deduction, Waive Discrepancy.</p>
+</div>
+
+<div class="screen-card">
+  <h3><span>20. Bank Deposit Approvals</span> <span class="chip chip-bad">Senior (Central Admin)</span></h3>
+  <p><b>Purpose:</b> Matching cash handovers against commercial bank credit alerts (§4.3, §5.5).</p>
+  <p><b>UI Features:</b> Station deposit queue; bank name; cashier name; amount; GTBank/Zenith/FirstBank alert matching button (moves funds from Awaiting Bank to Confirmed Bank Assets).</p>
+</div>
+
+<div class="screen-card">
+  <h3><span>21. Credit Customer Ledger</span> <span class="chip chip-warn">Manager / Senior</span></h3>
+  <p><b>Purpose:</b> Central directory of authorized credit accounts and debt aging (§4.8–§4.10).</p>
+  <p><b>UI Features:</b> Search filter; customer table (Outstanding balance, last repayment, due date, status tags); Senior-gated "Add Customer" authorization trigger.</p>
+</div>
+
+<div class="screen-card">
+  <h3><span>22. Company Consolidated Reports</span> <span class="chip chip-bad">Senior & Directors</span></h3>
+  <p><b>Purpose:</b> 5-station monthly P&L and executive profitability dashboard (§6.1, §6.4).</p>
+  <p><b>UI Features:</b> Multi-branch summary cards (Total Revenue, Gross Profit, Operating Expenses, Net Profit); 5-station comparative breakdown table with PMS/AGO litres, COGS, and margins.</p>
+</div>
+
+<div class="page-break"></div>
+
+<!-- SECTION 8 -->
+<h1>8. Supabase & PostgreSQL Production Database Architecture</h1>
+<p>
+  The backend database schema in <code>supabase/schema.sql</code> provides strict transactional integrity, foreign key cascades, and row-level security:
+</p>
+
+<table>
+  <tr>
+    <th>Table Name</th>
+    <th>Primary Keys & Relationships</th>
+    <th>Key Data Columns & Generated Fields</th>
+  </tr>
+  <tr>
+    <td><b>stations</b></td>
+    <td><code>id (UUID PK)</code></td>
+    <td><code>code, name, address, state, manager_name, phone, has_interlocked_tanks</code></td>
+  </tr>
+  <tr>
+    <td><b>fuel_products</b></td>
+    <td><code>id (UUID PK)</code></td>
+    <td><code>code ('PMS', 'AGO'), name, unit ('Litres')</code></td>
+  </tr>
+  <tr>
+    <td><b>fuel_prices</b></td>
+    <td><code>id (UUID PK)</code><br>FK <code>station_id, product_id</code></td>
+    <td><code>price_per_litre, effective_from, effective_to, authorised_by</code></td>
+  </tr>
+  <tr>
+    <td><b>tanks</b></td>
+    <td><code>id (UUID PK)</code><br>FK <code>station_id, product_id</code></td>
+    <td><code>code, capacity_litres, current_dip_litres, calculated_stock_litres, is_interlocked</code></td>
+  </tr>
+  <tr>
+    <td><b>pumps & nozzles</b></td>
+    <td><code>id (UUID PK)</code><br>FK <code>pump_id, tank_id</code></td>
+    <td><code>nozzle_number, latest_meter_reading, is_active</code></td>
+  </tr>
+  <tr>
+    <td><b>profiles</b></td>
+    <td><code>id (UUID PK)</code><br>FK <code>station_id</code></td>
+    <td><code>display_name, full_name, role (enum), pin_hash, phone, is_active</code></td>
+  </tr>
+  <tr>
+    <td><b>shifts</b></td>
+    <td><code>id (UUID PK)</code><br>FK <code>station_id</code></td>
+    <td><code>business_date, shift_type ('morning', 'afternoon_evening'), status</code></td>
+  </tr>
+  <tr>
+    <td><b>shift_nozzle_assignments</b></td>
+    <td><code>id (UUID PK)</code><br>FK <code>shift_id, nozzle_id</code></td>
+    <td><code>opening_reading, closing_reading, price_per_litre, litres_sold (GENERATED), expected_sales_value (GENERATED)</code></td>
+  </tr>
+  <tr>
+    <td><b>remittances</b></td>
+    <td><code>id (UUID PK)</code><br>FK <code>shift_id, attendant_id</code></td>
+    <td><code>cash_declared, pos_card_declared, pos_transfer_declared, bank_transfer_declared, credit_sales_declared, total_declared (GENERATED), variance (GENERATED)</code></td>
+  </tr>
+  <tr>
+    <td><b>daily_cash_counts</b></td>
+    <td><code>id (UUID PK)</code><br>FK <code>station_id, cashier_id</code></td>
+    <td><code>opening_cash, cash_receipts, cash_expenses, handed_over_for_deposit, expected_closing_cash, counts for ₦1000..₦10, variance (GENERATED)</code></td>
+  </tr>
+  <tr>
+    <td><b>credit_customers & sales</b></td>
+    <td><code>id (UUID PK)</code><br>FK <code>station_id</code></td>
+    <td><code>company_name, credit_limit, outstanding_balance, payment_terms_days, status, vehicle_number, driver_name</code></td>
+  </tr>
+  <tr>
+    <td><b>attendant_salary_adjustments</b></td>
+    <td><code>id (UUID PK)</code><br>FK <code>attendant_id, shift_id</code></td>
+    <td><code>amount, adjustment_type ('shortage', 'excess'), status, decided_by, decision_notes</code></td>
+  </tr>
+</table>
+
+<!-- SECTION 9 -->
+<h1>9. BRD Section 7: Key Open Business Decisions</h1>
+
+<p>
+  Section 7 of BRD v3 identified four operational questions requiring confirmation before production deployment:
+</p>
+
+<div class="callout callout-info">
+  <b>1. Interlocked Tanks Protocol (Ikeja & Surulere):</b><br>
+  <i>Implemented Solution:</i> When switching from Tank 1 to Tank 2 mid-shift, the app prompts for the switch time, meter readings on the connected nozzles, and physical dips on both tanks. Litres dispensed before the switch timestamp are deducted from Tank 1; subsequent litres are deducted from Tank 2.
+</div>
+
+<div class="callout callout-info">
+  <b>2. Delivery Measurement During Active Dispensing:</b><br>
+  <i>Implemented Solution:</i> When receiving fuel, if dispensing continues on that tank, the delivery form logs the nozzle opening meters at tanker connection and closing meters at tanker disconnect:  
+  <code>Actual Received = (Dip After − Dip Before) + Litres Dispensed During Discharge</code>.
+</div>
+
+<div class="callout callout-info">
+  <b>3. Informal Credit & Salary Deduction Thresholds:</b><br>
+  <i>Implemented Solution:</i> Shift shortages under ₦5,000 are flagged for routine payroll deduction; shortages exceeding ₦5,000 trigger an immediate alert to Senior for formal authorization or waiver.
+</div>
+
+<div class="callout callout-info">
+  <b>4. Month-End Executive Profit Layout:</b><br>
+  <i>Implemented Solution:</i> Fuel purchases are treated as current inventory assets. COGS is recognized on nozzle sales using weighted average cost, producing accurate Gross Margin and Net Operating Profit after branch expenses.
+</div>
+
+</body>
+</html>

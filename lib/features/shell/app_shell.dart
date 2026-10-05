@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../models/user_profile.dart';
+import '../../state/station_app_state.dart';
 import '../admin/attendant_salary_ledger_screen.dart';
 import '../admin/bank_deposit_verification_screen.dart';
 import '../admin/company_reports_screen.dart';
@@ -47,13 +48,28 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
+  final state = StationAppState.instance;
   AppView _currentView = AppView.login;
-  UserProfile _currentUser = UserProfile.demoStaff[0]; // Amaka O.
-  double _lastExpectedSales = 1250000.0;
+
+  @override
+  void initState() {
+    super.initState();
+    state.addListener(_onStateChanged);
+  }
+
+  @override
+  void dispose() {
+    state.removeListener(_onStateChanged);
+    super.dispose();
+  }
+
+  void _onStateChanged() {
+    if (mounted) setState(() {});
+  }
 
   void _onLogin(UserProfile user) {
+    state.setCurrentUser(user);
     setState(() {
-      _currentUser = user;
       if (user.role == UserRole.attendant) {
         _currentView = AppView.attendantHome;
       } else if (user.role == UserRole.cashier) {
@@ -74,15 +90,21 @@ class _AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) {
+    final pendingAudits = state.submissions.where((s) => s.status == 'Pending Verification').length;
+
     return Scaffold(
       body: _buildCurrentScreen(),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showScreenSwitcherDialog,
         backgroundColor: AppColors.ink,
-        icon: const Icon(Icons.layers, color: Colors.white, size: 20),
+        icon: Badge(
+          isLabelVisible: pendingAudits > 0,
+          label: Text('$pendingAudits'),
+          child: const Icon(Icons.layers, color: Colors.white, size: 20),
+        ),
         label: Text(
           'View: ${_viewName(_currentView)}',
-          style: const TextStyle(color: Colors.white, fontSize: 13),
+          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
         ),
       ),
     );
@@ -95,7 +117,7 @@ class _AppShellState extends State<AppShell> {
 
       case AppView.attendantHome:
         return AttendantHomeScreen(
-          user: _currentUser,
+          user: state.currentUser,
           onLogout: _logout,
           onOpenClosingReadings: () => setState(() => _currentView = AppView.closingReadings),
           onOpenRemittance: () => setState(() => _currentView = AppView.remittance),
@@ -104,27 +126,13 @@ class _AppShellState extends State<AppShell> {
       case AppView.closingReadings:
         return ClosingReadingsScreen(
           onBack: () => setState(() => _currentView = AppView.attendantHome),
-          onSubmitSuccess: (totalSales) {
-            setState(() {
-              _lastExpectedSales = totalSales > 0 ? totalSales : 1250000.0;
-              _currentView = AppView.remittance;
-            });
-          },
+          onSubmitSuccess: () => setState(() => _currentView = AppView.remittance),
         );
 
       case AppView.remittance:
         return RemittanceScreen(
-          expectedSalesValue: _lastExpectedSales,
           onBack: () => setState(() => _currentView = AppView.attendantHome),
-          onSubmitSuccess: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                backgroundColor: AppColors.ok,
-                content: Text('Remittance submitted to cashier verification queue.'),
-              ),
-            );
-            setState(() => _currentView = AppView.attendantHome);
-          },
+          onSubmitSuccess: () => setState(() => _currentView = AppView.attendantHome),
         );
 
       case AppView.creditSale:
@@ -252,9 +260,9 @@ class _AppShellState extends State<AppShell> {
       ),
       builder: (ctx) {
         return DraggableScrollableSheet(
-          initialChildSize: 0.7,
+          initialChildSize: 0.75,
           minChildSize: 0.4,
-          maxChildSize: 0.9,
+          maxChildSize: 0.95,
           expand: false,
           builder: (_, scrollController) {
             return SingleChildScrollView(
@@ -263,25 +271,44 @@ class _AppShellState extends State<AppShell> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    child: Text(
-                      'All 17 Prototype Screens (BRD v3 Explorer)',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Prototype Screen Explorer',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppColors.ok.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text('Real-Time Connected', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.ok)),
+                        ),
+                      ],
                     ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                    child: Text('Data flows across all roles in memory and to Supabase.', style: TextStyle(fontSize: 13, color: AppColors.muted)),
                   ),
                   const Divider(color: AppColors.line),
                   ...AppView.values.map((v) {
                     final isSelected = v == _currentView;
                     return ListTile(
+                      dense: true,
                       title: Text(
                         _viewName(v),
                         style: TextStyle(
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          fontSize: 15,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
                           color: isSelected ? AppColors.ok : AppColors.ink,
                         ),
                       ),
-                      trailing: isSelected ? const Icon(Icons.check, color: AppColors.ok) : null,
+                      trailing: isSelected ? const Icon(Icons.check_circle, color: AppColors.ok, size: 20) : null,
                       onTap: () {
                         Navigator.pop(ctx);
                         setState(() => _currentView = v);

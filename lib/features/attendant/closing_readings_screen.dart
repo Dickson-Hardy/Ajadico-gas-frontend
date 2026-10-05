@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../models/nozzle.dart';
+import '../../state/station_app_state.dart';
 
 class ClosingReadingsScreen extends StatefulWidget {
   final VoidCallback onBack;
-  final Function(double totalExpectedSales) onSubmitSuccess;
+  final VoidCallback onSubmitSuccess;
 
   const ClosingReadingsScreen({
     super.key,
@@ -18,15 +19,19 @@ class ClosingReadingsScreen extends StatefulWidget {
 }
 
 class _ClosingReadingsScreenState extends State<ClosingReadingsScreen> {
+  final state = StationAppState.instance;
   late List<NozzleItem> _nozzles;
   final Map<int, TextEditingController> _controllers = {};
+  final Map<int, String?> _errors = {};
 
   @override
   void initState() {
     super.initState();
-    _nozzles = NozzleItem.getDemoNozzles();
+    _nozzles = state.nozzles;
     for (var n in _nozzles) {
-      _controllers[n.nozzleNumber] = TextEditingController();
+      _controllers[n.nozzleNumber] = TextEditingController(
+        text: n.closingReading?.toStringAsFixed(1) ?? '',
+      );
     }
   }
 
@@ -43,27 +48,84 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen> {
   }
 
   void _onClosingChanged(NozzleItem nozzle, String val) {
-    final parsed = double.tryParse(val.replaceAll(',', ''));
+    final cleaned = val.replaceAll(',', '').trim();
+    if (cleaned.isEmpty) {
+      setState(() {
+        nozzle.closingReading = null;
+        _errors[nozzle.nozzleNumber] = null;
+      });
+      return;
+    }
+
+    final parsed = double.tryParse(cleaned);
     setState(() {
-      nozzle.closingReading = parsed;
+      if (parsed == null) {
+        _errors[nozzle.nozzleNumber] = 'Invalid decimal number';
+        nozzle.closingReading = null;
+      } else if (parsed < nozzle.openingReading) {
+        _errors[nozzle.nozzleNumber] = 'Closing reading cannot be less than opening (${CurrencyFormatter.formatLitres(nozzle.openingReading)})';
+        nozzle.closingReading = null;
+      } else {
+        _errors[nozzle.nozzleNumber] = null;
+        nozzle.closingReading = parsed;
+      }
+    });
+  }
+
+  void _quickFillDemo() {
+    setState(() {
+      _nozzles[0].closingReading = 413102.0; // 721.5 L
+      _controllers[1]!.text = '413102.0';
+      _errors[1] = null;
+
+      _nozzles[1].closingReading = 388410.0; // 308.0 L
+      _controllers[2]!.text = '388410.0';
+      _errors[2] = null;
+
+      _nozzles[2].closingReading = 201903.5; // 128.0 L
+      _controllers[3]!.text = '201903.5';
+      _errors[3] = null;
     });
   }
 
   void _submit() {
+    bool hasError = false;
+    final Map<int, double> readings = {};
+
     for (var n in _nozzles) {
       if (n.closingReading == null || n.closingReading! < n.openingReading) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Nozzle ${n.nozzleNumber} closing reading must be greater than opening (${CurrencyFormatter.formatLitres(n.openingReading)})',
-            ),
-          ),
-        );
-        return;
+        _errors[n.nozzleNumber] = 'Please enter valid closing dial';
+        hasError = true;
+      } else {
+        readings[n.nozzleNumber] = n.closingReading!;
       }
     }
 
-    widget.onSubmitSuccess(_totalExpectedSales);
+    if (hasError) {
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.bad,
+          behavior: SnackBarBehavior.floating,
+          content: Text('Please correct meter reading errors before submitting.'),
+        ),
+      );
+      return;
+    }
+
+    state.recordClosingReadings(readings);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: AppColors.ok,
+        behavior: SnackBarBehavior.floating,
+        content: Text(
+          'Closing readings submitted! Expected sales: ${CurrencyFormatter.formatNaira(_totalExpectedSales)}',
+        ),
+      ),
+    );
+
+    widget.onSubmitSuccess();
   }
 
   @override
@@ -74,13 +136,20 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen> {
           icon: const Icon(Icons.arrow_back),
           onPressed: widget.onBack,
         ),
-        title: const Column(
+        title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Closing Readings', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('Amaka O. · Morning shift', style: TextStyle(fontSize: 13, color: Colors.white70)),
+            const Text('Closing Meter Readings', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text('${state.currentUser.displayName} · Morning shift', style: const TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
+        actions: [
+          TextButton.icon(
+            icon: const Icon(Icons.auto_fix_high, color: Colors.white, size: 16),
+            label: const Text('Fill Demo Values', style: TextStyle(color: Colors.white, fontSize: 13)),
+            onPressed: _quickFillDemo,
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
@@ -91,7 +160,7 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Closing readings',
+                  'Record closing pump meter dials',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -100,107 +169,118 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen> {
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Type each meter reading. Litres and value update as you type.',
+                  'Type the mechanical dial on each dispenser nozzle. Litres and sales value calculate dynamically.',
                   style: TextStyle(fontSize: 15, color: AppColors.muted),
                 ),
                 const SizedBox(height: 16),
 
-                // Nozzle Cards
+                // Nozzle Input Cards
                 ..._nozzles.map((nozzle) {
+                  final err = _errors[nozzle.nozzleNumber];
                   return Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Nozzle ${nozzle.nozzleNumber} · ${nozzle.productName}',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.ink,
-                            ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Nozzle ${nozzle.nozzleNumber} · ${nozzle.productName}',
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.ink,
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppColors.ink.withOpacity(0.06),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  'Tank ${nozzle.tankCode} · ${CurrencyFormatter.formatNaira(nozzle.pricePerLitre)}/L',
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 12),
                           Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text('Opening (L)', style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                                    const Text('Opening Dial (L)', style: TextStyle(fontSize: 13, color: AppColors.muted)),
                                     const SizedBox(height: 4),
                                     TextFormField(
                                       initialValue: nozzle.openingReading.toStringAsFixed(1),
                                       readOnly: true,
-                                      style: const TextStyle(fontWeight: FontWeight.w600),
+                                      style: const TextStyle(fontWeight: FontWeight.bold),
                                     ),
                                   ],
                                 ),
                               ),
-                              const SizedBox(width: 10),
+                              const SizedBox(width: 12),
                               Expanded(
+                                flex: 2,
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text('Closing (L)', style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                                    const Text('Closing Dial (L) *', style: TextStyle(fontSize: 13, color: AppColors.ink, fontWeight: FontWeight.w600)),
                                     const SizedBox(height: 4),
                                     TextField(
                                       controller: _controllers[nozzle.nozzleNumber],
                                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                      decoration: const InputDecoration(
-                                        hintText: 'Enter closing',
+                                      decoration: InputDecoration(
+                                        hintText: 'e.g. ${(nozzle.openingReading + 500).toStringAsFixed(1)}',
+                                        errorText: err,
+                                        errorMaxLines: 2,
+                                        suffixText: 'L',
                                       ),
                                       onChanged: (val) => _onClosingChanged(nozzle, val),
                                     ),
                                   ],
                                 ),
                               ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('Price (₦/L)', style: TextStyle(fontSize: 13, color: AppColors.muted)),
-                                    const SizedBox(height: 4),
-                                    TextFormField(
-                                      initialValue: nozzle.pricePerLitre.toStringAsFixed(0),
-                                      readOnly: true,
-                                      style: const TextStyle(fontWeight: FontWeight.w600),
-                                    ),
-                                  ],
-                                ),
-                              ),
                             ],
                           ),
                           const SizedBox(height: 12),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              RichText(
-                                text: TextSpan(
-                                  text: 'Litres sold: ',
-                                  style: const TextStyle(fontSize: 15, color: AppColors.muted),
-                                  children: [
-                                    TextSpan(
-                                      text: CurrencyFormatter.formatLitres(nozzle.litresSold),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: AppColors.ink,
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppColors.background,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                RichText(
+                                  text: TextSpan(
+                                    text: 'Litres sold: ',
+                                    style: const TextStyle(fontSize: 14, color: AppColors.muted),
+                                    children: [
+                                      TextSpan(
+                                        text: CurrencyFormatter.formatLitres(nozzle.litresSold),
+                                        style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.ink),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
-                              ),
-                              Text(
-                                CurrencyFormatter.formatNaira(nozzle.salesValue),
-                                style: const TextStyle(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.ink,
+                                Text(
+                                  CurrencyFormatter.formatNaira(nozzle.salesValue),
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.ok,
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ],
                       ),
@@ -208,20 +288,22 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen> {
                   );
                 }).toList(),
 
-                // Total Expected Sales Summary Card
+                // Total Summary Card
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'Total expected sales',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.ink,
-                          ),
+                        const Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Total Expected Sales Value',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
+                            ),
+                            Text('Carried to remittance declaration', style: TextStyle(fontSize: 12, color: AppColors.muted)),
+                          ],
                         ),
                         Text(
                           CurrencyFormatter.formatNaira(_totalExpectedSales),
@@ -250,16 +332,17 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen> {
           children: [
             Expanded(
               flex: 2,
-              child: ElevatedButton(
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.check_circle_outline),
                 onPressed: _submit,
-                child: const Text('Submit readings'),
+                label: const Text('Save dials & proceed to remittance'),
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: OutlinedButton(
                 onPressed: widget.onBack,
-                child: const Text('Save draft'),
+                child: const Text('Cancel'),
               ),
             ),
           ],

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/status_chip.dart';
+import '../../state/station_app_state.dart';
 
 class FuelDeliveryScreen extends StatefulWidget {
   final VoidCallback onBack;
@@ -18,7 +19,9 @@ class FuelDeliveryScreen extends StatefulWidget {
 }
 
 class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
-  String _selectedTank = 'T1 (PMS)';
+  final state = StationAppState.instance;
+
+  String _selectedTank = 'T1';
   final TextEditingController _supplierController = TextEditingController(text: 'Matrix Energy Ltd');
   final TextEditingController _waybillNumberController = TextEditingController(text: 'WB-99412');
   final TextEditingController _statedLitresController = TextEditingController(text: '33000');
@@ -32,6 +35,7 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
   double get _dipAfter => double.tryParse(_dipAfterController.text.trim()) ?? 0.0;
   double get _receivedLitres => (_dipAfter > _dipBefore) ? (_dipAfter - _dipBefore) : 0.0;
   double get _discrepancy => _receivedLitres - _statedLitres;
+  double get _purchasePrice => double.tryParse(_pricePerLitreController.text.trim()) ?? 940.0;
 
   @override
   void dispose() {
@@ -47,19 +51,35 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
   void _submit() {
     if (_receivedLitres <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Dip after delivery must be greater than dip before')),
+        const SnackBar(
+          backgroundColor: AppColors.bad,
+          behavior: SnackBarBehavior.floating,
+          content: Text('Dip after delivery must be greater than dip before.'),
+        ),
       );
       return;
     }
 
+    state.recordFuelDelivery(
+      tankCode: _selectedTank,
+      supplier: _supplierController.text.trim(),
+      waybillNumber: _waybillNumberController.text.trim(),
+      statedLitres: _statedLitres,
+      dipBefore: _dipBefore,
+      dipAfter: _dipAfter,
+      purchasePrice: _purchasePrice,
+    );
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         backgroundColor: AppColors.ok,
+        behavior: SnackBarBehavior.floating,
         content: Text(
-          'Fuel delivery of ${CurrencyFormatter.formatLitres(_receivedLitres)} logged for Tank $_selectedTank (Discrepancy: ${CurrencyFormatter.formatLitres(_discrepancy)}).',
+          'Fuel delivery of ${CurrencyFormatter.formatLitres(_receivedLitres)} added to Tank $_selectedTank! Book stock updated in real-time.',
         ),
       ),
     );
+
     widget.onSuccess();
   }
 
@@ -71,11 +91,11 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
           icon: const Icon(Icons.arrow_back),
           onPressed: widget.onBack,
         ),
-        title: const Column(
+        title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Record Fuel Delivery', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('Tanker Discharge & Waybill Entry (§3.7–§3.9)', style: TextStyle(fontSize: 13, color: Colors.white70)),
+            const Text('Record Fuel Delivery', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text('${state.currentUser.displayName} · Tanker Discharge Audit (§3.7–§3.9)', style: const TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
       ),
@@ -97,7 +117,7 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Compare physical Before & After tank dips against stated truck waybill volume.',
+                  'Measure physical Before & After tank dip levels to calculate actual delivered volume and identify transit shortage/gain.',
                   style: TextStyle(fontSize: 15, color: AppColors.muted),
                 ),
                 const SizedBox(height: 16),
@@ -114,15 +134,16 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Receiving Tank', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                                  const Text('Receiving Tank', style: TextStyle(fontSize: 13, color: AppColors.muted)),
                                   const SizedBox(height: 6),
                                   DropdownButtonFormField<String>(
                                     value: _selectedTank,
-                                    items: const [
-                                      DropdownMenuItem(value: 'T1 (PMS)', child: Text('Tank T1 · PMS (45,000 L)')),
-                                      DropdownMenuItem(value: 'T2 (PMS)', child: Text('Tank T2 · PMS (45,000 L)')),
-                                      DropdownMenuItem(value: 'T3 (AGO)', child: Text('Tank T3 · AGO (33,000 L)')),
-                                    ],
+                                    items: state.tanks.map((t) {
+                                      return DropdownMenuItem(
+                                        value: t.code,
+                                        child: Text('Tank ${t.code} · ${t.product} (Cap: ${CurrencyFormatter.formatLitres(t.capacity)})'),
+                                      );
+                                    }).toList(),
                                     onChanged: (v) => setState(() => _selectedTank = v!),
                                   ),
                                 ],
@@ -133,7 +154,7 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Supplier Name', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                                  const Text('Supplier Name', style: TextStyle(fontSize: 13, color: AppColors.muted)),
                                   const SizedBox(height: 6),
                                   TextField(
                                     controller: _supplierController,
@@ -153,7 +174,7 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Waybill Number', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                                  const Text('Waybill Number', style: TextStyle(fontSize: 13, color: AppColors.muted)),
                                   const SizedBox(height: 6),
                                   TextField(
                                     controller: _waybillNumberController,
@@ -167,7 +188,7 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Stated Litres (Waybill)', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                                  const Text('Stated Litres on Waybill', style: TextStyle(fontSize: 13, color: AppColors.muted)),
                                   const SizedBox(height: 6),
                                   TextField(
                                     controller: _statedLitresController,
@@ -189,7 +210,7 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Dip BEFORE Delivery (L)', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                                  const Text('Dip BEFORE Discharge (L)', style: TextStyle(fontSize: 13, color: AppColors.muted)),
                                   const SizedBox(height: 6),
                                   TextField(
                                     controller: _dipBeforeController,
@@ -205,7 +226,7 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Dip AFTER Delivery (L)', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                                  const Text('Dip AFTER Discharge (L)', style: TextStyle(fontSize: 13, color: AppColors.muted)),
                                   const SizedBox(height: 6),
                                   TextField(
                                     controller: _dipAfterController,
@@ -258,7 +279,7 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
                   ),
                 ),
 
-                // Delivery Reconciliation Summary
+                // Live Delivery Reconciliation Card
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
@@ -266,24 +287,20 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
                       children: [
                         _buildRow('Stated Litres on Waybill', CurrencyFormatter.formatLitres(_statedLitres)),
                         const Divider(color: AppColors.line),
-                        _buildRow('Actual Received Litres (Dip Diff)', CurrencyFormatter.formatLitres(_receivedLitres)),
+                        _buildRow('Actual Received Litres (Dip After − Dip Before)', CurrencyFormatter.formatLitres(_receivedLitres)),
                         const Divider(color: AppColors.line),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             const Text(
-                              'Discrepancy (Loss / Gain)',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
+                              'Discrepancy (Transit Loss/Gain)',
+                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.ink),
                             ),
-                            Row(
-                              children: [
-                                StatusChip(
-                                  label: _discrepancy < 0
-                                      ? 'Shortage ${CurrencyFormatter.formatLitres(_discrepancy)}'
-                                      : (_discrepancy > 0 ? '+${CurrencyFormatter.formatLitres(_discrepancy)}' : 'Exact match'),
-                                  type: _discrepancy < 0 ? ChipType.bad : ChipType.ok,
-                                ),
-                              ],
+                            StatusChip(
+                              label: _discrepancy < 0
+                                  ? 'Shortage ${CurrencyFormatter.formatLitres(_discrepancy)}'
+                                  : (_discrepancy > 0 ? '+${CurrencyFormatter.formatLitres(_discrepancy)}' : 'Exact match'),
+                              type: _discrepancy < 0 ? ChipType.bad : ChipType.ok,
                             ),
                           ],
                         ),
@@ -306,9 +323,10 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
           children: [
             Expanded(
               flex: 2,
-              child: ElevatedButton(
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.local_shipping),
                 onPressed: _submit,
-                child: const Text('Save fuel delivery record'),
+                label: const Text('Save delivery & update stock'),
               ),
             ),
             const SizedBox(width: 10),
@@ -330,8 +348,8 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(title, style: const TextStyle(fontSize: 15, color: AppColors.ink)),
-          Text(val, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink)),
+          Text(title, style: const TextStyle(fontSize: 14, color: AppColors.ink)),
+          Text(val, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.ink)),
         ],
       ),
     );

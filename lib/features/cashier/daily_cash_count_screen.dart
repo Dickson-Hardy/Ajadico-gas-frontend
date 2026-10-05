@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/status_chip.dart';
+import '../../state/station_app_state.dart';
 
 class DailyCashCountScreen extends StatefulWidget {
   final VoidCallback onBack;
@@ -13,47 +14,74 @@ class DailyCashCountScreen extends StatefulWidget {
 }
 
 class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
-  final Map<int, int> _counts = {
-    1000: 0,
-    500: 0,
-    200: 0,
-    100: 0,
-    50: 0,
-    20: 0,
-    10: 0,
-  };
+  final state = StationAppState.instance;
 
-  // Expected Cash equation numbers
-  final double _openingCash = 120000.0;
-  final double _cashReceipts = 640000.0;
-  final double _cashExpenses = 45000.0;
-  final double _handedOverForDeposit = 500000.0;
+  final Map<int, TextEditingController> _controllers = {};
 
-  double get _expectedClosingCash =>
-      _openingCash + _cashReceipts - _cashExpenses - _handedOverForDeposit; // 215,000
-
-  double get _totalCounted {
-    double sum = 0;
-    _counts.forEach((denom, count) {
-      sum += (denom * count);
+  @override
+  void initState() {
+    super.initState();
+    state.addListener(_onStateChanged);
+    state.cashCounts.forEach((denom, count) {
+      _controllers[denom] = TextEditingController(text: count > 0 ? count.toString() : '');
     });
-    return sum;
   }
 
-  double get _variance => _totalCounted - _expectedClosingCash;
+  @override
+  void dispose() {
+    state.removeListener(_onStateChanged);
+    for (var c in _controllers.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  void _onStateChanged() {
+    if (mounted) setState(() {});
+  }
 
   void _onCountChanged(int denom, String val) {
     final count = int.tryParse(val.trim()) ?? 0;
+    state.updateCashCount(denom, count);
+  }
+
+  void _quickCountBalanced() {
     setState(() {
-      _counts[denom] = count;
+      // Set notes to match expected cash exactly
+      final target = state.expectedClosingCash;
+      final k1000 = (target ~/ 1000);
+      final remainder = (target % 1000);
+      final k500 = remainder ~/ 500;
+      final remainder2 = remainder % 500;
+      final k200 = remainder2 ~/ 200;
+
+      state.updateCashCount(1000, k1000);
+      _controllers[1000]?.text = k1000.toString();
+
+      state.updateCashCount(500, k500);
+      _controllers[500]?.text = k500.toString();
+
+      state.updateCashCount(200, k200);
+      _controllers[200]?.text = k200.toString();
     });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: AppColors.ok,
+        behavior: SnackBarBehavior.floating,
+        content: Text('Simulated physical note count matching expected closing cash.'),
+      ),
+    );
   }
 
   void _saveCount() {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         backgroundColor: AppColors.ok,
-        content: Text('Daily physical cash count saved. Total: ${CurrencyFormatter.formatNaira(_totalCounted)}'),
+        behavior: SnackBarBehavior.floating,
+        content: Text(
+          'Physical cash count saved: ${CurrencyFormatter.formatNaira(state.totalCountedCash)}. Variance: ${CurrencyFormatter.formatVariance(state.cashDrawerVariance)}',
+        ),
       ),
     );
   }
@@ -61,6 +89,9 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
   @override
   Widget build(BuildContext context) {
     final denoms = [1000, 500, 200, 100, 50, 20, 10];
+    final expected = state.expectedClosingCash;
+    final counted = state.totalCountedCash;
+    final diff = state.cashDrawerVariance;
 
     return Scaffold(
       appBar: AppBar(
@@ -68,24 +99,31 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
           icon: const Icon(Icons.arrow_back),
           onPressed: widget.onBack,
         ),
-        title: const Column(
+        title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Daily Cash Count', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('Cashier · Chidi E. · Lekki Road', style: TextStyle(fontSize: 13, color: Colors.white70)),
+            const Text('Daily Physical Cash Audit', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text('${state.currentUser.displayName} · Station Safe Cash Count (§5.3)', style: const TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
+        actions: [
+          TextButton.icon(
+            icon: const Icon(Icons.auto_fix_high, color: Colors.white, size: 16),
+            label: const Text('Auto-Count Notes', style: TextStyle(color: Colors.white, fontSize: 13)),
+            onPressed: _quickCountBalanced,
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 900),
+            constraints: const BoxConstraints(maxWidth: 950),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Daily cash count',
+                  'Physical note count & drawer audit',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -94,7 +132,7 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Count the notes. Expected cash is worked out for you.',
+                  'Count physical bank notes in the cashier safe. The expected closing cash formula updates dynamically from verified shifts and expenses (§5.3).',
                   style: TextStyle(fontSize: 15, color: AppColors.muted),
                 ),
                 const SizedBox(height: 16),
@@ -106,7 +144,7 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
                       direction: isNarrow ? Axis.vertical : Axis.horizontal,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Left: Denominations Table
+                        // Left: Denominations Input
                         Expanded(
                           flex: isNarrow ? 0 : 6,
                           child: Card(
@@ -116,28 +154,29 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   const Text(
-                                    'Denominations',
-                                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
+                                    '1. Denomination breakdown',
+                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
                                   ),
                                   const SizedBox(height: 12),
                                   ...denoms.map((d) {
-                                    final subtotal = d * (_counts[d] ?? 0);
+                                    final count = state.cashCounts[d] ?? 0;
+                                    final subtotal = d * count;
                                     return Padding(
-                                      padding: const EdgeInsets.symmetric(vertical: 6),
+                                      padding: const EdgeInsets.symmetric(vertical: 4),
                                       child: Row(
                                         children: [
                                           SizedBox(
-                                            width: 70,
+                                            width: 75,
                                             child: Text(
                                               '₦$d',
-                                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                                             ),
                                           ),
-                                          const SizedBox(width: 10),
+                                          const SizedBox(width: 8),
                                           SizedBox(
                                             width: 100,
-                                            child: TextFormField(
-                                              initialValue: _counts[d] == 0 ? '' : _counts[d].toString(),
+                                            child: TextField(
+                                              controller: _controllers[d],
                                               keyboardType: TextInputType.number,
                                               decoration: const InputDecoration(
                                                 hintText: '0',
@@ -151,7 +190,7 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
                                             CurrencyFormatter.formatNaira(subtotal),
                                             style: const TextStyle(
                                               fontWeight: FontWeight.bold,
-                                              fontSize: 16,
+                                              fontSize: 15,
                                               color: AppColors.ink,
                                             ),
                                           ),
@@ -159,6 +198,17 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
                                       ),
                                     );
                                   }).toList(),
+                                  const Divider(color: AppColors.line),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('Total Physical Notes Counted', style: TextStyle(fontWeight: FontWeight.bold)),
+                                      Text(
+                                        CurrencyFormatter.formatNaira(counted),
+                                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.ink),
+                                      ),
+                                    ],
+                                  ),
                                 ],
                               ),
                             ),
@@ -167,7 +217,7 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
 
                         if (!isNarrow) const SizedBox(width: 16),
 
-                        // Right: Expected Closing Cash & Reconciliation Formula
+                        // Right: Live Expected Cash Equation Card
                         Expanded(
                           flex: isNarrow ? 0 : 5,
                           child: Card(
@@ -177,51 +227,46 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   const Text(
-                                    'Expected closing cash',
-                                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
+                                    '2. Expected closing cash formula',
+                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
                                   ),
                                   const SizedBox(height: 12),
-                                  _buildEqRow('Opening cash', CurrencyFormatter.formatNaira(_openingCash)),
-                                  _buildEqRow('+ Cash receipts', CurrencyFormatter.formatNaira(_cashReceipts)),
-                                  _buildEqRow('− Cash expenses', CurrencyFormatter.formatNaira(_cashExpenses)),
-                                  _buildEqRow('− Handed over for deposit', CurrencyFormatter.formatNaira(_handedOverForDeposit)),
+                                  _buildEqRow('Opening cash in drawer', CurrencyFormatter.formatNaira(state.openingCash)),
+                                  _buildEqRow('+ Verified shift cash receipts', CurrencyFormatter.formatNaira(state.totalVerifiedCashReceipts), isGreen: true),
+                                  _buildEqRow('− Cash expenses paid from drawer', CurrencyFormatter.formatNaira(state.totalPhysicalCashExpenses)),
+                                  _buildEqRow('− Handed over for bank deposit', CurrencyFormatter.formatNaira(state.totalHandedOverDeposits)),
                                   const Divider(color: AppColors.line),
-                                  _buildEqRow(
-                                    'Expected',
-                                    CurrencyFormatter.formatNaira(_expectedClosingCash),
-                                    isBold: true,
-                                  ),
+                                  _buildEqRow('Target Expected Closing Cash', CurrencyFormatter.formatNaira(expected), isBold: true),
                                   const SizedBox(height: 16),
+
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      const Text('Counted', style: TextStyle(fontSize: 16, color: AppColors.ink)),
+                                      const Text('Counted in safe', style: TextStyle(fontSize: 15, color: AppColors.muted)),
                                       Text(
-                                        CurrencyFormatter.formatNaira(_totalCounted),
-                                        style: const TextStyle(
-                                          fontSize: 24,
-                                          fontWeight: FontWeight.bold,
-                                          color: AppColors.ink,
-                                        ),
+                                        CurrencyFormatter.formatNaira(counted),
+                                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 8),
+                                  const SizedBox(height: 6),
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
-                                      const Text('Difference', style: TextStyle(fontSize: 16, color: AppColors.ink)),
+                                      const Text('Safe Drawer Variance', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                                       Text(
-                                        CurrencyFormatter.formatVariance(_variance),
+                                        CurrencyFormatter.formatVariance(diff),
                                         style: TextStyle(
                                           fontSize: 24,
                                           fontWeight: FontWeight.bold,
-                                          color: _variance < 0 ? AppColors.bad : (_variance > 0 ? AppColors.ok : AppColors.ink),
+                                          color: diff < 0 ? AppColors.bad : (diff > 0 ? AppColors.ok : AppColors.ink),
                                         ),
                                       ),
                                     ],
                                   ),
                                   const SizedBox(height: 20),
+
+                                  // Handed over deposits badge
                                   Container(
                                     padding: const EdgeInsets.all(12),
                                     decoration: BoxDecoration(
@@ -235,8 +280,8 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
                                         const SizedBox(width: 8),
                                         Expanded(
                                           child: Text(
-                                            '${CurrencyFormatter.formatNaira(_handedOverForDeposit)} handed over, awaiting Senior bank alert confirmation.',
-                                            style: const TextStyle(fontSize: 13, color: AppColors.muted),
+                                            '${CurrencyFormatter.formatNaira(state.totalHandedOverDeposits)} handed over to bank, awaiting Senior credit alert verification (§5.5).',
+                                            style: const TextStyle(fontSize: 12, color: AppColors.muted),
                                           ),
                                         ),
                                       ],
@@ -265,9 +310,10 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
         child: Row(
           children: [
             Expanded(
-              child: ElevatedButton(
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.lock_clock),
                 onPressed: _saveCount,
-                child: const Text('Save count'),
+                label: const Text('Save verified cash count & lock drawer'),
               ),
             ),
           ],
@@ -276,14 +322,21 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
     );
   }
 
-  Widget _buildEqRow(String title, String val, {bool isBold = false}) {
+  Widget _buildEqRow(String title, String val, {bool isBold = false, bool isGreen = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(title, style: TextStyle(fontWeight: isBold ? FontWeight.bold : FontWeight.normal, color: AppColors.ink)),
-          Text(val, style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.ink)),
+          Text(
+            val,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: isGreen ? AppColors.ok : AppColors.ink,
+              fontSize: isBold ? 16 : 14,
+            ),
+          ),
         ],
       ),
     );

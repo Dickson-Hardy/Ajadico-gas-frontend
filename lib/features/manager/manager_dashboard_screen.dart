@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/status_chip.dart';
+import '../../state/station_app_state.dart';
 
-class ManagerDashboardScreen extends StatelessWidget {
+class ManagerDashboardScreen extends StatefulWidget {
   final VoidCallback onOpenVerificationQueue;
   final VoidCallback onOpenCashCount;
   final VoidCallback onOpenCreditCustomers;
@@ -17,26 +19,65 @@ class ManagerDashboardScreen extends StatelessWidget {
   });
 
   @override
+  State<ManagerDashboardScreen> createState() => _ManagerDashboardScreenState();
+}
+
+class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
+  final state = StationAppState.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    state.addListener(_onStateChanged);
+  }
+
+  @override
+  void dispose() {
+    state.removeListener(_onStateChanged);
+    super.dispose();
+  }
+
+  void _onStateChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   Widget build(BuildContext context) {
+    // Dynamic KPI Aggregation
+    double pmsSold = 6420.0;
+    double agoSold = 2150.0;
+    for (var n in state.nozzles) {
+      if (n.productName == 'PMS') pmsSold += n.litresSold;
+      if (n.productName == 'AGO') agoSold += n.litresSold;
+    }
+
+    final totalSalesValue = state.submissions.fold(0.0, (s, sub) => s + sub.expectedSalesValue);
+    final totalCreditGiven = state.creditCustomers.fold(0.0, (s, c) => s + c.outstanding);
+    final totalExpenses = state.expenses.fold(0.0, (s, e) => s + e.amount) + 145000.0;
+    final totalDepositsPending = state.deposits.where((d) => !d.isConfirmed).fold(0.0, (s, d) => s + d.amount);
+
+    final pendingVerifications = state.submissions.where((s) => s.status == 'Pending Verification').length;
+    final unresolvedDifferences = state.submissions.where((s) => s.status == 'Flagged Unresolved').length + state.salaryAdjustments.where((a) => a.status == 'Pending Review').length;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Column(
+        title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Manager Dashboard', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('Branch Manager · Lekki Road · Today', style: TextStyle(fontSize: 13, color: Colors.white70)),
+            const Text('Branch Manager Dashboard', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text('${state.currentUser.displayName} · Lekki Road Station · Today', style: const TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
         actions: [
           IconButton(
             icon: const Icon(Icons.people_outline),
             tooltip: 'Credit Customers',
-            onPressed: onOpenCreditCustomers,
+            onPressed: widget.onOpenCreditCustomers,
           ),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Log out',
-            onPressed: onLogout,
+            onPressed: widget.onLogout,
           ),
         ],
       ),
@@ -48,18 +89,32 @@ class ManagerDashboardScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Today at Lekki Road',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.ink,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  'Status of both shifts and what needs your attention.',
-                  style: TextStyle(fontSize: 15, color: AppColors.muted),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Today at Lekki Road',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.ink,
+                          ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          'Real-time operational status, forecourt exceptions, and cash movements.',
+                          style: TextStyle(fontSize: 15, color: AppColors.muted),
+                        ),
+                      ],
+                    ),
+                    StatusChip(
+                      label: pendingVerifications > 0 ? '$pendingVerifications Submissions Need Audit' : 'All Clear',
+                      type: pendingVerifications > 0 ? ChipType.warn : ChipType.ok,
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 16),
 
@@ -71,12 +126,12 @@ class ManagerDashboardScreen extends StatelessWidget {
                       spacing: 12,
                       runSpacing: 12,
                       children: [
-                        _buildKpiCard('PMS sold', '6,420 L', itemWidth),
-                        _buildKpiCard('AGO sold', '2,150 L', itemWidth),
-                        _buildKpiCard('Sales value', '₦9.58M', itemWidth),
-                        _buildKpiCard('Credit given', '₦620,000', itemWidth),
-                        _buildKpiCard('Expenses', '₦145,000', itemWidth),
-                        _buildKpiCard('Deposits pending', '₦1.5M', itemWidth),
+                        _buildKpiCard('PMS Sold', CurrencyFormatter.formatLitres(pmsSold), itemWidth),
+                        _buildKpiCard('AGO Sold', CurrencyFormatter.formatLitres(agoSold), itemWidth),
+                        _buildKpiCard('Sales Value', CurrencyFormatter.formatNaira(totalSalesValue > 0 ? totalSalesValue : 9580000), itemWidth, isGreen: true),
+                        _buildKpiCard('Credit Given', CurrencyFormatter.formatNaira(totalCreditGiven), itemWidth),
+                        _buildKpiCard('Expenses', CurrencyFormatter.formatNaira(totalExpenses), itemWidth),
+                        _buildKpiCard('Deposits Pending', CurrencyFormatter.formatNaira(totalDepositsPending > 0 ? totalDepositsPending : 1500000), itemWidth, isBlue: true),
                       ],
                     );
                   },
@@ -84,7 +139,7 @@ class ManagerDashboardScreen extends StatelessWidget {
 
                 const SizedBox(height: 16),
 
-                // 2 Operational Summary Cards: Needs Attention & Shift Status
+                // Operational Summary Cards
                 LayoutBuilder(
                   builder: (context, constraints) {
                     final isNarrow = constraints.maxWidth < 650;
@@ -92,7 +147,7 @@ class ManagerDashboardScreen extends StatelessWidget {
                       direction: isNarrow ? Axis.vertical : Axis.horizontal,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Needs attention
+                        // Left: Needs attention
                         Expanded(
                           flex: isNarrow ? 0 : 1,
                           child: Card(
@@ -106,10 +161,26 @@ class ManagerDashboardScreen extends StatelessWidget {
                                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
                                   ),
                                   const SizedBox(height: 12),
-                                  _buildActionRow('Submissions to verify', const StatusChip(label: '3', type: ChipType.warn)),
-                                  _buildActionRow('Unresolved differences', const StatusChip(label: '1', type: ChipType.bad)),
-                                  _buildActionRow('Tank T2 dip vs calculated', const StatusChip(label: '−120 L', type: ChipType.bad)),
-                                  _buildActionRow('Low stock: AGO T3', const StatusChip(label: 'Low', type: ChipType.warn)),
+                                  _buildActionRow(
+                                    'Submissions to verify',
+                                    StatusChip(label: '$pendingVerifications', type: pendingVerifications > 0 ? ChipType.warn : ChipType.ok),
+                                  ),
+                                  _buildActionRow(
+                                    'Unresolved differences',
+                                    StatusChip(label: '$unresolvedDifferences', type: unresolvedDifferences > 0 ? ChipType.bad : ChipType.ok),
+                                  ),
+                                  ...state.tanks.where((t) => t.hasDeficit).map((t) {
+                                    return _buildActionRow(
+                                      'Tank ${t.code} dip vs calculated',
+                                      StatusChip(label: '${t.variance.toStringAsFixed(0)} L', type: ChipType.bad),
+                                    );
+                                  }),
+                                  ...state.tanks.where((t) => t.isLowStock).map((t) {
+                                    return _buildActionRow(
+                                      'Low stock: ${t.product} ${t.code}',
+                                      const StatusChip(label: 'Low', type: ChipType.warn),
+                                    );
+                                  }),
                                 ],
                               ),
                             ),
@@ -118,7 +189,7 @@ class ManagerDashboardScreen extends StatelessWidget {
 
                         if (!isNarrow) const SizedBox(width: 16),
 
-                        // Shifts
+                        // Right: Shifts Status
                         Expanded(
                           flex: isNarrow ? 0 : 1,
                           child: Card(
@@ -128,12 +199,31 @@ class ManagerDashboardScreen extends StatelessWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   const Text(
-                                    'Shifts',
+                                    'Shift operations',
                                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
                                   ),
                                   const SizedBox(height: 12),
-                                  _buildActionRow('Morning', const StatusChip(label: 'Verified', type: ChipType.ok)),
-                                  _buildActionRow('Afternoon / evening', const StatusChip(label: 'In progress', type: ChipType.warn)),
+                                  _buildActionRow(
+                                    'Morning Shift',
+                                    StatusChip(
+                                      label: pendingVerifications > 0 ? 'Verification Pending' : 'Verified & Locked',
+                                      type: pendingVerifications > 0 ? ChipType.warn : ChipType.ok,
+                                    ),
+                                  ),
+                                  _buildActionRow(
+                                    'Afternoon / Evening Shift',
+                                    const StatusChip(label: 'In progress', type: ChipType.warn),
+                                  ),
+                                  const Divider(color: AppColors.line),
+                                  const Text(
+                                    'Active Prices (Authorized by Senior):',
+                                    style: TextStyle(fontSize: 13, color: AppColors.muted),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'PMS: ${CurrencyFormatter.formatNaira(state.pmsPrice)}/L | AGO: ${CurrencyFormatter.formatNaira(state.agoPrice)}/L',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                  ),
                                 ],
                               ),
                             ),
@@ -158,27 +248,18 @@ class ManagerDashboardScreen extends StatelessWidget {
           children: [
             Expanded(
               flex: 2,
-              child: ElevatedButton(
-                onPressed: onOpenVerificationQueue,
-                child: const Text('Verification queue'),
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.playlist_add_check),
+                onPressed: widget.onOpenVerificationQueue,
+                label: const Text('Verification queue'),
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: OutlinedButton(
-                onPressed: onOpenCashCount,
-                child: const Text('Cash count'),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: OutlinedButton(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Delivery log form: Waybill & tank before/after dip entry')),
-                  );
-                },
-                child: const Text('Record delivery'),
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.point_of_sale),
+                onPressed: widget.onOpenCashCount,
+                label: const Text('Cash count'),
               ),
             ),
           ],
@@ -187,7 +268,7 @@ class ManagerDashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildKpiCard(String label, String value, double width) {
+  Widget _buildKpiCard(String label, String value, double width, {bool isGreen = false, bool isBlue = false}) {
     return SizedBox(
       width: width,
       child: Card(
@@ -196,14 +277,14 @@ class ManagerDashboardScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: const TextStyle(fontSize: 14, color: AppColors.muted)),
+              Text(label, style: const TextStyle(fontSize: 13, color: AppColors.muted)),
               const SizedBox(height: 6),
               Text(
                 value,
-                style: const TextStyle(
-                  fontSize: 24,
+                style: TextStyle(
+                  fontSize: 22,
                   fontWeight: FontWeight.bold,
-                  color: AppColors.ink,
+                  color: isGreen ? AppColors.ok : (isBlue ? AppColors.bank : AppColors.ink),
                 ),
               ),
             ],
@@ -219,7 +300,7 @@ class ManagerDashboardScreen extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(fontSize: 15, color: AppColors.ink)),
+          Text(label, style: const TextStyle(fontSize: 14, color: AppColors.ink)),
           chip,
         ],
       ),
