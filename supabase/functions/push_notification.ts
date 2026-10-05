@@ -5,8 +5,6 @@
 // via Firebase Cloud Messaging (FCM) based on Supabase Database Webhooks.
 // =============================================================================
 
-import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-
 interface WebhookPayload {
   type: "INSERT" | "UPDATE" | "DELETE";
   table: string;
@@ -27,7 +25,7 @@ interface PushMessage {
 const FCM_SERVER_KEY = Deno.env.get("FCM_SERVER_KEY") || "";
 const FCM_PROJECT_ID = Deno.env.get("FIREBASE_PROJECT_ID") || "ajadico-energy";
 
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
   // CORS headers
   const headers = {
     "Content-Type": "application/json",
