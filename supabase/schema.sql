@@ -349,6 +349,26 @@ CREATE TABLE IF NOT EXISTS public.daily_cash_counts (
 );
 
 -- -----------------------------------------------------------------------------
+-- 10b. BANK DEPOSITS & DUAL-CUSTODY AUDIT TRAIL (§4.3, §5.4, §5.5)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.bank_deposits (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    station_id UUID REFERENCES public.stations(id) ON DELETE CASCADE,
+    business_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    amount NUMERIC(14, 2) NOT NULL CHECK (amount > 0),
+    bank_name VARCHAR(100) NOT NULL,
+    bearer_name VARCHAR(100) NOT NULL,
+    teller_number VARCHAR(100),
+    slip_url TEXT,
+    notes TEXT,
+    status VARCHAR(30) DEFAULT 'awaiting_bank', -- 'awaiting_bank', 'confirmed', 'discrepancy'
+    confirmed_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    confirmed_at TIMESTAMPTZ,
+    director_notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- -----------------------------------------------------------------------------
 -- 11. BRANCH EXPENSES (§5.1, §5.2)
 -- -----------------------------------------------------------------------------
 CREATE TYPE public.payment_source AS ENUM ('sales_cash', 'bank_transfer');

@@ -3,6 +3,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/status_chip.dart';
 import '../../state/station_app_state.dart';
+import 'bank_deposit_dialog.dart';
 
 class DailyCashCountScreen extends StatefulWidget {
   final VoidCallback onBack;
@@ -53,6 +54,18 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
         content: Text(
           'Physical cash count saved: ${CurrencyFormatter.formatNaira(state.totalCountedCash)}. Variance: ${CurrencyFormatter.formatVariance(state.cashDrawerVariance)}',
         ),
+      ),
+    );
+  }
+
+  void _openBankDepositDialog(double availableCash) {
+    showDialog(
+      context: context,
+      builder: (context) => BankDepositDialog(
+        availableCash: availableCash,
+        onDepositRecorded: () {
+          setState(() {});
+        },
       ),
     );
   }
@@ -250,6 +263,19 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
                                           ),
                                         ),
                                       ],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 14),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: ElevatedButton.icon(
+                                      icon: const Icon(Icons.account_balance),
+                                      label: const Text('Hand Over Cash for Bank Deposit'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: AppColors.bank,
+                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                      ),
+                                      onPressed: () => _openBankDepositDialog(counted > 0 ? counted : expected),
                                     ),
                                   ),
                                 ],

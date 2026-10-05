@@ -5,6 +5,7 @@ import '../core/notifications/notification_service.dart';
 import '../core/offline/offline_sync_service.dart';
 import '../core/offline/sync_queue_item.dart';
 import '../core/utils/currency_formatter.dart';
+import '../models/bank_deposit.dart';
 import '../models/credit_customer.dart';
 import '../models/interim_cash_drop.dart';
 import '../models/nozzle.dart';
@@ -158,28 +159,6 @@ class SalaryAdjustment {
     required this.amount,
     this.status = 'Pending Review',
     required this.recordedAt,
-  });
-}
-
-class BankDepositRecord {
-  final String id;
-  final String stationName;
-  final double amount;
-  final String cashierName;
-  final String bankName;
-  final DateTime handedOverAt;
-  bool isConfirmed;
-  DateTime? confirmedAt;
-
-  BankDepositRecord({
-    required this.id,
-    required this.stationName,
-    required this.amount,
-    required this.cashierName,
-    required this.bankName,
-    required this.handedOverAt,
-    this.isConfirmed = false,
-    this.confirmedAt,
   });
 }
 
@@ -541,6 +520,11 @@ class StationAppState extends ChangeNotifier {
       final remotePos = await repo.fetchShiftPosTransactions(_currentStationCode);
       _posTransactions.clear();
       _posTransactions.addAll(remotePos);
+
+      // 10. Fetch live bank deposits (§4.3, §5.5)
+      final remoteDeposits = await repo.fetchBankDeposits(_currentStationCode);
+      _deposits.clear();
+      _deposits.addAll(remoteDeposits);
     } catch (e) {
       debugPrint('[Supabase Sync Error]: $e');
     } finally {
@@ -1020,29 +1004,121 @@ class StationAppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Director confirms bank deposit against bank alert (§4.3, §5.5)
-  void confirmBankDeposit(String depositId) {
-    final dep = _deposits.firstWhere((d) => d.id == depositId);
-    dep.isConfirmed = true;
-    dep.confirmedAt = DateTime.now();
-
-    _syncService.enqueue(
-      actionType: SyncActionType.bankDepositConfirmation,
-      payload: {
-        'id': depositId,
-        'confirmed_at': dep.confirmedAt!.toIso8601String(),
-      },
+  /// Record handover of cash for commercial bank deposit (§4.3, §5.4, §5.5)
+  Future<BankDepositRecord?> recordBankDeposit({
+    required double amount,
+    required String bankName,
+    required String bearerName,
+    String? tellerNumber,
+    String? slipUrl,
+    String? notes,
+  }) async {
+    final repo = SupabaseRepository.instance;
+    final dep = await repo.recordBankDeposit(
+      stationCode: _currentStationCode,
+      amount: amount,
+      bankName: bankName,
+      bearerName: bearerName,
+      tellerNumber: tellerNumber,
+      slipUrl: slipUrl,
+      notes: notes,
     );
 
-    _notifService.postNotification(
-      title: 'Bank Deposit Confirmed',
-      message: 'Director confirmed commercial bank credit alert for deposit ${dep.id} (${CurrencyFormatter.formatNaira(dep.amount)}).',
-      type: NotificationType.success,
-      targetRole: UserRole.cashier,
-      actionRouteName: '20 Bank Deposits',
+    if (dep != null) {
+      _deposits.removeWhere((d) => d.id == dep.id);
+      _deposits.insert(0, dep);
+
+      _syncService.enqueue(
+        actionType: SyncActionType.branchExpense,
+        payload: dep.toJson(),
+      );
+
+      _notifService.pushNotification(
+        ForecourtNotification(
+          id: 'NOTIF-DEP-${DateTime.now().millisecondsSinceEpoch}',
+          title: 'Bank Remittance Handed Over',
+          body: '$bearerName handed over ${CurrencyFormatter.formatNaira(amount)} for deposit into $bankName. Awaiting Director alert match.',
+          type: ForecourtNotificationType.compliance,
+          timestamp: DateTime.now(),
+          actionRouteName: '20 Bank Deposits',
+        ),
+      );
+
+      notifyListeners();
+    }
+    return dep;
+  }
+
+  /// Director confirms bank deposit against commercial bank credit alert (§4.3, §5.5)
+  Future<bool> confirmBankDeposit(String depositId, [String? directorNotes]) async {
+    final repo = SupabaseRepository.instance;
+    final ok = await repo.confirmBankDeposit(
+      depositId: depositId,
+      directorId: _currentUser.id,
+      directorNotes: directorNotes,
     );
 
-    notifyListeners();
+    final idx = _deposits.indexWhere((d) => d.id == depositId);
+    if (idx != -1) {
+      _deposits[idx].isConfirmed = true;
+      _deposits[idx].status = 'confirmed';
+      _deposits[idx].confirmedAt = DateTime.now();
+      _deposits[idx].confirmedBy = _currentUser.displayName;
+      _deposits[idx].directorNotes = directorNotes;
+
+      _syncService.enqueue(
+        actionType: SyncActionType.bankDepositConfirmation,
+        payload: {
+          'id': depositId,
+          'confirmed_at': _deposits[idx].confirmedAt!.toIso8601String(),
+          'director_notes': directorNotes,
+        },
+      );
+
+      _notifService.pushNotification(
+        ForecourtNotification(
+          id: 'NOTIF-CONF-${DateTime.now().millisecondsSinceEpoch}',
+          title: 'Bank Deposit Confirmed',
+          body: 'Director confirmed commercial bank credit alert for deposit $depositId (${CurrencyFormatter.formatNaira(_deposits[idx].amount)}).',
+          type: ForecourtNotificationType.stock,
+          timestamp: DateTime.now(),
+          actionRouteName: '17 Manager Dashboard',
+        ),
+      );
+
+      notifyListeners();
+    }
+    return ok;
+  }
+
+  /// Director flags a discrepancy on a bank deposit (§4.3, §5.5)
+  Future<bool> flagBankDepositDiscrepancy(String depositId, String discrepancyNotes) async {
+    final repo = SupabaseRepository.instance;
+    final ok = await repo.flagBankDepositDiscrepancy(
+      depositId: depositId,
+      directorId: _currentUser.id,
+      discrepancyNotes: discrepancyNotes,
+    );
+
+    final idx = _deposits.indexWhere((d) => d.id == depositId);
+    if (idx != -1) {
+      _deposits[idx].status = 'discrepancy';
+      _deposits[idx].directorNotes = discrepancyNotes;
+
+      _notifService.pushNotification(
+        ForecourtNotification(
+          id: 'NOTIF-DISC-${DateTime.now().millisecondsSinceEpoch}',
+          title: 'Bank Deposit Discrepancy Flagged',
+          body: 'Director flagged discrepancy on deposit of ${CurrencyFormatter.formatNaira(_deposits[idx].amount)}: $discrepancyNotes',
+          type: ForecourtNotificationType.compliance,
+          timestamp: DateTime.now(),
+          actionRouteName: '17 Manager Dashboard',
+        ),
+      );
+
+      notifyListeners();
+    }
+    return ok;
   }
 
   /// Cash count calculations
@@ -1081,10 +1157,18 @@ class StationAppState extends ChangeNotifier {
         .fold(0.0, (sum, d) => sum + d.amount);
   }
 
+  /// Interim cash drops that have been acknowledged but whose shift is NOT yet verified
+  double get totalUnverifiedInterimDrops {
+    final verifiedShiftIds = _submissions.where((s) => s.status == 'Verified').map((s) => s.id).toSet();
+    return _cashDrops
+        .where((d) => d.isAcknowledged && (d.shiftId == null || !verifiedShiftIds.contains(d.shiftId)))
+        .fold(0.0, (sum, d) => sum + d.amount);
+  }
+
   double get expectedClosingCash {
     return _openingCash +
         totalVerifiedCashReceipts +
-        totalAcknowledgedInterimDrops -
+        totalUnverifiedInterimDrops -
         totalPhysicalCashExpenses -
         totalHandedOverDeposits;
   }

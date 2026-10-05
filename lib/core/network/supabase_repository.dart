@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../models/bank_deposit.dart';
 import '../../models/credit_customer.dart';
 import '../../models/interim_cash_drop.dart';
 import '../../models/nozzle.dart';
@@ -565,6 +566,125 @@ class SupabaseRepository {
         'count_10': denominations[10] ?? 0,
         'deposit_status': 'awaiting_bank',
       });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // BANK DEPOSITS & DUAL-CUSTODY AUDIT TRAIL (§4.3, §5.4, §5.5)
+  // ---------------------------------------------------------------------------
+
+  Future<List<BankDepositRecord>> fetchBankDeposits(String stationCode) async {
+    if (!_isConnected) return [];
+
+    try {
+      final stRes = await client.from('stations').select('id, name').eq('code', stationCode).maybeSingle();
+      final stationId = stRes?['id'];
+      final stationName = stRes?['name'] ?? 'Lekki Road Station';
+
+      var query = client.from('bank_deposits').select('*');
+      if (stationId != null) {
+        query = query.eq('station_id', stationId);
+      }
+      final data = await query.order('created_at', ascending: false);
+
+      return (data as List).map((row) {
+        final map = Map<String, dynamic>.from(row);
+        map['stations'] = {'name': stationName};
+        return BankDepositRecord.fromJson(map);
+      }).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  Future<BankDepositRecord?> recordBankDeposit({
+    required String stationCode,
+    required double amount,
+    required String bankName,
+    required String bearerName,
+    String? tellerNumber,
+    String? slipUrl,
+    String? notes,
+  }) async {
+    if (!_isConnected) {
+      return BankDepositRecord(
+        id: 'DEP-${DateTime.now().millisecondsSinceEpoch}',
+        stationName: 'Lekki Road Station',
+        amount: amount,
+        cashierName: bearerName,
+        bankName: bankName,
+        tellerNumber: tellerNumber,
+        slipUrl: slipUrl,
+        notes: notes,
+        handedOverAt: DateTime.now(),
+        status: 'awaiting_bank',
+      );
+    }
+
+    try {
+      final stRes = await client.from('stations').select('id, name').eq('code', stationCode).maybeSingle();
+      final stationId = stRes?['id'];
+      final stationName = stRes?['name'] ?? 'Lekki Road Station';
+
+      final res = await client.from('bank_deposits').insert({
+        if (stationId != null) 'station_id': stationId,
+        'amount': amount,
+        'bank_name': bankName,
+        'bearer_name': bearerName,
+        'teller_number': tellerNumber,
+        'slip_url': slipUrl,
+        'notes': notes,
+        'status': 'awaiting_bank',
+      }).select().single();
+
+      final map = Map<String, dynamic>.from(res);
+      map['stations'] = {'name': stationName};
+      return BankDepositRecord.fromJson(map);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<bool> confirmBankDeposit({
+    required String depositId,
+    required String directorId,
+    String? directorNotes,
+  }) async {
+    if (!_isConnected) return true;
+
+    try {
+      await client.from('bank_deposits').update({
+        'status': 'confirmed',
+        'is_confirmed': true,
+        'confirmed_by': directorId,
+        'confirmed_at': DateTime.now().toIso8601String(),
+        'director_notes': directorNotes,
+      }).eq('id', depositId);
+
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<bool> flagBankDepositDiscrepancy({
+    required String depositId,
+    required String directorId,
+    required String discrepancyNotes,
+  }) async {
+    if (!_isConnected) return true;
+
+    try {
+      await client.from('bank_deposits').update({
+        'status': 'discrepancy',
+        'confirmed_by': directorId,
+        'confirmed_at': DateTime.now().toIso8601String(),
+        'director_notes': discrepancyNotes,
+      }).eq('id', depositId);
+
       return true;
     } catch (e) {
       return false;

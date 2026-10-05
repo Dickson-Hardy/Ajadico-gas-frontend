@@ -4,6 +4,7 @@ import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/forecourt_tank_gauge.dart';
 import '../../core/widgets/status_chip.dart';
 import '../../state/station_app_state.dart';
+import '../cashier/bank_deposit_dialog.dart';
 import 'tank_changeover_dialog.dart';
 
 class ManagerDashboardScreen extends StatefulWidget {
@@ -47,6 +48,16 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
 
   void _onStateChanged() {
     if (mounted) setState(() {});
+  }
+
+  void _openBankDepositDialog(double availableCash) {
+    showDialog(
+      context: context,
+      builder: (context) => BankDepositDialog(
+        availableCash: availableCash,
+        onDepositRecorded: () => setState(() {}),
+      ),
+    );
   }
 
   @override
@@ -281,6 +292,13 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                                     'Unresolved differences',
                                     StatusChip(label: '$unresolvedDifferences', type: unresolvedDifferences > 0 ? ChipType.bad : ChipType.ok),
                                   ),
+                                  _buildActionRow(
+                                    'Bank deposits in transit',
+                                    StatusChip(
+                                      label: totalDepositsPending > 0 ? CurrencyFormatter.formatNaira(totalDepositsPending) : 'None',
+                                      type: totalDepositsPending > 0 ? ChipType.bank : ChipType.ok,
+                                    ),
+                                  ),
                                   ...state.tanks.where((t) => t.hasDeficit).map((t) {
                                     return _buildActionRow(
                                       'Tank ${t.code} dip vs calculated',
@@ -359,19 +377,26 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
         child: Row(
           children: [
             Expanded(
-              flex: 2,
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.playlist_add_check),
                 onPressed: widget.onOpenVerificationQueue,
-                label: const Text('Verification queue'),
+                label: const Text('Verify queue'),
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             Expanded(
               child: OutlinedButton.icon(
                 icon: const Icon(Icons.point_of_sale),
                 onPressed: widget.onOpenCashCount,
                 label: const Text('Cash count'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.account_balance, color: AppColors.bank),
+                onPressed: () => _openBankDepositDialog(state.totalCountedCash > 0 ? state.totalCountedCash : state.expectedClosingCash),
+                label: const Text('Bank deposit'),
               ),
             ),
           ],
