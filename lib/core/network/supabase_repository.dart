@@ -298,12 +298,26 @@ class SupabaseRepository {
     }
   }
 
+  Future<Map<String, dynamic>?> fetchStationInfo(String stationCode) async {
+    if (!_isConnected) return {'has_interlocked_tanks': true, 'name': 'Lekki Road Station'};
+    try {
+      final res = await client
+          .from('stations')
+          .select('id, code, name, has_interlocked_tanks')
+          .eq('code', stationCode)
+          .maybeSingle();
+      return res != null ? Map<String, dynamic>.from(res) : null;
+    } catch (e) {
+      return {'has_interlocked_tanks': true, 'name': 'Lekki Road Station'};
+    }
+  }
+
   Future<List<Map<String, dynamic>>> fetchLiveTanks(String stationId) async {
     if (!_isConnected) return [];
     try {
       final data = await client
           .from('tanks')
-          .select('code, capacity_litres, current_dip_litres, calculated_stock_litres, fuel_products(code)')
+          .select('id, code, capacity_litres, current_dip_litres, calculated_stock_litres, is_interlocked, fuel_products(code)')
           .order('code');
       return List<Map<String, dynamic>>.from(data as List);
     } catch (e) {
@@ -316,11 +330,111 @@ class SupabaseRepository {
     try {
       final data = await client
           .from('nozzles')
-          .select('nozzle_number, latest_meter_reading, tanks(code), fuel_products(code)')
+          .select('id, nozzle_number, latest_meter_reading, supplying_tank_id, tanks(id, code), fuel_products(code)')
           .order('nozzle_number');
       return List<Map<String, dynamic>>.from(data as List);
     } catch (e) {
       return [];
+    }
+  }
+
+  /// Director / Admin: Update station interlock capability
+  Future<bool> updateStationInterlockStatus(String stationCode, bool hasInterlockedTanks) async {
+    if (!_isConnected) return true;
+    try {
+      await client
+          .from('stations')
+          .update({'has_interlocked_tanks': hasInterlockedTanks})
+          .eq('code', stationCode);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Director / Admin: Update tank manifold twin flag
+  Future<bool> updateTankInterlock(String tankCode, bool isInterlocked) async {
+    if (!_isConnected) return true;
+    try {
+      await client
+          .from('tanks')
+          .update({'is_interlocked': isInterlocked})
+          .eq('code', tankCode);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Update nozzle supplying tank (used for plumbing mapping and manifold switches)
+  Future<bool> updateNozzleSupplyingTank(int nozzleNumber, String targetTankCode) async {
+    if (!_isConnected) return true;
+    try {
+      final targetTank = await client
+          .from('tanks')
+          .select('id')
+          .eq('code', targetTankCode)
+          .single();
+      final targetTankId = targetTank['id'];
+
+      await client
+          .from('nozzles')
+          .update({'supplying_tank_id': targetTankId})
+          .eq('nozzle_number', nozzleNumber);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Record full manifold changeover audit event (§3.1, §7)
+  Future<bool> recordTankChangeover({
+    required String stationCode,
+    required String productCode,
+    required String fromTankCode,
+    required String toTankCode,
+    required Map<String, double> switchReadings,
+    double? fromTankDip,
+    double? toTankDip,
+    String? notes,
+    String? switchedBy,
+  }) async {
+    if (!_isConnected) return true;
+    try {
+      // 1. Get station ID
+      final station = await client.from('stations').select('id').eq('code', stationCode).single();
+      final stationId = station['id'];
+
+      // 2. Insert audit log
+      await client.from('tank_changeovers').insert({
+        'station_id': stationId,
+        'product_code': productCode,
+        'from_tank_code': fromTankCode,
+        'to_tank_code': toTankCode,
+        'switch_readings': switchReadings,
+        'from_tank_dip_litres': fromTankDip,
+        'to_tank_dip_litres': toTankDip,
+        'notes': notes,
+        'switched_by': switchedBy,
+      });
+
+      // 3. Update active nozzle supplying_tank_id
+      final targetTank = await client.from('tanks').select('id').eq('code', toTankCode).single();
+      final targetTankId = targetTank['id'];
+
+      for (final nozzleStr in switchReadings.keys) {
+        final nozzleNum = int.tryParse(nozzleStr.replaceAll(RegExp(r'[^0-9]'), ''));
+        if (nozzleNum != null) {
+          await client.from('nozzles').update({
+            'supplying_tank_id': targetTankId,
+            'latest_meter_reading': switchReadings[nozzleStr],
+          }).eq('nozzle_number', nozzleNum);
+        }
+      }
+
+      return true;
+    } catch (e) {
+      return false;
     }
   }
 

@@ -12,6 +12,7 @@ import '../admin/attendant_salary_ledger_screen.dart';
 import '../admin/bank_deposit_verification_screen.dart';
 import '../admin/company_reports_screen.dart';
 import '../admin/price_change_screen.dart';
+import '../admin/station_setup_screen.dart';
 import '../attendant/attendant_home_screen.dart';
 import '../attendant/closing_readings_screen.dart';
 import '../attendant/credit_sale_screen.dart';
@@ -44,6 +45,7 @@ enum AppView {
   bankDeposits,
   creditCustomers,
   companyReports,
+  stationSetup,
 }
 
 class AppShell extends StatefulWidget {
@@ -353,6 +355,12 @@ class _AppShellState extends State<AppShell> {
       case AppView.companyReports:
         return CompanyReportsScreen(
           onBack: () => setState(() => _currentView = AppView.managerDashboard),
+          onOpenStationSetup: () => setState(() => _currentView = AppView.stationSetup),
+        );
+
+      case AppView.stationSetup:
+        return StationSetupScreen(
+          onBack: () => setState(() => _currentView = AppView.companyReports),
         );
     }
   }
@@ -393,6 +401,8 @@ class _AppShellState extends State<AppShell> {
         return '21 Credit Ledgers';
       case AppView.companyReports:
         return '22 Consolidated P&L';
+      case AppView.stationSetup:
+        return '23 Forecourt & Station Setup';
     }
   }
 
@@ -569,6 +579,8 @@ class _AppShellState extends State<AppShell> {
         return Icons.groups;
       case AppView.companyReports:
         return Icons.insert_chart;
+      case AppView.stationSetup:
+        return Icons.settings_suggest;
     }
   }
 }

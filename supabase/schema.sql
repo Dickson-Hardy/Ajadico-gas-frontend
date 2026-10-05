@@ -365,6 +365,24 @@ CREATE TABLE IF NOT EXISTS public.fuel_deliveries (
 );
 
 -- -----------------------------------------------------------------------------
+-- 12B. INTERLOCKED TANK CHANGEOVERS (§3.1, §7)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.tank_changeovers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    station_id UUID NOT NULL REFERENCES public.stations(id) ON DELETE CASCADE,
+    product_code VARCHAR(10) NOT NULL,
+    from_tank_code VARCHAR(20) NOT NULL,
+    to_tank_code VARCHAR(20) NOT NULL,
+    switch_readings JSONB NOT NULL DEFAULT '{}'::jsonb,
+    from_tank_dip_litres NUMERIC(12, 2),
+    to_tank_dip_litres NUMERIC(12, 2),
+    notes TEXT,
+    switched_by UUID REFERENCES public.profiles(id),
+    switched_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- -----------------------------------------------------------------------------
 -- 13. PIN AUTHENTICATION RPC FUNCTION (§2.3)
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.attendant_pin_login(

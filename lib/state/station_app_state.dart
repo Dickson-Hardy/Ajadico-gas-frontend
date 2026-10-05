@@ -64,6 +64,8 @@ class LiveTankStock {
   double bookStock;
   double physicalDip;
   DateTime lastDipTime;
+  bool isInterlocked;
+  bool isActiveSupply;
 
   LiveTankStock({
     required this.code,
@@ -72,6 +74,8 @@ class LiveTankStock {
     required this.bookStock,
     required this.physicalDip,
     required this.lastDipTime,
+    this.isInterlocked = false,
+    this.isActiveSupply = true,
   });
 
   double get variance => physicalDip - bookStock;
@@ -196,6 +200,14 @@ class StationAppState extends ChangeNotifier {
   double get pmsPrice => _pmsPrice;
   double get agoPrice => _agoPrice;
 
+  // Station Infrastructure Configuration (§3.1)
+  String _currentStationCode = 'LEKKI-01';
+  String get currentStationCode => _currentStationCode;
+  String _currentStationName = 'Lekki Road Station';
+  String get currentStationName => _currentStationName;
+  bool _hasInterlockedTanks = true;
+  bool get hasInterlockedTanks => _hasInterlockedTanks;
+
   // 3. Live Nozzles for Forecourt
   late List<NozzleItem> _nozzles;
   List<NozzleItem> get nozzles => _nozzles;
@@ -279,6 +291,8 @@ class StationAppState extends ChangeNotifier {
         bookStock: 32100,
         physicalDip: 32100,
         lastDipTime: DateTime.now().subtract(const Duration(hours: 4)),
+        isInterlocked: true,
+        isActiveSupply: true,
       ),
       LiveTankStock(
         code: 'T2',
@@ -287,6 +301,8 @@ class StationAppState extends ChangeNotifier {
         bookStock: 28520,
         physicalDip: 28400, // -120L deficit
         lastDipTime: DateTime.now().subtract(const Duration(hours: 4)),
+        isInterlocked: true,
+        isActiveSupply: false,
       ),
       LiveTankStock(
         code: 'T3',
@@ -295,6 +311,8 @@ class StationAppState extends ChangeNotifier {
         bookStock: 14200,
         physicalDip: 14200,
         lastDipTime: DateTime.now().subtract(const Duration(hours: 4)),
+        isInterlocked: false,
+        isActiveSupply: true,
       ),
     ];
 
@@ -315,36 +333,49 @@ class StationAppState extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // 0. Fetch station details (§3.1)
+      final stationInfo = await repo.fetchStationInfo(_currentStationCode);
+      if (stationInfo != null) {
+        _hasInterlockedTanks = stationInfo['has_interlocked_tanks'] ?? false;
+        _currentStationName = stationInfo['name'] ?? _currentStationName;
+      }
+
       // 1. Fetch live fuel prices
-      final prices = await repo.fetchLivePrices('LEKKI-01');
+      final prices = await repo.fetchLivePrices(_currentStationCode);
       if (prices.containsKey('PMS')) _pmsPrice = prices['PMS']!;
       if (prices.containsKey('AGO')) _agoPrice = prices['AGO']!;
 
       // 2. Fetch live tanks
-      final remoteTanks = await repo.fetchLiveTanks('LEKKI-01');
+      final remoteTanks = await repo.fetchLiveTanks(_currentStationCode);
       if (remoteTanks.isNotEmpty) {
         _tanks = remoteTanks.map((r) {
           final prodMap = r['fuel_products'] as Map?;
           final prod = prodMap?['code'] ?? 'PMS';
+          final code = r['code'] as String;
+          final isInterlocked = r['is_interlocked'] == true;
           return LiveTankStock(
-            code: r['code'] as String,
+            code: code,
             product: prod as String,
             capacity: (r['capacity_litres'] as num).toDouble(),
             bookStock: (r['calculated_stock_litres'] as num).toDouble(),
             physicalDip: (r['current_dip_litres'] as num).toDouble(),
             lastDipTime: DateTime.now(),
+            isInterlocked: isInterlocked,
+            isActiveSupply: true,
           );
         }).toList();
       }
 
-      // 3. Fetch live nozzles
-      final remoteNozzles = await repo.fetchLiveNozzles('LEKKI-01');
+      // 3. Fetch live nozzles & reconcile active supply
+      final remoteNozzles = await repo.fetchLiveNozzles(_currentStationCode);
       if (remoteNozzles.isNotEmpty) {
+        final activeTankCodes = <String>{};
         _nozzles = remoteNozzles.map((r) {
           final prodMap = r['fuel_products'] as Map?;
           final prod = prodMap?['code'] ?? 'PMS';
           final tankMap = r['tanks'] as Map?;
           final tankCode = tankMap?['code'] ?? 'T1';
+          activeTankCodes.add(tankCode);
           final numVal = r['nozzle_number'] as int;
           final price = prod == 'PMS' ? _pmsPrice : _agoPrice;
 
@@ -357,6 +388,11 @@ class StationAppState extends ChangeNotifier {
             isOpeningConfirmed: false,
           );
         }).toList();
+
+        // Reconcile active supply on interlocked tanks
+        for (final t in _tanks) {
+          t.isActiveSupply = activeTankCodes.contains(t.code);
+        }
       }
 
       // 4. Fetch live credit customers
@@ -931,4 +967,113 @@ class StationAppState extends ChangeNotifier {
   }
 
   double get cashDrawerVariance => totalCountedCash - expectedClosingCash;
+
+  // ---------------------------------------------------------------------------
+  // INTERLOCKED TANK CHANGEOVERS & FORECOURT SETUP (§3.1, §7)
+  // ---------------------------------------------------------------------------
+
+  /// Branch Manager & Director: Execute manifold changeover (§3.1, §7)
+  Future<bool> executeTankChangeover({
+    required String productCode,
+    required String fromTankCode,
+    required String toTankCode,
+    required Map<String, double> switchReadings,
+    double? fromTankDip,
+    double? toTankDip,
+    String? notes,
+  }) async {
+    final repo = SupabaseRepository.instance;
+    final success = await repo.recordTankChangeover(
+      stationCode: _currentStationCode,
+      productCode: productCode,
+      fromTankCode: fromTankCode,
+      toTankCode: toTankCode,
+      switchReadings: switchReadings,
+      fromTankDip: fromTankDip,
+      toTankDip: toTankDip,
+      notes: notes,
+      switchedBy: _currentUser.id,
+    );
+
+    // Update local nozzles and tanks
+    for (final nozzleStr in switchReadings.keys) {
+      final nozzleNum = int.tryParse(nozzleStr.replaceAll(RegExp(r'[^0-9]'), ''));
+      if (nozzleNum != null) {
+        final idx = _nozzles.indexWhere((n) => n.nozzleNumber == nozzleNum);
+        if (idx != -1) {
+          _nozzles[idx] = NozzleItem(
+            nozzleNumber: _nozzles[idx].nozzleNumber,
+            productName: _nozzles[idx].productName,
+            tankCode: toTankCode,
+            openingReading: switchReadings[nozzleStr] ?? _nozzles[idx].openingReading,
+            pricePerLitre: _nozzles[idx].pricePerLitre,
+            isOpeningConfirmed: true,
+          );
+        }
+      }
+    }
+
+    // Update active supply flag on twin tanks
+    for (final t in _tanks) {
+      if (t.code == fromTankCode) t.isActiveSupply = false;
+      if (t.code == toTankCode) t.isActiveSupply = true;
+      if (t.code == fromTankCode && fromTankDip != null) t.physicalDip = fromTankDip;
+      if (t.code == toTankCode && toTankDip != null) t.physicalDip = toTankDip;
+    }
+
+    _notifService.pushNotification(
+      ForecourtNotification(
+        id: 'NOTIF-CO-${DateTime.now().millisecondsSinceEpoch}',
+        title: 'Manifold Changeover Applied',
+        body: 'Switched from $fromTankCode to $toTankCode for $productCode at $_currentStationName.',
+        type: ForecourtNotificationType.compliance,
+        timestamp: DateTime.now(),
+        actionRouteName: '17 Manager Dashboard',
+      ),
+    );
+
+    notifyListeners();
+    return success;
+  }
+
+  /// Director / Admin: Update station interlock capability
+  Future<bool> updateStationInterlockConfig(bool hasInterlockedTanks) async {
+    final repo = SupabaseRepository.instance;
+    _hasInterlockedTanks = hasInterlockedTanks;
+    notifyListeners();
+    return await repo.updateStationInterlockStatus(_currentStationCode, hasInterlockedTanks);
+  }
+
+  /// Director / Admin: Update tank interlock twin flag
+  Future<bool> updateTankInterlockConfig(String tankCode, bool isInterlocked) async {
+    final repo = SupabaseRepository.instance;
+    final tank = _tanks.firstWhere((t) => t.code == tankCode, orElse: () => _tanks[0]);
+    tank.isInterlocked = isInterlocked;
+    notifyListeners();
+    return await repo.updateTankInterlock(tankCode, isInterlocked);
+  }
+
+  /// Director / Admin: Remap nozzle to supplying tank
+  Future<bool> assignNozzleSupplyingTank(int nozzleNumber, String targetTankCode) async {
+    final repo = SupabaseRepository.instance;
+    final idx = _nozzles.indexWhere((n) => n.nozzleNumber == nozzleNumber);
+    if (idx != -1) {
+      _nozzles[idx] = NozzleItem(
+        nozzleNumber: _nozzles[idx].nozzleNumber,
+        productName: _nozzles[idx].productName,
+        tankCode: targetTankCode,
+        openingReading: _nozzles[idx].openingReading,
+        pricePerLitre: _nozzles[idx].pricePerLitre,
+        isOpeningConfirmed: _nozzles[idx].isOpeningConfirmed,
+      );
+    }
+    // Reconcile active supply on tanks
+    final activeCodes = _nozzles.map((n) => n.tankCode).toSet();
+    for (final t in _tanks) {
+      t.isActiveSupply = activeCodes.contains(t.code);
+    }
+
+    notifyListeners();
+    return await repo.updateNozzleSupplyingTank(nozzleNumber, targetTankCode);
+  }
 }

@@ -4,6 +4,7 @@ import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/forecourt_tank_gauge.dart';
 import '../../core/widgets/status_chip.dart';
 import '../../state/station_app_state.dart';
+import 'tank_changeover_dialog.dart';
 
 class ManagerDashboardScreen extends StatefulWidget {
   final VoidCallback onOpenVerificationQueue;
@@ -166,17 +167,34 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                         ),
                       ],
                     ),
-                    if (widget.onOpenTankDip != null)
-                      OutlinedButton.icon(
-                        onPressed: widget.onOpenTankDip,
-                        icon: const Icon(Icons.straighten, size: 16),
-                        label: const Text('Record Daily Dip'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.ink,
-                          side: const BorderSide(color: AppColors.line),
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        ),
-                      ),
+                    Row(
+                      children: [
+                        if (state.hasInterlockedTanks)
+                          ElevatedButton.icon(
+                            onPressed: () => TankChangeoverDialog.show(context, state),
+                            icon: const Icon(Icons.alt_route, size: 16),
+                            label: const Text('Manifold Changeover'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF92400E),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                          ),
+                        if (state.hasInterlockedTanks && widget.onOpenTankDip != null)
+                          const SizedBox(width: 8),
+                        if (widget.onOpenTankDip != null)
+                          OutlinedButton.icon(
+                            onPressed: widget.onOpenTankDip,
+                            icon: const Icon(Icons.straighten, size: 16),
+                            label: const Text('Record Daily Dip'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.ink,
+                              side: const BorderSide(color: AppColors.line),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                          ),
+                      ],
+                    ),
                   ],
                 ),
                 const SizedBox(height: 12),

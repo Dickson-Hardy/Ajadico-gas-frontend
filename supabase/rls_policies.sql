@@ -22,6 +22,7 @@ ALTER TABLE public.expenses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tank_dips ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.fuel_deliveries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.attendant_salary_adjustments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tank_changeovers ENABLE ROW LEVEL SECURITY;
 
 -- -----------------------------------------------------------------------------
 -- Helper Function: Check if current user is Director / Admin
@@ -151,3 +152,18 @@ WITH CHECK (bucket_id IN ('remittance-evidence', 'delivery-waybills'));
 CREATE POLICY "Public read for evidence images"
 ON storage.objects FOR SELECT
 USING (bucket_id IN ('remittance-evidence', 'delivery-waybills'));
+
+-- -----------------------------------------------------------------------------
+-- 8. TANK CHANGEOVERS POLICIES (§3.1, §7)
+-- -----------------------------------------------------------------------------
+CREATE POLICY "Staff read tank changeovers"
+ON public.tank_changeovers FOR SELECT
+USING (true);
+
+CREATE POLICY "Manager and Director record tank changeovers"
+ON public.tank_changeovers FOR INSERT
+WITH CHECK (
+  station_id IN (SELECT station_id FROM public.profiles WHERE id = auth.uid() AND role IN ('manager', 'director', 'admin'))
+  OR public.is_central_admin()
+  OR auth.uid() IS NULL
+);

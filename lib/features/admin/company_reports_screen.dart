@@ -3,11 +3,17 @@ import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/forecourt_tank_gauge.dart';
 import '../../state/station_app_state.dart';
+import '../manager/tank_changeover_dialog.dart';
 
 class CompanyReportsScreen extends StatefulWidget {
   final VoidCallback onBack;
+  final VoidCallback? onOpenStationSetup;
 
-  const CompanyReportsScreen({super.key, required this.onBack});
+  const CompanyReportsScreen({
+    super.key,
+    required this.onBack,
+    this.onOpenStationSetup,
+  });
 
   @override
   State<CompanyReportsScreen> createState() => _CompanyReportsScreenState();
@@ -76,6 +82,21 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
             Text('Director · Live Multi-Branch Consolidated Ledger & Storage (§6.1, §3.1)', style: TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
+        actions: [
+          if (state.hasInterlockedTanks)
+            TextButton.icon(
+              icon: const Icon(Icons.alt_route, color: AppColors.amber),
+              label: const Text('Manifold Switch', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              onPressed: () => TankChangeoverDialog.show(context, state),
+            ),
+          if (widget.onOpenStationSetup != null)
+            IconButton(
+              icon: const Icon(Icons.settings_suggest),
+              tooltip: 'Forecourt & Station Setup',
+              onPressed: widget.onOpenStationSetup,
+            ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
