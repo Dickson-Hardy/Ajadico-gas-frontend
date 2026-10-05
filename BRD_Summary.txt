@@ -1,0 +1,123 @@
+﻿Filling Station Software Business Requirements
+Version 3 | Review copy | 1 October 2026
+For Senior, Dickson and Joheobe. This version reorganises the reviewed requirements for easier reading. It preserves the business scope and keeps unresolved choices separate; it does not constitute final sign-off.
+1 Overview
+Build an online system for five stations, with separate branch accounts and a central management view. Staff will record sales, payments, deliveries, expenses and credit through identifiable user accounts. The priority is to make daily accountability and monthly branch profit easier to establish. Paper books will continue alongside the software during introduction.
+Scope
+Five current stations, with support for future branches. Each branch keeps its own accounts; management sees combined company reports.
+Initial products: petrol (PMS) and diesel (AGO). LPG and optional lubricant sales need separate workflows before introduction. Kerosene is inactive.
+The earlier plan was to test the software first at the main station. Whether the first release starts there or at all five branches still needs confirmation.
+Use an online system and retain paper books during introduction. Direct pump integration and self-service operation remain future ideas.
+Project responsibilities
+How to review this document
+Sections 2–6 describe the working business requirements in short numbered points. They include requirements carried forward from the original draft as well as those supported by the meeting. The numbers make it easy to refer to a specific requirement during discussion.
+Section 7: Decisions and proposals that still need confirmation. Appendix A: Technical direction, responsibilities and planning estimates. Appendix B: Suggested testing checks, changes and meeting references.
+Suggestions remain proposals. The exact first-release features, accounting rules and outstanding business decisions must be confirmed before development scope is signed off.
+
+2 People and daily sales
+Access and accountability
+2.1  Give each user a named account and access appropriate to their role and branch. Senior can oversee all branches. One person may hold both manager and cashier roles.
+2.2  Allow branch managers to add staff and assign attendants to nozzles and work periods. Start with one attendant per nozzle; shared accounts need an agreed rule.
+2.3  Attendants use their own PIN/password on a shared station tablet and log out afterwards. Managers may use phones; management needs an admin view suitable for a laptop. Entry on behalf of attendants remains a decision in section 7.
+2.4  Record the user, branch and affected attendant for each action. Keep original and revised values, reason, user and time for corrections, and record approvals. If delegated entry is allowed, identify the actual recorder.
+Meter readings and shifts
+2.5  Carry the previous closing reading forward as the next opening on the same nozzle. Only an authorised manager may correct it, with the change history retained.
+2.6  Capture closing readings and assign the intervening sales to a named attendant. Late-night sales need a responsible person and a closing reading before handover.
+2.7  Keep morning and afternoon/evening shift accounts and a complete daily account. Record the business date and handover periods to avoid counting litres twice.
+Prices and sales value
+2.8  Senior authorises new prices. Authorised branch staff may enter a change on his instruction.
+2.9  At a price change, record the current meter reading. Use it to close the old-price period and open the new-price period; calculate each period separately.
+2.10  Calculate expected sales value from saleable litres multiplied by each period’s price. Account separately for approved non-sale withdrawals. Entry frequency still needs confirmation.
+
+3 Fuel stock and deliveries
+Tanks and stock readings
+3.1  Configure each station’s tanks, products and pumps/nozzles. Three stations have fixed tank mappings; two have interlocked tanks, with one supplying the relevant meters at a time before switching to the other.
+3.2  Record starting tank quantities and meter readings when the system is introduced. Update calculated stock from entered readings, deliveries and adjustments, and show its history for a selected date range.
+3.3  Record daily manual tank readings. Keep measured stock separate from calculated stock and show the difference and time of measurement/update.
+3.4  Account for opening stock, deliveries, metered withdrawals and approved returns or adjustments. Record test/calibration returns once and verify them; avoid duplicate stock deductions or additions.
+3.5  Record approved company fuel use separately from customer sales. The approval and evidence rules for non-sale entries still need confirmation.
+Decision needed: Agree how tank changes will be recorded before the two affected branches use stock reports. See section 7 for the proposed method and evidence rules.
+Purchases and deliveries
+3.6  The general manager orders fuel and maintains its purchase-cost records.
+3.7  For each delivery, record station, product, receiving tank, supplier, date, stated litres, tank quantities before and after delivery, received litres and shortage/excess.
+3.8  Record purchase price, transport and other acquisition costs, and retain acquisition cost per litre for stock valuation. The litre basis and treatment of delivery losses still need agreement.
+3.9  Keep delivery discrepancies and any recorded resolution. Negotiation with suppliers or company drivers takes place outside the software; do not automatically charge a driver.
+Mandatory delivery-document uploads were not added in the meeting. The payment evidence requirements in section 4 remain separate.
+Decision needed: If dispensing continues between the before/after tank readings, the raw increase alone cannot establish delivered quantity. Agree the measurement method in section 7.
+
+4 Payments credit and attendant balances
+Payments and verification
+4.1  Distinguish cash, POS card payments, transfers to a station POS account and transfers to a company bank account. Each station has its own POS. Keep approved credit separate from money received.
+4.2  Record payment amounts and attach relevant POS printouts and bank evidence. The cashier or manager checks these against entered figures before verifying the account.
+4.3  Senior separately checks deposits/receipts against bank alerts. This does not require two approvals for every customer payment.
+4.4  Show submitted, verified and unresolved amounts separately. Uploading a receipt alone must not confirm a bank payment.
+4.5  Treat bank deposits as movements of cash already collected and credit repayments as reductions of debt. Neither creates another fuel sale.
+Attendant shortages and excesses
+4.6  Record differences automatically and keep unresolved shortfalls visible in the attendant’s salary record. Do not alter figures simply to make an account balance.
+4.7  Shortages generally reduce salary and excesses increase it. Senior decides large or disputed differences. Preserve the recorded difference, final salary decision and later recovery without counting a recovery twice.
+Credit customers and repayments
+4.8  Maintain registered credit customers who may buy through any pump. Each credit entry identifies the customer and amount. After verification, update the customer’s running account and the attendant’s reconciliation.
+4.9  Show credit sales, repayments and outstanding debt. Support partial repayments and later bank payments entered by authorised staff.
+4.10  The general manager/directors authorise new credit customers. Branch managers may verify signed requisitions and approve entries for already recognised customers. Link the approver and supporting evidence to the entry.
+Decision needed: Confirm the customer list and due dates. The suggested salary-based limit for informal credit is not yet a complete lending or payroll rule; see section 7.
+
+5 Expenses cash and reporting
+Expenses and cash at hand
+5.1  Record each expense’s branch, category, amount, date, payment source, description, recorder and approver. Routine expenses may use sales cash; larger purchases or projects may be paid through a bank.
+5.2  Exclude bank-paid expenses from physical cash deductions. Do not count transport both in fuel acquisition cost and again as an operating expense.
+5.3  Record the physical cash count and denomination breakdown. Compare actual cash with expected closing cash and carry the remaining balance forward.
+Expected closing cash = opening cash + cash receipts − cash expenses − cash handed over for deposit.
+5.4  Allow partial deposits and deposits covering several days. Deposits need not be daily. Record the amount and evidence; Senior confirms it against the bank alert.
+5.5  Keep cash handed over but awaiting bank confirmation distinct from both cash still held and confirmed bank funds.
+Expense centralisation through the cashier/manager, exceptions and approval arrangements remain proposals requiring confirmation in section 7.
+6 Reports and profit
+6.1  Provide branch reports and combined company reports, with date and product filters where meaningful. Prioritise timely monthly profit reporting; use Senior’s existing month-end layout once supplied.
+6.2  Daily and shift reports: litres sold, sales value, collections by payment route, credit, outstanding verification, attendant differences, expenses, counted cash, deposits and stock variance.
+6.3  Customer reports: credit history, repayments and outstanding debt. Attendant reports: sales/remittance history and salary-record adjustments.
+6.4  Monthly reports: revenue, cost of fuel sold, gross profit, branch expenses and profit after recorded costs. Define net profit and operating profit clearly once the accounting rules are agreed.
+6.5  Stock reports: starting stock, deliveries, recorded withdrawals/returns, latest dip and discrepancy. Show the latest update time.
+6.6  Treat remaining fuel as stock, not automatically as the month’s expense. Mark profit as provisional until accounting rules and complete records are confirmed.
+Section 7 retains the decisions on mixed-delivery valuation, shared costs, losses and capital purchases.
+
+7 Decisions needing confirmation
+These items remain open. The requirements above do not imply approval of the proposals below.
+Details to settle
+Tank changes: Proposed method: record the supplying tank, affected nozzles, time and meter reading for each change, preserving historical sales attribution. Agree the method and independent dip checks before stock reporting at the affected branches.
+Delivery costs: Agree how received litres are measured during ongoing dispensing, whether cost per litre uses invoiced or accepted received litres, and how delivery losses are treated.
+Informal credit: Senior suggested a salary-based limit with escalation for larger amounts. Confirm whose salary, per-sale or cumulative limits, when it applies, and how later repayment reverses a recorded shortage. Customer names in the meeting were examples, not an approved list.
+Expenses and returns: The proposal routes ordinary expense entry/payment through the cashier or manager within each branch. Agree exceptions and approvals where one person holds both roles. Short video evidence for test returns was only a suggestion.
+Profit: Agree mixed-delivery valuation, included costs, shared-cost allocation, material stock losses and capital-purchase treatment. Senior should provide the existing month-end report.
+
+Appendix A Technical direction and planning
+Technical choices and proposals
+The meeting chose an online, cloud-first approach, replacing the initial offline-first suggestion. Pages and submissions should work on weak networks; offline synchronisation was not defined. Automated reading carry-forward does not imply direct connection to pump hardware.
+The technical direction was a React Native station app plus an admin site. APK or link access was discussed. Dickson must confirm supported devices, tablet operating systems and what link access means before devices are purchased. Earlier TanStack/Nitro choices were not reaffirmed; the backend remained Go or Rust.
+OCR proposal: Read numbers from receipt and meter images to assist entry. Python image processing remains Joheobe’s previously proposed specialism, but implementation and first-release scope remain open. Proposed control: users check extracted numbers before they affect accounts, and evidence upload remains usable without OCR.
+Other proposed controls: Show failed/unsaved submissions clearly and prevent duplicate entries when submissions are retried. Agree low-stock alert thresholds and delivery channels. Rapid onboarding was a goal, not a verified five-to-seven-minute guarantee.
+Responsibilities and timing
+Joheobe: circulate the BRD, gather corrections and work with Dickson on OCR.
+Dickson: prepare the timeline after review, initialise client/server repositories, add Joheobe as a collaborator, arrange hosting and provide costs.
+Senior: confirm business decisions, provide sample accounts and arrange agreed funding. Define management access to hosting and renewals.
+Targets stated in the meeting: A first testable version within two weeks and approximately one month for the broader build. Treat these as targets pending Dickson’s schedule, not a guarantee that every module is complete. The next meeting was stated as Friday at the same time, corresponding to 2 October 2026 at about 21:06 WAT; confirm the invitation time.
+Meeting budget estimates
+These are historical planning estimates from the meeting, not current quotations.
+Confirm actual hosting, storage, backups, media usage and connectivity costs. Tool-limit and renewal-extension comments are not product requirements or budget guarantees.
+
+Appendix B Testing changes and meeting references
+Proposed checks before wider use
+Agree these checks before testing. Senior reviews the business results before use expands beyond the initial testing stations.
+Check branch permissions and individual logins on the shared device.
+Carry meter readings through a handover and a price change, retaining correction history.
+Reconcile a credit sale and partial repayment; verify a POS entry and a later partial bank deposit.
+Check a fuel return and a change of supplying tank against known stock records.
+Reproduce a month-end report from known records using the agreed accounting rules.
+Changes from the original draft
+Meeting references
+Source: Meeting started 2026/09/30 21:06 WAT – Notes by Gemini, including Quick notes, Full notes and Transcript. The summary was checked against the transcript. Requirements from the original draft remain where the meeting did not change them. These references preserve the review trail without interrupting the business requirements.
+Scope and setup: 00:02:21–00:04:18; 00:26:49; 01:13:38
+Staff and readings: 00:06:03–00:22:34; 00:49:29–00:50:49; 01:04:49–01:05:59
+Stock and deliveries: 00:24:12–00:29:26; 00:40:18–00:42:57; 00:44:23
+Credit and payments: 00:30:35–00:40:18; 00:46:11–00:47:43
+Expenses and reports: 00:07:00; 00:47:43; 00:50:49–00:55:51
+Technical direction: 00:08:19; 00:49:29; 00:58:32–00:59:53; 01:05:59–01:08:27; 01:12:15
+Version 3 changes presentation and incorporates the correction to Dickson’s name. The original draft and meeting source remain unchanged. Open decisions still require confirmation.
