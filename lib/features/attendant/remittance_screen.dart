@@ -23,17 +23,16 @@ class RemittanceScreen extends StatefulWidget {
 class _RemittanceScreenState extends State<RemittanceScreen> {
   final state = StationAppState.instance;
 
-  final TextEditingController _cashController = TextEditingController(text: '640000');
-  final TextEditingController _posCardController = TextEditingController(text: '310000');
-  final TextEditingController _posTransferController = TextEditingController(text: '120000');
-  final TextEditingController _bankTransferController = TextEditingController(text: '0');
+  final TextEditingController _cashController = TextEditingController();
+  final TextEditingController _posCardController = TextEditingController();
+  final TextEditingController _posTransferController = TextEditingController();
+  final TextEditingController _bankTransferController = TextEditingController();
 
-  final double _creditSales = 180000.0;
+  final double _creditSales = 0.0;
   List<CompressedImageResult> _evidencePhotos = [];
 
   double get _expectedSalesValue {
-    final computed = state.nozzles.fold(0.0, (s, n) => s + n.salesValue);
-    return computed > 0 ? computed : 1250000.0;
+    return state.nozzles.fold(0.0, (s, n) => s + n.salesValue);
   }
 
   double get _cash => double.tryParse(_cashController.text.replaceAll(',', '')) ?? 0.0;
@@ -75,7 +74,7 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
       posTransfer: _posTransfer,
       bankTransfer: _bankTransfer,
       credit: _creditSales,
-      evidencePhotos: photoUrls.isEmpty ? ['POS Settlement Slip #1'] : photoUrls,
+      evidencePhotos: photoUrls,
     );
 
     ScaffoldMessenger.of(context).showSnackBar(

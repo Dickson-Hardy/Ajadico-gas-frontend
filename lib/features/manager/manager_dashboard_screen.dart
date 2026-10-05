@@ -134,10 +134,10 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                       children: [
                         _buildKpiCard('PMS Sold', CurrencyFormatter.formatLitres(pmsSold), itemWidth),
                         _buildKpiCard('AGO Sold', CurrencyFormatter.formatLitres(agoSold), itemWidth),
-                        _buildKpiCard('Sales Value', CurrencyFormatter.formatNaira(totalSalesValue > 0 ? totalSalesValue : 9580000), itemWidth, isGreen: true),
+                        _buildKpiCard('Sales Value', CurrencyFormatter.formatNaira(totalSalesValue), itemWidth, isGreen: true),
                         _buildKpiCard('Credit Given', CurrencyFormatter.formatNaira(totalCreditGiven), itemWidth),
                         _buildKpiCard('Expenses', CurrencyFormatter.formatNaira(totalExpenses), itemWidth),
-                        _buildKpiCard('Deposits Pending', CurrencyFormatter.formatNaira(totalDepositsPending > 0 ? totalDepositsPending : 1500000), itemWidth, isBlue: true),
+                        _buildKpiCard('Deposits Pending', CurrencyFormatter.formatNaira(totalDepositsPending), itemWidth, isBlue: true),
                       ],
                     );
                   },

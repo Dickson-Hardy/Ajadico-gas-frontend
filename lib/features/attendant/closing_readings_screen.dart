@@ -72,22 +72,6 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen> {
     });
   }
 
-  void _quickFillDemo() {
-    setState(() {
-      _nozzles[0].closingReading = 413102.0; // 721.5 L
-      _controllers[1]!.text = '413102.0';
-      _errors[1] = null;
-
-      _nozzles[1].closingReading = 388410.0; // 308.0 L
-      _controllers[2]!.text = '388410.0';
-      _errors[2] = null;
-
-      _nozzles[2].closingReading = 201903.5; // 128.0 L
-      _controllers[3]!.text = '201903.5';
-      _errors[3] = null;
-    });
-  }
-
   void _submit() {
     bool hasError = false;
     final Map<int, double> readings = {};
@@ -143,13 +127,6 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen> {
             Text('${state.currentUser.displayName} · Morning shift', style: const TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
-        actions: [
-          TextButton.icon(
-            icon: const Icon(Icons.auto_fix_high, color: Colors.white, size: 16),
-            label: const Text('Fill Demo Values', style: TextStyle(color: Colors.white, fontSize: 13)),
-            onPressed: _quickFillDemo,
-          ),
-        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),

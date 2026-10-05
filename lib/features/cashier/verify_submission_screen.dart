@@ -105,7 +105,13 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
 
     if (submissions.isEmpty) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Verify Submissions')),
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: widget.onBack,
+          ),
+          title: const Text('Verify Submissions'),
+        ),
         body: const Center(
           child: Text('No shift submissions waiting in verification queue.'),
         ),

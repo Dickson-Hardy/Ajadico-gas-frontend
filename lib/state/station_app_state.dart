@@ -241,7 +241,7 @@ class StationAppState extends ChangeNotifier {
   List<BankDepositRecord> get deposits => List.unmodifiable(_deposits);
 
   // 11. Daily Cash Drawer State
-  double _openingCash = 120000.0;
+  double _openingCash = 0.0;
   double get openingCash => _openingCash;
 
   final Map<int, int> _cashCounts = {
@@ -495,7 +495,7 @@ class StationAppState extends ChangeNotifier {
     required List<String> evidencePhotos,
   }) {
     final expectedSales = _nozzles.fold(0.0, (s, n) => s + n.salesValue);
-    final totalExpected = expectedSales > 0 ? expectedSales : 1250000.0;
+    final totalExpected = expectedSales;
     final shiftId = 'SHIFT-${DateTime.now().millisecondsSinceEpoch}';
 
     final sub = ShiftSubmission(
@@ -511,7 +511,7 @@ class StationAppState extends ChangeNotifier {
       posTransferDeclared: posTransfer,
       bankTransferDeclared: bankTransfer,
       creditSalesDeclared: credit,
-      evidencePhotos: evidencePhotos.isEmpty ? ['POS Settlement Slip #1'] : evidencePhotos,
+      evidencePhotos: evidencePhotos,
       status: 'Pending Verification',
     );
 

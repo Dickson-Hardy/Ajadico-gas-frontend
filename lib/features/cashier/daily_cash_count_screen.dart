@@ -45,35 +45,6 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
     state.updateCashCount(denom, count);
   }
 
-  void _quickCountBalanced() {
-    setState(() {
-      // Set notes to match expected cash exactly
-      final target = state.expectedClosingCash;
-      final k1000 = (target ~/ 1000);
-      final remainder = (target % 1000);
-      final k500 = remainder ~/ 500;
-      final remainder2 = remainder % 500;
-      final k200 = remainder2 ~/ 200;
-
-      state.updateCashCount(1000, k1000);
-      _controllers[1000]?.text = k1000.toString();
-
-      state.updateCashCount(500, k500);
-      _controllers[500]?.text = k500.toString();
-
-      state.updateCashCount(200, k200);
-      _controllers[200]?.text = k200.toString();
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        backgroundColor: AppColors.ok,
-        behavior: SnackBarBehavior.floating,
-        content: Text('Simulated physical note count matching expected closing cash.'),
-      ),
-    );
-  }
-
   void _saveCount() {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -106,13 +77,6 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
             Text('${state.currentUser.displayName} · Station Safe Cash Count (§5.3)', style: const TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
-        actions: [
-          TextButton.icon(
-            icon: const Icon(Icons.auto_fix_high, color: Colors.white, size: 16),
-            label: const Text('Auto-Count Notes', style: TextStyle(color: Colors.white, fontSize: 13)),
-            onPressed: _quickCountBalanced,
-          ),
-        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),

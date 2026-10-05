@@ -30,12 +30,12 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
   void initState() {
     super.initState();
     _newPriceController = TextEditingController(
-      text: (_selectedProduct == 'PMS' ? state.pmsPrice + 30 : state.agoPrice + 40).toStringAsFixed(0),
+      text: (_selectedProduct == 'PMS' ? state.pmsPrice : state.agoPrice).toStringAsFixed(0),
     );
     _meterControllers = {
       for (var n in state.nozzles)
         n.nozzleNumber: TextEditingController(
-          text: (n.closingReading ?? n.openingReading + 250).toStringAsFixed(1),
+          text: (n.closingReading ?? n.openingReading).toStringAsFixed(1),
         )
     };
   }
@@ -54,7 +54,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
     if (prod == null) return;
     setState(() {
       _selectedProduct = prod;
-      _newPriceController.text = (prod == 'PMS' ? state.pmsPrice + 30 : state.agoPrice + 40).toStringAsFixed(0);
+      _newPriceController.text = (prod == 'PMS' ? state.pmsPrice : state.agoPrice).toStringAsFixed(0);
     });
   }
 
