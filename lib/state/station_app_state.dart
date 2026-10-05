@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../core/notifications/forecourt_notification.dart';
+import '../core/notifications/notification_service.dart';
 import '../core/offline/offline_sync_service.dart';
 import '../core/offline/sync_queue_item.dart';
 import '../core/utils/currency_formatter.dart';
@@ -176,6 +178,7 @@ class StationAppState extends ChangeNotifier {
   }
 
   final _syncService = OfflineSyncService.instance;
+  final _notifService = NotificationService.instance;
 
   // 1. Current Session
   UserProfile _currentUser = UserProfile.demoStaff[0]; // Amaka O.
@@ -464,6 +467,15 @@ class StationAppState extends ChangeNotifier {
       },
     );
 
+    // In-app alert for Cashier
+    _notifService.postNotification(
+      title: 'New Shift Remittance',
+      message: '${_currentUser.displayName} submitted Morning shift remittance (${CurrencyFormatter.formatNaira(totalExpected)}).',
+      type: NotificationType.info,
+      targetRole: UserRole.cashier,
+      actionRouteName: '09 Verify Submission',
+    );
+
     notifyListeners();
   }
 
@@ -493,6 +505,14 @@ class StationAppState extends ChangeNotifier {
       );
     }
 
+    _notifService.postNotification(
+      title: 'Shift Remittance Verified',
+      message: 'Cashier verified ${sub.attendantName}\'s shift. ${CurrencyFormatter.formatNaira(sub.cashDeclared)} added to cash drawer.',
+      type: NotificationType.success,
+      targetRole: UserRole.manager,
+      actionRouteName: '10 Cash Count',
+    );
+
     notifyListeners();
   }
 
@@ -516,6 +536,14 @@ class StationAppState extends ChangeNotifier {
         status: 'Pending Review',
         recordedAt: DateTime.now(),
       ),
+    );
+
+    _notifService.postNotification(
+      title: 'Shift Shortage Flagged',
+      message: 'Shortfall of ${CurrencyFormatter.formatVariance(sub.variance)} flagged on ${sub.attendantName}\'s shift. Awaiting Director review.',
+      type: NotificationType.critical,
+      targetRole: UserRole.director,
+      actionRouteName: '19 Salary Deductions',
     );
 
     notifyListeners();
@@ -653,6 +681,14 @@ class StationAppState extends ChangeNotifier {
       },
     );
 
+    _notifService.postNotification(
+      title: 'Tanker Fuel Discharged',
+      message: '${CurrencyFormatter.formatLitres(received)} delivered to Tank $tankCode from $supplier (Waybill: $waybillNumber).',
+      type: NotificationType.info,
+      targetRole: UserRole.director,
+      actionRouteName: '13 Fuel Delivery (Waybill)',
+    );
+
     notifyListeners();
   }
 
@@ -677,6 +713,16 @@ class StationAppState extends ChangeNotifier {
         'recorded_at': DateTime.now().toIso8601String(),
       },
     );
+
+    if (physicalDipLitres < tank.bookStock - 50) {
+      _notifService.postNotification(
+        title: 'Tank Stock Deficit Warning',
+        message: 'Tank $tankCode physical dip has deficit of ${(physicalDipLitres - tank.bookStock).toStringAsFixed(1)}L vs book stock.',
+        type: NotificationType.warning,
+        targetRole: UserRole.manager,
+        actionRouteName: '12 Tank Dip Audit',
+      );
+    }
 
     notifyListeners();
   }
@@ -738,6 +784,14 @@ class StationAppState extends ChangeNotifier {
       },
     );
 
+    // High-priority broadcast to all staff
+    _notifService.postNotification(
+      title: 'PRICE CHANGE DIRECTIVE',
+      message: '$product retail price set to ${CurrencyFormatter.formatNaira(newPrice)}/L across all 5 branches.',
+      type: NotificationType.critical,
+      actionRouteName: '18 Retail Fuel Prices',
+    );
+
     notifyListeners();
   }
 
@@ -785,6 +839,14 @@ class StationAppState extends ChangeNotifier {
         'id': depositId,
         'confirmed_at': dep.confirmedAt!.toIso8601String(),
       },
+    );
+
+    _notifService.postNotification(
+      title: 'Bank Deposit Confirmed',
+      message: 'Director confirmed commercial bank credit alert for deposit ${dep.id} (${CurrencyFormatter.formatNaira(dep.amount)}).',
+      type: NotificationType.success,
+      targetRole: UserRole.cashier,
+      actionRouteName: '20 Bank Deposits',
     );
 
     notifyListeners();

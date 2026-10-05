@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/notifications/forecourt_notification.dart';
+import '../../core/notifications/notification_service.dart';
 import '../../core/offline/offline_sync_service.dart';
 import '../../core/security/kiosk_security_manager.dart';
 import '../../core/widgets/kiosk_security_guard.dart';
+import '../../core/widgets/notification_bell.dart';
 import '../../models/user_profile.dart';
 import '../../state/station_app_state.dart';
 import '../admin/attendant_salary_ledger_screen.dart';
@@ -54,12 +57,14 @@ class _AppShellState extends State<AppShell> {
   final state = StationAppState.instance;
   final syncService = OfflineSyncService.instance;
   final securityManager = KioskSecurityManager.instance;
+  final notifService = NotificationService.instance;
   AppView _currentView = AppView.login;
 
   @override
   void initState() {
     super.initState();
     state.addListener(_onStateChanged);
+    notifService.addListener(_onStateChanged);
     // Initialize Forecourt 60-second inactivity watchdog
     securityManager.initialize(onAutoLogout: _logout);
   }
@@ -67,6 +72,7 @@ class _AppShellState extends State<AppShell> {
   @override
   void dispose() {
     state.removeListener(_onStateChanged);
+    notifService.removeListener(_onStateChanged);
     super.dispose();
   }
 
@@ -96,27 +102,153 @@ class _AppShellState extends State<AppShell> {
     });
   }
 
+  void _navigateToNamedRoute(String routeName) {
+    for (var v in AppView.values) {
+      final name = _viewName(v).toLowerCase();
+      final target = routeName.toLowerCase();
+      if (name.contains(target) || target.contains(name)) {
+        setState(() => _currentView = v);
+        break;
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final pendingAudits = state.submissions.where((s) => s.status == 'Pending Verification').length;
+    final headsUp = notifService.latestHeadsUp;
 
     return KioskSecurityGuard(
       onLockedOutLogout: _logout,
-      child: Scaffold(
-        body: _buildCurrentScreen(),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: _showScreenSwitcherDialog,
-          backgroundColor: AppColors.ink,
-          icon: Badge(
-            isLabelVisible: pendingAudits > 0,
-            label: Text('$pendingAudits'),
-            child: const Icon(Icons.layers, color: Colors.white, size: 20),
+      child: Stack(
+        children: [
+          Scaffold(
+            body: _buildCurrentScreen(),
+            floatingActionButton: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // 1. Notification Bell
+                Container(
+                  height: 48,
+                  width: 48,
+                  decoration: BoxDecoration(
+                    color: AppColors.ink,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.25),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: NotificationBell(
+                    currentRole: state.currentUser.role,
+                    onNavigateToScreen: _navigateToNamedRoute,
+                  ),
+                ),
+                const SizedBox(width: 10),
+
+                // 2. View Switcher
+                FloatingActionButton.extended(
+                  onPressed: _showScreenSwitcherDialog,
+                  backgroundColor: AppColors.ink,
+                  icon: Badge(
+                    isLabelVisible: pendingAudits > 0,
+                    label: Text('$pendingAudits'),
+                    child: const Icon(Icons.layers, color: Colors.white, size: 20),
+                  ),
+                  label: Text(
+                    'View: ${_viewName(_currentView)}',
+                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
           ),
-          label: Text(
-            'View: ${_viewName(_currentView)}',
-            style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
-          ),
-        ),
+
+          // In-App Heads-Up Alert Popup Toast
+          if (headsUp != null)
+            Positioned(
+              top: 16,
+              left: 20,
+              right: 20,
+              child: Material(
+                elevation: 12,
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: headsUp.type == NotificationType.critical
+                        ? const Color(0xFFFEF2F2)
+                        : (headsUp.type == NotificationType.warning
+                            ? const Color(0xFFFFFBEB)
+                            : const Color(0xFFF0FDF4)),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: headsUp.type == NotificationType.critical
+                          ? Colors.redAccent
+                          : (headsUp.type == NotificationType.warning ? Colors.amber : AppColors.emerald),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        headsUp.type == NotificationType.critical
+                            ? Icons.error_outline
+                            : (headsUp.type == NotificationType.warning
+                                ? Icons.warning_amber_rounded
+                                : Icons.check_circle_outline),
+                        color: headsUp.type == NotificationType.critical
+                            ? Colors.redAccent
+                            : (headsUp.type == NotificationType.warning ? const Color(0xFFB45309) : AppColors.emerald),
+                        size: 24,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              headsUp.title,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.ink),
+                            ),
+                            Text(
+                              headsUp.message,
+                              style: const TextStyle(fontSize: 12, color: AppColors.slate),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (headsUp.actionRouteName != null) ...[
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: () {
+                            final route = headsUp.actionRouteName!;
+                            notifService.dismissHeadsUp();
+                            _navigateToNamedRoute(route);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.ink,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          ),
+                          child: const Text('View', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 18, color: AppColors.slate),
+                        onPressed: () => notifService.dismissHeadsUp(),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
