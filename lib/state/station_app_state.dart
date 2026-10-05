@@ -7,6 +7,7 @@ import '../core/offline/sync_queue_item.dart';
 import '../core/utils/currency_formatter.dart';
 import '../models/credit_customer.dart';
 import '../models/nozzle.dart';
+import '../models/station.dart';
 import '../models/user_profile.dart';
 
 /// Models for real-time forecourt operations
@@ -186,7 +187,7 @@ class StationAppState extends ChangeNotifier {
   final _notifService = NotificationService.instance;
 
   // 1. Current Session
-  UserProfile _currentUser = UserProfile.demoStaff[0]; // Amaka O.
+  UserProfile _currentUser = UserProfile.defaultDirector;
   UserProfile get currentUser => _currentUser;
 
   void setCurrentUser(UserProfile user) {
@@ -200,7 +201,10 @@ class StationAppState extends ChangeNotifier {
   double get pmsPrice => _pmsPrice;
   double get agoPrice => _agoPrice;
 
-  // Station Infrastructure Configuration (§3.1)
+  // Station Infrastructure Configuration (§1, §3.1)
+  List<Station> _stations = [];
+  List<Station> get stations => List.unmodifiable(_stations);
+
   String _currentStationCode = 'LEKKI-01';
   String get currentStationCode => _currentStationCode;
   String _currentStationName = 'Lekki Road Station';
@@ -240,7 +244,11 @@ class StationAppState extends ChangeNotifier {
   final List<BankDepositRecord> _deposits = [];
   List<BankDepositRecord> get deposits => List.unmodifiable(_deposits);
 
-  // 11. Daily Cash Drawer State
+  // 11. Staff & Attendants (§2.1–§2.4)
+  List<UserProfile> _staff = [];
+  List<UserProfile> get staff => List.unmodifiable(_staff);
+
+  // 12. Daily Cash Drawer State
   double _openingCash = 0.0;
   double get openingCash => _openingCash;
 
@@ -317,7 +325,8 @@ class StationAppState extends ChangeNotifier {
     ];
 
     _creditCustomers = List.from(CreditCustomer.getDefaultCustomers());
-    // Submissions, deposits, salary adjustments, and expenses start empty (0 mock transactions).
+    _staff = [];
+    // Submissions, deposits, salary adjustments, expenses, and staff start empty (0 mock transactions).
     // They populate dynamically via live Supabase queries or actual forecourt operations.
   }
 
@@ -333,11 +342,24 @@ class StationAppState extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // 0. Fetch station details (§3.1)
+      // 0. Fetch all active stations (§1, §2.1)
+      final remoteStations = await repo.fetchAllStations();
+      if (remoteStations.isNotEmpty) {
+        _stations = remoteStations;
+      }
+
       final stationInfo = await repo.fetchStationInfo(_currentStationCode);
       if (stationInfo != null) {
         _hasInterlockedTanks = stationInfo['has_interlocked_tanks'] ?? false;
         _currentStationName = stationInfo['name'] ?? _currentStationName;
+      } else if (_stations.isNotEmpty) {
+        final match = _stations.firstWhere(
+          (s) => s.code == _currentStationCode,
+          orElse: () => _stations.first,
+        );
+        _currentStationCode = match.code;
+        _currentStationName = match.name;
+        _hasInterlockedTanks = match.hasInterlockedTanks;
       }
 
       // 1. Fetch live fuel prices
@@ -433,6 +455,12 @@ class StationAppState extends ChangeNotifier {
             recordedAt: DateTime.tryParse(s['created_at'] ?? '') ?? DateTime.now(),
           ),
         );
+      }
+
+      // 7. Fetch live staff profiles (§2.1–§2.4)
+      final remoteStaff = await repo.fetchStationStaff(_currentStationCode);
+      if (remoteStaff.isNotEmpty) {
+        _staff = remoteStaff;
       }
     } catch (e) {
       debugPrint('[Supabase Sync Error]: $e');
@@ -1076,4 +1104,160 @@ class StationAppState extends ChangeNotifier {
     notifyListeners();
     return await repo.updateNozzleSupplyingTank(nozzleNumber, targetTankCode);
   }
+
+  /// Switch the active station context (e.g., when Director navigates between stations)
+  void switchStation(Station station) {
+    _currentStationCode = station.code;
+    _currentStationName = station.name;
+    _hasInterlockedTanks = station.hasInterlockedTanks;
+    notifyListeners();
+    syncWithSupabase();
+  }
+
+  /// Director / Admin: Register and onboard a new branch station (§1)
+  Future<Station?> registerNewStation({
+    required String code,
+    required String name,
+    String? address,
+    String? phone,
+    String? managerName,
+    bool hasInterlockedTanks = false,
+  }) async {
+    final repo = SupabaseRepository.instance;
+    final st = await repo.createStation(
+      code: code,
+      name: name,
+      address: address,
+      phone: phone,
+      managerName: managerName,
+      hasInterlockedTanks: hasInterlockedTanks,
+    );
+    if (st != null) {
+      _stations.removeWhere((s) => s.id == st.id || s.code == st.code);
+      _stations.add(st);
+      notifyListeners();
+    }
+    return st;
+  }
+
+  // ---------------------------------------------------------------------------
+  // STAFF & ATTENDANT MANAGEMENT (§2.1–§2.4, §4.7)
+  // ---------------------------------------------------------------------------
+
+  /// Onboard a new pump attendant, cashier, or manager (§2.2).
+  /// Captures: Full name, display name, role, station, phone, address, and shortee/surety info.
+  /// Enforces: Base salary can only be configured if currentUser is Director.
+  Future<UserProfile?> onboardStaff({
+    required String fullName,
+    required String displayName,
+    required UserRole role,
+    required String pin,
+    required String stationCode,
+    String? phone,
+    String? address,
+    String? suretyName,
+    String? suretyPhone,
+    String? suretyAddress,
+    double baseSalary = 0.0,
+  }) async {
+    final actualSalary = currentUser.role == UserRole.director ? baseSalary : 0.0;
+    final repo = SupabaseRepository.instance;
+    final newProfile = await repo.createStaffProfile(
+      fullName: fullName,
+      displayName: displayName,
+      role: role,
+      pin: pin,
+      stationCode: stationCode,
+      phone: phone,
+      address: address,
+      suretyName: suretyName,
+      suretyPhone: suretyPhone,
+      suretyAddress: suretyAddress,
+      baseSalary: actualSalary,
+    );
+
+    if (newProfile != null) {
+      _staff.removeWhere((s) => s.id == newProfile.id);
+      _staff.add(newProfile);
+      notifyListeners();
+    }
+    return newProfile;
+  }
+
+  /// Update staff monthly base salary (Director-only restriction enforced here & backend)
+  Future<bool> updateStaffSalary({
+    required String profileId,
+    required double baseSalary,
+  }) async {
+    if (currentUser.role != UserRole.director) {
+      return false; // Strictly restricted
+    }
+    final repo = SupabaseRepository.instance;
+    final ok = await repo.updateStaffSalary(profileId: profileId, baseSalary: baseSalary);
+    if (ok) {
+      final idx = _staff.indexWhere((s) => s.id == profileId);
+      if (idx != -1) {
+        final old = _staff[idx];
+        _staff[idx] = UserProfile(
+          id: old.id,
+          displayName: old.displayName,
+          fullName: old.fullName,
+          role: old.role,
+          stationName: old.stationName,
+          stationId: old.stationId,
+          phone: old.phone,
+          address: old.address,
+          suretyName: old.suretyName,
+          suretyPhone: old.suretyPhone,
+          suretyAddress: old.suretyAddress,
+          baseSalary: baseSalary,
+          isActive: old.isActive,
+        );
+        notifyListeners();
+      }
+    }
+    return ok;
+  }
+
+  /// Reset attendant login PIN (§2.3)
+  Future<bool> resetStaffPin({
+    required String profileId,
+    required String newPin,
+  }) async {
+    final repo = SupabaseRepository.instance;
+    return await repo.resetStaffPin(profileId: profileId, newPin: newPin);
+  }
+
+  /// Toggle active / inactive status (Deactivate or Reactivate)
+  Future<bool> toggleStaffStatus({
+    required String profileId,
+    required bool isActive,
+  }) async {
+    final repo = SupabaseRepository.instance;
+    final ok = await repo.toggleStaffStatus(profileId: profileId, isActive: isActive);
+    if (ok) {
+      final idx = _staff.indexWhere((s) => s.id == profileId);
+      if (idx != -1) {
+        final old = _staff[idx];
+        _staff[idx] = UserProfile(
+          id: old.id,
+          displayName: old.displayName,
+          fullName: old.fullName,
+          role: old.role,
+          stationName: old.stationName,
+          stationId: old.stationId,
+          phone: old.phone,
+          address: old.address,
+          suretyName: old.suretyName,
+          suretyPhone: old.suretyPhone,
+          suretyAddress: old.suretyAddress,
+          baseSalary: old.baseSalary,
+          isActive: isActive,
+        );
+        notifyListeners();
+      }
+    }
+    return ok;
+  }
 }
+

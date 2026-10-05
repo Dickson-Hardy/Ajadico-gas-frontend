@@ -8,11 +8,13 @@ import '../manager/tank_changeover_dialog.dart';
 class CompanyReportsScreen extends StatefulWidget {
   final VoidCallback onBack;
   final VoidCallback? onOpenStationSetup;
+  final VoidCallback? onOpenStaffManagement;
 
   const CompanyReportsScreen({
     super.key,
     required this.onBack,
     this.onOpenStationSetup,
+    this.onOpenStaffManagement,
   });
 
   @override
@@ -88,6 +90,12 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
               icon: const Icon(Icons.alt_route, color: AppColors.amber),
               label: const Text('Manifold Switch', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               onPressed: () => TankChangeoverDialog.show(context, state),
+            ),
+          if (widget.onOpenStaffManagement != null)
+            IconButton(
+              icon: const Icon(Icons.badge_outlined),
+              tooltip: 'Staff Management & Payroll',
+              onPressed: widget.onOpenStaffManagement,
             ),
           if (widget.onOpenStationSetup != null)
             IconButton(

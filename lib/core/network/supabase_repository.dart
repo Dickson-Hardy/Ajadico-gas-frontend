@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/credit_customer.dart';
 import '../../models/nozzle.dart';
+import '../../models/station.dart';
 import '../../models/user_profile.dart';
 import '../config/supabase_config.dart';
 
@@ -32,6 +33,55 @@ class SupabaseRepository {
   }
 
   // ---------------------------------------------------------------------------
+  // STATIONS & BRANCHES (§1, §2.1)
+  // ---------------------------------------------------------------------------
+
+  /// Fetch all active stations from Supabase
+  Future<List<Station>> fetchAllStations() async {
+    if (!_isConnected) return [];
+
+    try {
+      final data = await client
+          .from('stations')
+          .select('*')
+          .eq('is_active', true)
+          .order('name', ascending: true);
+
+      return (data as List)
+          .map((row) => Station.fromJson(Map<String, dynamic>.from(row)))
+          .toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /// Director / Admin: Register a new branch station (§1)
+  Future<Station?> createStation({
+    required String code,
+    required String name,
+    String? address,
+    String? phone,
+    String? managerName,
+    bool hasInterlockedTanks = false,
+  }) async {
+    if (!_isConnected) return null;
+    try {
+      final res = await client.from('stations').insert({
+        'code': code.toUpperCase().trim(),
+        'name': name.trim(),
+        'address': address?.trim(),
+        'phone': phone?.trim(),
+        'manager_name': managerName?.trim(),
+        'has_interlocked_tanks': hasInterlockedTanks,
+        'is_active': true,
+      }).select().single();
+      return Station.fromJson(Map<String, dynamic>.from(res));
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // AUTHENTICATION & PROFILES (§2.1–§2.4)
   // ---------------------------------------------------------------------------
 
@@ -56,15 +106,14 @@ class SupabaseRepository {
     }
   }
 
-  Future<List<UserProfile>> fetchStationStaff(String stationId) async {
-    if (!_isConnected) return UserProfile.demoStaff;
+  Future<List<UserProfile>> fetchStationStaff([String? stationCode]) async {
+    if (!_isConnected) return [];
 
     try {
       final data = await client
           .from('profiles')
-          .select()
-          .eq('station_id', stationId)
-          .eq('is_active', true);
+          .select('*, stations(name, code)')
+          .order('created_at', ascending: true);
 
       return (data as List).map((row) {
         final roleStr = row['role'] as String;
@@ -77,22 +126,146 @@ class SupabaseRepository {
             role = UserRole.cashier;
             break;
           case 'director':
+          case 'admin':
             role = UserRole.director;
             break;
           default:
             role = UserRole.attendant;
         }
 
+        final stationMap = row['stations'] as Map?;
+        final stationName = stationMap?['name'] ?? (role == UserRole.director ? 'HQ · Corporate' : 'Station');
+
         return UserProfile(
           id: row['id'] as String,
           displayName: row['display_name'] as String,
           fullName: row['full_name'] as String,
           role: role,
-          stationName: 'Lekki Road Station',
+          stationName: stationName,
+          stationId: row['station_id'],
+          phone: row['phone'],
+          address: row['address'],
+          suretyName: row['surety_name'],
+          suretyPhone: row['surety_phone'],
+          suretyAddress: row['surety_address'],
+          baseSalary: (row['base_salary'] as num?)?.toDouble() ?? 0.0,
+          isActive: row['is_active'] ?? true,
         );
       }).toList();
     } catch (e) {
-      return UserProfile.demoStaff;
+      return [];
+    }
+  }
+
+  /// Onboard a new pump attendant, cashier, or manager (§2.2)
+  Future<UserProfile?> createStaffProfile({
+    required String fullName,
+    required String displayName,
+    required UserRole role,
+    required String pin,
+    required String stationCode,
+    String? phone,
+    String? address,
+    String? suretyName,
+    String? suretyPhone,
+    String? suretyAddress,
+    double baseSalary = 0.0,
+  }) async {
+    if (!_isConnected) {
+      return UserProfile(
+        id: 'staff-${DateTime.now().millisecondsSinceEpoch}',
+        displayName: displayName,
+        fullName: fullName,
+        role: role,
+        stationName: stationCode,
+        phone: phone,
+        address: address,
+        suretyName: suretyName,
+        suretyPhone: suretyPhone,
+        suretyAddress: suretyAddress,
+        baseSalary: baseSalary,
+        isActive: true,
+      );
+    }
+
+    try {
+      String? stationId;
+      String stationName = 'Station';
+      if (role != UserRole.director) {
+        final st = await client.from('stations').select('id, name').eq('code', stationCode).maybeSingle();
+        stationId = st?['id'];
+        stationName = st?['name'] ?? stationCode;
+      } else {
+        stationName = 'HQ · Corporate';
+      }
+
+      final roleStr = role.name;
+
+      final res = await client.from('profiles').insert({
+        'full_name': fullName,
+        'display_name': displayName,
+        'role': roleStr,
+        'pin_hash': pin,
+        'phone': phone,
+        'address': address,
+        'surety_name': suretyName,
+        'surety_phone': suretyPhone,
+        'surety_address': suretyAddress,
+        'station_id': stationId,
+        'base_salary': baseSalary,
+        'is_active': true,
+      }).select().single();
+
+      return UserProfile(
+        id: res['id'] as String,
+        displayName: res['display_name'] as String,
+        fullName: res['full_name'] as String,
+        role: role,
+        stationName: stationName,
+        stationId: stationId,
+        phone: phone,
+        address: address,
+        suretyName: suretyName,
+        suretyPhone: suretyPhone,
+        suretyAddress: suretyAddress,
+        baseSalary: (res['base_salary'] as num?)?.toDouble() ?? baseSalary,
+        isActive: true,
+      );
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Director only: Update monthly base salary (§4.7, Executive Payroll)
+  Future<bool> updateStaffSalary({required String profileId, required double baseSalary}) async {
+    if (!_isConnected) return true;
+    try {
+      await client.from('profiles').update({'base_salary': baseSalary}).eq('id', profileId);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Reset attendant login PIN (§2.3)
+  Future<bool> resetStaffPin({required String profileId, required String newPin}) async {
+    if (!_isConnected) return true;
+    try {
+      await client.from('profiles').update({'pin_hash': newPin}).eq('id', profileId);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Toggle active / inactive status (dismissal or leave)
+  Future<bool> toggleStaffStatus({required String profileId, required bool isActive}) async {
+    if (!_isConnected) return true;
+    try {
+      await client.from('profiles').update({'is_active': isActive}).eq('id', profileId);
+      return true;
+    } catch (e) {
+      return false;
     }
   }
 

@@ -4,6 +4,7 @@ import '../../core/network/supabase_repository.dart';
 import '../../core/security/kiosk_security_manager.dart';
 import '../../core/widgets/forecourt_sync_bar.dart';
 import '../../models/user_profile.dart';
+import '../../state/station_app_state.dart';
 
 class LoginScreen extends StatefulWidget {
   final Function(UserProfile user) onLoginSuccess;
@@ -113,8 +114,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final staffList = UserProfile.demoStaff
-        .where((u) => u.role != UserRole.director)
+    final liveStaff = StationAppState.instance.staff;
+    final staffList = liveStaff
+        .where((u) => u.isActive && u.role != UserRole.director)
         .toList();
 
     return Scaffold(
@@ -159,51 +161,88 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Staff selection buttons grid
-                      Card(
-                        elevation: 1,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        child: Padding(
-                          padding: const EdgeInsets.all(14),
-                          child: GridView.count(
-                            crossAxisCount: 2,
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            crossAxisSpacing: 10,
-                            mainAxisSpacing: 10,
-                            childAspectRatio: 2.8,
-                            children: staffList.map((user) {
-                              final isSelected = _selectedUser?.id == user.id;
-                              return OutlinedButton(
-                                onPressed: () {
-                                  setState(() {
-                                    _selectedUser = user;
-                                    _pin = '';
-                                    _authError = null;
-                                  });
-                                },
-                                style: OutlinedButton.styleFrom(
-                                  backgroundColor: isSelected
-                                      ? AppColors.primary.withOpacity(0.08)
-                                      : Colors.transparent,
-                                  side: BorderSide(
-                                    color: isSelected ? AppColors.primary : AppColors.border,
-                                    width: isSelected ? 2 : 1,
-                                  ),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      // Staff selection buttons grid or empty state
+                      if (staffList.isEmpty)
+                        Card(
+                          elevation: 1,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Column(
+                              children: [
+                                const Icon(Icons.people_outline, size: 48, color: AppColors.muted),
+                                const SizedBox(height: 12),
+                                const Text(
+                                  'No Forecourt Attendants Registered',
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.ink),
                                 ),
-                                child: Text(
-                                  user.displayName,
-                                  style: TextStyle(
-                                    color: isSelected ? AppColors.primary : AppColors.ink,
-                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                const SizedBox(height: 6),
+                                const Text(
+                                  'Onboard pump attendants using the Manager Dashboard or Director Portal.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(fontSize: 13, color: AppColors.muted),
+                                ),
+                                const SizedBox(height: 16),
+                                ElevatedButton.icon(
+                                  icon: const Icon(Icons.shield_outlined),
+                                  label: const Text('Login as Managing Director (Engr. Dickson)'),
+                                  onPressed: () {
+                                    widget.onLoginSuccess(UserProfile.defaultDirector);
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppColors.ink,
+                                    foregroundColor: Colors.white,
                                   ),
                                 ),
-                              );
-                            }).toList(),
+                              ],
+                            ),
+                          ),
+                        )
+                      else
+                        Card(
+                          elevation: 1,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          child: Padding(
+                            padding: const EdgeInsets.all(14),
+                            child: GridView.count(
+                              crossAxisCount: 2,
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              crossAxisSpacing: 10,
+                              mainAxisSpacing: 10,
+                              childAspectRatio: 2.8,
+                              children: staffList.map((user) {
+                                final isSelected = _selectedUser?.id == user.id;
+                                return OutlinedButton(
+                                  onPressed: () {
+                                    setState(() {
+                                      _selectedUser = user;
+                                      _pin = '';
+                                      _authError = null;
+                                    });
+                                  },
+                                  style: OutlinedButton.styleFrom(
+                                    backgroundColor: isSelected
+                                        ? AppColors.primary.withOpacity(0.08)
+                                        : Colors.transparent,
+                                    side: BorderSide(
+                                      color: isSelected ? AppColors.primary : AppColors.border,
+                                      width: isSelected ? 2 : 1,
+                                    ),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                  child: Text(
+                                    user.displayName,
+                                    style: TextStyle(
+                                      color: isSelected ? AppColors.primary : AppColors.ink,
+                                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
                           ),
                         ),
-                      ),
 
                       const SizedBox(height: 14),
 

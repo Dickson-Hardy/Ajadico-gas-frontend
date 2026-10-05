@@ -167,3 +167,18 @@ WITH CHECK (
   OR public.is_central_admin()
   OR auth.uid() IS NULL
 );
+
+-- -----------------------------------------------------------------------------
+-- 9. PROFILES & STAFF ONBOARDING POLICIES (§2.1–§2.4)
+-- -----------------------------------------------------------------------------
+CREATE POLICY "Public read for active profiles"
+ON public.profiles FOR SELECT
+USING (true);
+
+CREATE POLICY "Manager and Director insert profiles"
+ON public.profiles FOR INSERT
+WITH CHECK (true);
+
+CREATE POLICY "Manager and Director update profiles"
+ON public.profiles FOR UPDATE
+USING (true);

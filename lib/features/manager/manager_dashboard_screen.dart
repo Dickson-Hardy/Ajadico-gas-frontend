@@ -12,6 +12,7 @@ class ManagerDashboardScreen extends StatefulWidget {
   final VoidCallback onOpenCreditCustomers;
   final VoidCallback? onOpenTankDip;
   final VoidCallback? onOpenFuelDelivery;
+  final VoidCallback? onOpenStaffManagement;
   final VoidCallback onLogout;
 
   const ManagerDashboardScreen({
@@ -21,6 +22,7 @@ class ManagerDashboardScreen extends StatefulWidget {
     required this.onOpenCreditCustomers,
     this.onOpenTankDip,
     this.onOpenFuelDelivery,
+    this.onOpenStaffManagement,
     required this.onLogout,
   });
 
@@ -75,6 +77,12 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
           ],
         ),
         actions: [
+          if (widget.onOpenStaffManagement != null)
+            IconButton(
+              icon: const Icon(Icons.badge_outlined),
+              tooltip: 'Staff & Attendants',
+              onPressed: widget.onOpenStaffManagement,
+            ),
           IconButton(
             icon: const Icon(Icons.people_outline),
             tooltip: 'Credit Customers',

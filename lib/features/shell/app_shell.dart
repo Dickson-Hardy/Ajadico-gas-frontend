@@ -12,6 +12,7 @@ import '../admin/attendant_salary_ledger_screen.dart';
 import '../admin/bank_deposit_verification_screen.dart';
 import '../admin/company_reports_screen.dart';
 import '../admin/price_change_screen.dart';
+import '../admin/staff_management_screen.dart';
 import '../admin/station_setup_screen.dart';
 import '../attendant/attendant_home_screen.dart';
 import '../attendant/closing_readings_screen.dart';
@@ -46,6 +47,7 @@ enum AppView {
   creditCustomers,
   companyReports,
   stationSetup,
+  staffManagement,
 }
 
 class AppShell extends StatefulWidget {
@@ -328,6 +330,7 @@ class _AppShellState extends State<AppShell> {
           onOpenCreditCustomers: () => setState(() => _currentView = AppView.creditCustomers),
           onOpenTankDip: () => setState(() => _currentView = AppView.tankDip),
           onOpenFuelDelivery: () => setState(() => _currentView = AppView.fuelDelivery),
+          onOpenStaffManagement: () => setState(() => _currentView = AppView.staffManagement),
           onLogout: _logout,
         );
 
@@ -356,11 +359,21 @@ class _AppShellState extends State<AppShell> {
         return CompanyReportsScreen(
           onBack: () => setState(() => _currentView = AppView.managerDashboard),
           onOpenStationSetup: () => setState(() => _currentView = AppView.stationSetup),
+          onOpenStaffManagement: () => setState(() => _currentView = AppView.staffManagement),
         );
 
       case AppView.stationSetup:
         return StationSetupScreen(
           onBack: () => setState(() => _currentView = AppView.companyReports),
+        );
+
+      case AppView.staffManagement:
+        return StaffManagementScreen(
+          onBack: () => setState(() {
+            _currentView = state.currentUser.role == UserRole.director
+                ? AppView.companyReports
+                : AppView.managerDashboard;
+          }),
         );
     }
   }
@@ -403,6 +416,8 @@ class _AppShellState extends State<AppShell> {
         return '22 Consolidated P&L';
       case AppView.stationSetup:
         return '23 Forecourt & Station Setup';
+      case AppView.staffManagement:
+        return '24 Staff & Attendants';
     }
   }
 
@@ -581,6 +596,8 @@ class _AppShellState extends State<AppShell> {
         return Icons.insert_chart;
       case AppView.stationSetup:
         return Icons.settings_suggest;
+      case AppView.staffManagement:
+        return Icons.badge_outlined;
     }
   }
 }

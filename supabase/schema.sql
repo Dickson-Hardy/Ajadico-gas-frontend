@@ -111,6 +111,11 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     role public.user_role NOT NULL DEFAULT 'attendant',
     pin_hash TEXT NOT NULL, -- Salted SHA256 / bcrypt hash for shared tablet login
     phone VARCHAR(30),
+    address TEXT, -- Residential home address
+    surety_name VARCHAR(100), -- Guarantor / Shortee full name (§2.2)
+    surety_phone VARCHAR(30), -- Guarantor / Shortee contact phone number
+    surety_address TEXT, -- Guarantor / Shortee address
+    base_salary NUMERIC(12, 2) DEFAULT 0.00, -- Monthly base salary authorized by Director
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
