@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/network/supabase_repository.dart';
 import '../core/notifications/forecourt_notification.dart';
 import '../core/notifications/notification_service.dart';
 import '../core/offline/offline_sync_service.dart';
@@ -297,72 +298,112 @@ class StationAppState extends ChangeNotifier {
       ),
     ];
 
-    _creditCustomers = List.from(CreditCustomer.getDemoCustomers());
+    _creditCustomers = List.from(CreditCustomer.getDefaultCustomers());
+    // Submissions, deposits, salary adjustments, and expenses start empty (0 mock transactions).
+    // They populate dynamically via live Supabase queries or actual forecourt operations.
+  }
 
-    // Initial seed submission in queue
-    _submissions.add(
-      ShiftSubmission(
-        id: 'SHIFT-20261005-01',
-        attendantName: 'Amaka O.',
-        attendantId: 'attendant-1',
-        shiftType: 'Morning',
-        submittedAt: DateTime.now().subtract(const Duration(minutes: 45)),
-        nozzles: [
-          NozzleItem(
-            nozzleNumber: 1,
-            productName: 'PMS',
-            tankCode: 'T1',
-            openingReading: 412380.5,
-            closingReading: 413102.0,
-            pricePerLitre: 1050.0,
-            isOpeningConfirmed: true,
+  bool _isSyncingWithRemote = false;
+  bool get isSyncingWithRemote => _isSyncingWithRemote;
+
+  /// Pull real-time master data & live records directly from Supabase PostgREST
+  Future<void> syncWithSupabase() async {
+    final repo = SupabaseRepository.instance;
+    if (!repo.isConnected) return;
+
+    _isSyncingWithRemote = true;
+    notifyListeners();
+
+    try {
+      // 1. Fetch live fuel prices
+      final prices = await repo.fetchLivePrices('LEKKI-01');
+      if (prices.containsKey('PMS')) _pmsPrice = prices['PMS']!;
+      if (prices.containsKey('AGO')) _agoPrice = prices['AGO']!;
+
+      // 2. Fetch live tanks
+      final remoteTanks = await repo.fetchLiveTanks('LEKKI-01');
+      if (remoteTanks.isNotEmpty) {
+        _tanks = remoteTanks.map((r) {
+          final prodMap = r['fuel_products'] as Map?;
+          final prod = prodMap?['code'] ?? 'PMS';
+          return LiveTankStock(
+            code: r['code'] as String,
+            product: prod as String,
+            capacity: (r['capacity_litres'] as num).toDouble(),
+            bookStock: (r['calculated_stock_litres'] as num).toDouble(),
+            physicalDip: (r['current_dip_litres'] as num).toDouble(),
+            lastDipTime: DateTime.now(),
+          );
+        }).toList();
+      }
+
+      // 3. Fetch live nozzles
+      final remoteNozzles = await repo.fetchLiveNozzles('LEKKI-01');
+      if (remoteNozzles.isNotEmpty) {
+        _nozzles = remoteNozzles.map((r) {
+          final prodMap = r['fuel_products'] as Map?;
+          final prod = prodMap?['code'] ?? 'PMS';
+          final tankMap = r['tanks'] as Map?;
+          final tankCode = tankMap?['code'] ?? 'T1';
+          final numVal = r['nozzle_number'] as int;
+          final price = prod == 'PMS' ? _pmsPrice : _agoPrice;
+
+          return NozzleItem(
+            nozzleNumber: numVal,
+            productName: prod as String,
+            tankCode: tankCode as String,
+            openingReading: (r['latest_meter_reading'] as num).toDouble(),
+            pricePerLitre: price,
+            isOpeningConfirmed: false,
+          );
+        }).toList();
+      }
+
+      // 4. Fetch live credit customers
+      final remoteCustomers = await repo.fetchCreditLedger('LEKKI-01');
+      if (remoteCustomers.isNotEmpty) {
+        _creditCustomers = remoteCustomers;
+      }
+
+      // 5. Fetch live expenses
+      final remoteExpenses = await repo.fetchLiveExpenses('LEKKI-01');
+      _expenses.clear();
+      for (final e in remoteExpenses) {
+        _expenses.add(
+          BranchExpense(
+            id: e['id'] as String,
+            category: e['category'] as String,
+            amount: (e['amount'] as num).toDouble(),
+            paymentSource: e['payment_source'] ?? 'Cash Drawer',
+            description: e['description'] ?? '',
+            recordedBy: 'Branch Manager',
+            recordedAt: DateTime.tryParse(e['created_at'] ?? '') ?? DateTime.now(),
           ),
-          NozzleItem(
-            nozzleNumber: 3,
-            productName: 'AGO',
-            tankCode: 'T3',
-            openingReading: 201775.5,
-            closingReading: 202198.0,
-            pricePerLitre: 1320.0,
-            isOpeningConfirmed: true,
+        );
+      }
+
+      // 6. Fetch live salary adjustments
+      final remoteSalary = await repo.fetchLiveSalaryAdjustments('LEKKI-01');
+      _salaryAdjustments.clear();
+      for (final s in remoteSalary) {
+        _salaryAdjustments.add(
+          SalaryAdjustment(
+            id: s['id'] as String,
+            attendantName: s['attendant_name'] ?? 'Attendant',
+            station: 'Lekki Road Station',
+            shiftRef: s['shift_ref'] ?? 'Shift',
+            amount: (s['amount'] as num).toDouble(),
+            status: s['status'] ?? 'Pending Review',
+            recordedAt: DateTime.tryParse(s['created_at'] ?? '') ?? DateTime.now(),
           ),
-        ],
-        expectedSalesValue: 1250000.0,
-        cashDeclared: 640000.0,
-        posCardDeclared: 310000.0,
-        posTransferDeclared: 120000.0,
-        bankTransferDeclared: 0.0,
-        creditSalesDeclared: 180000.0,
-        evidencePhotos: ['POS Settlement Slip #01', 'Transfer Alert Slip #02'],
-        status: 'Pending Verification',
-      ),
-    );
-
-    // Initial seed deposits
-    _deposits.add(
-      BankDepositRecord(
-        id: 'DEP-01',
-        stationName: 'Lekki Road Station',
-        amount: 500000.0,
-        cashierName: 'Chidi E.',
-        bankName: 'GTBank (Main Account)',
-        handedOverAt: DateTime.now().subtract(const Duration(hours: 3)),
-        isConfirmed: false,
-      ),
-    );
-
-    // Initial seed salary adjustment
-    _salaryAdjustments.add(
-      SalaryAdjustment(
-        id: 'DISC-01',
-        attendantName: 'Bello S.',
-        station: 'Lekki Road',
-        shiftRef: 'Morning Shift · Yesterday',
-        amount: -4500.0,
-        status: 'Pending Review',
-        recordedAt: DateTime.now().subtract(const Duration(days: 1)),
-      ),
-    );
+        );
+      }
+    } catch (e) {
+      debugPrint('[Supabase Sync Error]: $e');
+    } finally {
+      _isSyncingWithRemote = false;
+      notifyListeners();
+    }
   }
 
   // ---------------------------------------------------------------------------

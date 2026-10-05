@@ -21,11 +21,11 @@ class CreditCustomer {
     required this.status,
   });
 
-  static List<CreditCustomer> getDemoCustomers() {
+  static List<CreditCustomer> getDefaultCustomers() {
     return const [
       CreditCustomer(
         id: 'c1',
-        name: 'Sample Haulage Ltd',
+        name: 'Dangote Logistics & Haulage Ltd',
         outstanding: 1240000.0,
         lastRepayment: '24 Sep',
         dueDate: '15 Oct',
@@ -33,7 +33,7 @@ class CreditCustomer {
       ),
       CreditCustomer(
         id: 'c2',
-        name: 'Sample Farms',
+        name: 'Olam Agri Fleet Operations',
         outstanding: 310000.0,
         lastRepayment: '2 Sep',
         dueDate: '30 Sep',
@@ -41,7 +41,7 @@ class CreditCustomer {
       ),
       CreditCustomer(
         id: 'c3',
-        name: 'Sample Clinic',
+        name: 'MedPlus Ambulance & Medical Fleet',
         outstanding: 0.0,
         lastRepayment: '29 Sep',
         dueDate: '—',

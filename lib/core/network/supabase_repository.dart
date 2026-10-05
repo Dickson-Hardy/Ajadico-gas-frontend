@@ -257,7 +257,7 @@ class SupabaseRepository {
   // ---------------------------------------------------------------------------
 
   Future<List<CreditCustomer>> fetchCreditLedger(String stationId) async {
-    if (!_isConnected) return CreditCustomer.getDemoCustomers();
+    if (!_isConnected) return CreditCustomer.getDefaultCustomers();
 
     try {
       final data = await client.from('credit_customers').select().order('company_name');
@@ -272,7 +272,83 @@ class SupabaseRepository {
         );
       }).toList();
     } catch (e) {
-      return CreditCustomer.getDemoCustomers();
+      return CreditCustomer.getDefaultCustomers();
+    }
+  }
+
+  Future<Map<String, double>> fetchLivePrices(String stationId) async {
+    if (!_isConnected) return {'PMS': 1050.0, 'AGO': 1320.0};
+    try {
+      final data = await client
+          .from('fuel_prices')
+          .select('product_id, price_per_litre, fuel_products(code)')
+          .order('effective_from', ascending: false);
+
+      final Map<String, double> prices = {'PMS': 1050.0, 'AGO': 1320.0};
+      for (final row in (data as List)) {
+        final productMap = row['fuel_products'] as Map?;
+        final code = productMap?['code'] as String?;
+        if (code != null && !prices.containsKey(code)) {
+          prices[code] = (row['price_per_litre'] as num).toDouble();
+        }
+      }
+      return prices;
+    } catch (e) {
+      return {'PMS': 1050.0, 'AGO': 1320.0};
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchLiveTanks(String stationId) async {
+    if (!_isConnected) return [];
+    try {
+      final data = await client
+          .from('tanks')
+          .select('code, capacity_litres, current_dip_litres, calculated_stock_litres, fuel_products(code)')
+          .order('code');
+      return List<Map<String, dynamic>>.from(data as List);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchLiveNozzles(String stationId) async {
+    if (!_isConnected) return [];
+    try {
+      final data = await client
+          .from('nozzles')
+          .select('nozzle_number, latest_meter_reading, tanks(code), fuel_products(code)')
+          .order('nozzle_number');
+      return List<Map<String, dynamic>>.from(data as List);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchLiveExpenses(String stationId) async {
+    if (!_isConnected) return [];
+    try {
+      final data = await client
+          .from('expenses')
+          .select()
+          .order('created_at', ascending: false)
+          .limit(30);
+      return List<Map<String, dynamic>>.from(data as List);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchLiveSalaryAdjustments(String stationId) async {
+    if (!_isConnected) return [];
+    try {
+      final data = await client
+          .from('attendant_salary_adjustments')
+          .select()
+          .order('created_at', ascending: false)
+          .limit(30);
+      return List<Map<String, dynamic>>.from(data as List);
+    } catch (e) {
+      return [];
     }
   }
 
