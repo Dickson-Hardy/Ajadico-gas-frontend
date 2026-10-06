@@ -1,0 +1,39 @@
+workflows:
+  android-workflow:
+    name: Ajadico Energy Android Release APK
+    max_build_duration: 30
+    instance_type: linux_x2
+    environment:
+      flutter: stable
+      java: 17
+      vars:
+        SUPABASE_URL: "https://haeakygzrnrjwphmhlkp.supabase.co"
+        SUPABASE_ANON_KEY: "sb_publishable_SmQ1nwW78Hh6Gi3RtK956w_E-QNmFMl"
+    scripts:
+      - name: Generate Android Native Scaffolding
+        script: |
+          if [ ! -d "android" ]; then
+            echo "Generating Android native project scaffolding..."
+            flutter create --platforms=android --org=com.ajadico.energy .
+          fi
+
+      - name: Configure Hardware Permissions
+        script: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST" ]; then
+            echo "Configuring tablet hardware permissions..."
+            sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>' "$MANIFEST"
+          fi
+
+      - name: Install Flutter Packages
+        script: |
+          flutter pub get
+
+      - name: Build Android Release APK
+        script: |
+          flutter build apk --release \
+            --dart-define=SUPABASE_URL=$SUPABASE_URL \
+            --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
+
+    artifacts:
+      - build/**/outputs/**/*.apk
