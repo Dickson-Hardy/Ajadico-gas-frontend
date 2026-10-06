@@ -25,13 +25,14 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
   final state = StationAppState.instance;
 
   String _selectedTank = 'T1';
-  final TextEditingController _supplierController = TextEditingController(text: 'Matrix Energy Ltd');
-  final TextEditingController _waybillNumberController = TextEditingController(text: 'WB-99412');
-  final TextEditingController _statedLitresController = TextEditingController(text: '33000');
-  final TextEditingController _dipBeforeController = TextEditingController(text: '8200');
-  final TextEditingController _dipAfterController = TextEditingController(text: '41050');
-  final TextEditingController _pricePerLitreController = TextEditingController(text: '940');
+  final TextEditingController _supplierController = TextEditingController();
+  final TextEditingController _waybillNumberController = TextEditingController();
+  final TextEditingController _statedLitresController = TextEditingController();
+  final TextEditingController _dipBeforeController = TextEditingController();
+  final TextEditingController _dipAfterController = TextEditingController();
+  late final TextEditingController _pricePerLitreController;
   List<CompressedImageResult> _waybillPhotos = [];
+  bool _isSubmitting = false;
 
   double get _statedLitres => double.tryParse(_statedLitresController.text.trim()) ?? 0.0;
   double get _dipBefore => double.tryParse(_dipBeforeController.text.trim()) ?? 0.0;
@@ -39,6 +40,20 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
   double get _receivedLitres => (_dipAfter > _dipBefore) ? (_dipAfter - _dipBefore) : 0.0;
   double get _discrepancy => _receivedLitres - _statedLitres;
   double get _purchasePrice => double.tryParse(_pricePerLitreController.text.trim()) ?? 940.0;
+
+  @override
+  void initState() {
+    super.initState();
+    if (state.tanks.isNotEmpty) {
+      _selectedTank = state.tanks.first.code;
+      if (state.tanks.first.physicalDip > 0) {
+        _dipBeforeController.text = state.tanks.first.physicalDip.toStringAsFixed(0);
+      }
+    }
+    _pricePerLitreController = TextEditingController(
+      text: state.pmsPrice > 0 ? (state.pmsPrice * 0.90).toStringAsFixed(0) : '940',
+    );
+  }
 
   @override
   void dispose() {
@@ -52,6 +67,39 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
   }
 
   void _submit() {
+    if (_supplierController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.bad,
+          behavior: SnackBarBehavior.floating,
+          content: Text('Please enter the petroleum supplier name.'),
+        ),
+      );
+      return;
+    }
+
+    if (_waybillNumberController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.bad,
+          behavior: SnackBarBehavior.floating,
+          content: Text('Please enter the tanker waybill number.'),
+        ),
+      );
+      return;
+    }
+
+    if (_statedLitres <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.bad,
+          behavior: SnackBarBehavior.floating,
+          content: Text('Please enter stated volume in litres from waybill.'),
+        ),
+      );
+      return;
+    }
+
     if (_receivedLitres <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -63,27 +111,32 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
       return;
     }
 
-    state.recordFuelDelivery(
-      tankCode: _selectedTank,
-      supplier: _supplierController.text.trim(),
-      waybillNumber: _waybillNumberController.text.trim(),
-      statedLitres: _statedLitres,
-      dipBefore: _dipBefore,
-      dipAfter: _dipAfter,
-      purchasePrice: _purchasePrice,
-    );
+    setState(() => _isSubmitting = true);
+    try {
+      state.recordFuelDelivery(
+        tankCode: _selectedTank,
+        supplier: _supplierController.text.trim(),
+        waybillNumber: _waybillNumberController.text.trim(),
+        statedLitres: _statedLitres,
+        dipBefore: _dipBefore,
+        dipAfter: _dipAfter,
+        purchasePrice: _purchasePrice,
+      );
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: AppColors.ok,
-        behavior: SnackBarBehavior.floating,
-        content: Text(
-          'Fuel delivery of ${CurrencyFormatter.formatLitres(_receivedLitres)} added to Tank $_selectedTank! Queued into Offline Engine & synced.',
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.ok,
+          behavior: SnackBarBehavior.floating,
+          content: Text(
+            'Fuel delivery of ${CurrencyFormatter.formatLitres(_receivedLitres)} added to Tank $_selectedTank! Queued into Offline Engine & synced.',
+          ),
         ),
-      ),
-    );
+      );
 
-    widget.onSuccess();
+      widget.onSuccess();
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
   }
 
   @override
@@ -406,14 +459,23 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
             Expanded(
               flex: 2,
               child: ElevatedButton.icon(
-                icon: const Icon(Icons.check_circle_outline, color: Colors.white, size: 18),
-                onPressed: _submit,
+                icon: _isSubmitting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.check_circle_outline, color: Colors.white, size: 18),
+                onPressed: _isSubmitting ? null : _submit,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
-                label: const Text('Confirm Tanker Discharge', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                label: Text(
+                  _isSubmitting ? 'Confirming Discharge...' : 'Confirm Tanker Discharge',
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                ),
               ),
             ),
             const SizedBox(width: 12),

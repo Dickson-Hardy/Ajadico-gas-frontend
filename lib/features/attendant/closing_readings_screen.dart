@@ -23,6 +23,7 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen> {
   late List<NozzleItem> _nozzles;
   final Map<int, TextEditingController> _controllers = {};
   final Map<int, String?> _errors = {};
+  bool _isSubmitting = false;
 
   @override
   void initState() {
@@ -97,19 +98,24 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen> {
       return;
     }
 
-    state.recordClosingReadings(readings);
+    setState(() => _isSubmitting = true);
+    try {
+      state.recordClosingReadings(readings);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: AppColors.ok,
-        behavior: SnackBarBehavior.floating,
-        content: Text(
-          'Closing readings submitted! Expected sales: ${CurrencyFormatter.formatNaira(_totalExpectedSales)}',
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.ok,
+          behavior: SnackBarBehavior.floating,
+          content: Text(
+            'Closing readings submitted! Expected sales: ${CurrencyFormatter.formatNaira(_totalExpectedSales)}',
+          ),
         ),
-      ),
-    );
+      );
 
-    widget.onSubmitSuccess();
+      widget.onSubmitSuccess();
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
   }
 
   @override
@@ -152,6 +158,30 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen> {
                 const SizedBox(height: 16),
 
                 // Nozzle Input Cards
+                if (_nozzles.isEmpty)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Center(
+                        child: Column(
+                          children: const [
+                            Icon(Icons.local_gas_station_outlined, size: 48, color: AppColors.muted),
+                            SizedBox(height: 12),
+                            Text(
+                              'No active nozzles assigned to this shift',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.ink),
+                            ),
+                            SizedBox(height: 6),
+                            Text(
+                              'Please contact your station manager or setup nozzles in Admin settings.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: AppColors.muted, fontSize: 14),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ..._nozzles.map((nozzle) {
                   final err = _errors[nozzle.nozzleNumber];
                   return Card(
@@ -310,8 +340,14 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen> {
             Expanded(
               flex: 2,
               child: ElevatedButton.icon(
-                icon: const Icon(Icons.check_circle_outline),
-                onPressed: _submit,
+                icon: _isSubmitting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.check_circle_outline),
+                onPressed: (_isSubmitting || _nozzles.isEmpty) ? null : _submit,
                 label: const Text('Save dials & proceed to remittance'),
               ),
             ),

@@ -62,9 +62,9 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Dynamic KPI Aggregation
-    double pmsSold = 6420.0;
-    double agoSold = 2150.0;
+    // Dynamic KPI Aggregation strictly from live state
+    double pmsSold = 0.0;
+    double agoSold = 0.0;
     for (var n in state.nozzles) {
       if (n.productName == 'PMS') pmsSold += n.litresSold;
       if (n.productName == 'AGO') agoSold += n.litresSold;
@@ -72,7 +72,7 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
 
     final totalSalesValue = state.submissions.fold(0.0, (s, sub) => s + sub.expectedSalesValue);
     final totalCreditGiven = state.creditCustomers.fold(0.0, (s, c) => s + c.outstanding);
-    final totalExpenses = state.expenses.fold(0.0, (s, e) => s + e.amount) + 145000.0;
+    final totalExpenses = state.expenses.fold(0.0, (s, e) => s + e.amount);
     final totalDepositsPending = state.deposits.where((d) => !d.isConfirmed).fold(0.0, (s, d) => s + d.amount);
 
     final pendingVerifications = state.submissions.where((s) => s.status == 'Pending Verification').length;
@@ -84,7 +84,7 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('Branch Manager Dashboard', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('${state.currentUser.displayName} · Lekki Road Station · Today', style: const TextStyle(fontSize: 13, color: Colors.white70)),
+            Text('${state.currentUser.displayName} · ${state.currentStationName} · Today', style: const TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
         actions: [
@@ -117,19 +117,19 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Column(
+                    Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Today at Lekki Road',
-                          style: TextStyle(
+                          'Today at ${state.currentStationName}',
+                          style: const TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.bold,
                             color: AppColors.ink,
                           ),
                         ),
-                        SizedBox(height: 4),
-                        Text(
+                        const SizedBox(height: 4),
+                        const Text(
                           'Real-time operational status, forecourt exceptions, and cash movements.',
                           style: TextStyle(fontSize: 15, color: AppColors.muted),
                         ),
@@ -342,7 +342,10 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                                   ),
                                   _buildActionRow(
                                     'Afternoon / Evening Shift',
-                                    const StatusChip(label: 'In progress', type: ChipType.warn),
+                                    StatusChip(
+                                      label: DateTime.now().hour >= 14 ? 'Active / In progress' : 'Scheduled (Starts 2:00 PM)',
+                                      type: DateTime.now().hour >= 14 ? ChipType.warn : ChipType.draft,
+                                    ),
                                   ),
                                   const Divider(color: AppColors.line),
                                   const Text(

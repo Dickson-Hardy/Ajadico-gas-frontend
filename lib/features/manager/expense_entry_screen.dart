@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
+import '../../state/station_app_state.dart';
 
 enum ExpensePaymentSource { salesCash, bankTransfer }
 
@@ -19,11 +20,13 @@ class ExpenseEntryScreen extends StatefulWidget {
 }
 
 class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> {
-  String _category = 'Generator Maintenance';
+  final state = StationAppState.instance;
+  String _category = 'Generator Maintenance & Servicing';
   ExpensePaymentSource _paymentSource = ExpensePaymentSource.salesCash;
   final TextEditingController _amountController = TextEditingController();
   final TextEditingController _descriptionController = TextEditingController();
   bool _receiptAttached = false;
+  bool _isSubmitting = false;
 
   final List<String> _categories = [
     'Generator Maintenance & Servicing',
@@ -46,26 +49,45 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> {
     final amount = double.tryParse(_amountController.text.replaceAll(',', '').trim()) ?? 0.0;
     if (amount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid expense amount')),
+        const SnackBar(
+          backgroundColor: AppColors.bad,
+          content: Text('Please enter a valid expense amount'),
+        ),
       );
       return;
     }
     if (_descriptionController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a description for the expense')),
+        const SnackBar(
+          backgroundColor: AppColors.bad,
+          content: Text('Please enter a description for the expense'),
+        ),
       );
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: AppColors.ok,
-        content: Text(
-          'Expense of ${CurrencyFormatter.formatNaira(amount)} recorded under $_category (${_paymentSource == ExpensePaymentSource.salesCash ? "Cash Drawer" : "Bank Transfer"}).',
+    setState(() => _isSubmitting = true);
+    try {
+      state.recordExpense(
+        category: _category,
+        amount: amount,
+        paymentSource: _paymentSource == ExpensePaymentSource.salesCash ? 'Cash Drawer' : 'Direct Bank Transfer',
+        description: _descriptionController.text.trim(),
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.ok,
+          behavior: SnackBarBehavior.floating,
+          content: Text(
+            'Expense of ${CurrencyFormatter.formatNaira(amount)} recorded under $_category (${_paymentSource == ExpensePaymentSource.salesCash ? "Cash Drawer" : "Bank Transfer"}).',
+          ),
         ),
-      ),
-    );
-    widget.onSuccess();
+      );
+      widget.onSuccess();
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
   }
 
   @override
@@ -219,8 +241,14 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> {
             Expanded(
               flex: 2,
               child: ElevatedButton(
-                onPressed: _submit,
-                child: const Text('Save expense entry'),
+                onPressed: _isSubmitting ? null : _submit,
+                child: _isSubmitting
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Text('Save expense entry'),
               ),
             ),
             const SizedBox(width: 10),

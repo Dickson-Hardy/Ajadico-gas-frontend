@@ -13,6 +13,8 @@ class AttendantHomeScreen extends StatefulWidget {
   final VoidCallback onLogout;
   final VoidCallback onOpenClosingReadings;
   final VoidCallback onOpenRemittance;
+  final VoidCallback? onOpenCreditSale;
+  final VoidCallback? onOpenFuelReturn;
 
   const AttendantHomeScreen({
     super.key,
@@ -20,6 +22,8 @@ class AttendantHomeScreen extends StatefulWidget {
     required this.onLogout,
     required this.onOpenClosingReadings,
     required this.onOpenRemittance,
+    this.onOpenCreditSale,
+    this.onOpenFuelReturn,
   });
 
   @override
@@ -370,12 +374,24 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
           children: [
             const Text('Attendant Forecourt Home', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             Text(
-              '${widget.user.displayName} · Morning Shift · Lekki Road',
+              '${widget.user.displayName} · Forecourt On Duty · ${state.currentStationName}',
               style: const TextStyle(fontSize: 12, color: Colors.white70),
             ),
           ],
         ),
         actions: [
+          if (widget.onOpenCreditSale != null)
+            IconButton(
+              icon: const Icon(Icons.assignment_outlined),
+              tooltip: 'Record Fleet Credit Sale (§4.8)',
+              onPressed: widget.onOpenCreditSale,
+            ),
+          if (widget.onOpenFuelReturn != null)
+            IconButton(
+              icon: const Icon(Icons.replay_circle_filled_outlined),
+              tooltip: 'Calibration Pour-back (§3.4)',
+              onPressed: widget.onOpenFuelReturn,
+            ),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Log out',
@@ -386,7 +402,7 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
       body: Column(
         children: [
           // Forecourt Network, Hardware, and Offline Sync Outbox status
-          const ForecourtSyncBar(stationName: 'Lekki Road Station · Island 1'),
+          ForecourtSyncBar(stationName: '${state.currentStationName} · Forecourt Island'),
 
           Expanded(
             child: SingleChildScrollView(
@@ -464,16 +480,20 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                                               ),
                                             ),
                                             InkWell(
+                                              borderRadius: BorderRadius.circular(20),
                                               onTap: nozzle.isOpeningConfirmed
                                                   ? null
                                                   : () => _confirmNozzle(nozzle.nozzleNumber),
-                                              child: StatusChip(
-                                                label: nozzle.isOpeningConfirmed
-                                                    ? 'Confirmed'
-                                                    : 'Confirm opening',
-                                                type: nozzle.isOpeningConfirmed
-                                                    ? ChipType.ok
-                                                    : ChipType.warn,
+                                              child: Padding(
+                                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                                                child: StatusChip(
+                                                  label: nozzle.isOpeningConfirmed
+                                                      ? 'Confirmed'
+                                                      : 'Confirm opening',
+                                                  type: nozzle.isOpeningConfirmed
+                                                      ? ChipType.ok
+                                                      : ChipType.warn,
+                                                ),
                                               ),
                                             ),
                                           ],
@@ -723,7 +743,80 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                                     ),
                                   );
                                 }),
+                              ] else ...[
+                                const SizedBox(height: 14),
+                                const Divider(height: 1),
+                                const SizedBox(height: 10),
+                                const Row(
+                                  children: [
+                                    Icon(Icons.info_outline, size: 14, color: AppColors.muted),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      'No interim drops or POS slips recorded yet for this shift.',
+                                      style: TextStyle(fontSize: 12, color: AppColors.slate, fontStyle: FontStyle.italic),
+                                    ),
+                                  ],
+                                ),
                               ],
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 14),
+
+                      // Forecourt Island Fleet & Calibration Actions (§3.4, §4.8)
+                      Card(
+                        elevation: 1,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        child: Padding(
+                          padding: const EdgeInsets.all(18),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Row(
+                                children: [
+                                  Icon(Icons.local_gas_station_rounded, color: AppColors.ink, size: 20),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Fleet Credit & Calibration Actions',
+                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                'Record authorized fleet dispensing on signed requisitions or meter calibration pour-backs.',
+                                style: TextStyle(fontSize: 12, color: AppColors.slate),
+                              ),
+                              const SizedBox(height: 14),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: widget.onOpenCreditSale,
+                                      icon: const Icon(Icons.assignment_outlined, size: 18),
+                                      label: const Text('Fleet Credit Sale (§4.8)'),
+                                      style: OutlinedButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: widget.onOpenFuelReturn,
+                                      icon: const Icon(Icons.replay_circle_filled_outlined, size: 18),
+                                      label: const Text('Calibration Pour-Back (§3.4)'),
+                                      style: OutlinedButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ],
                           ),
                         ),

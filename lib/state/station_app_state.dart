@@ -162,6 +162,32 @@ class SalaryAdjustment {
   });
 }
 
+class ShiftCreditSaleRecord {
+  final String id;
+  final String attendantId;
+  final String customerId;
+  final String customerName;
+  final int nozzleNumber;
+  final double litres;
+  final double amount;
+  final String vehiclePlate;
+  final String driverName;
+  final DateTime recordedAt;
+
+  ShiftCreditSaleRecord({
+    required this.id,
+    required this.attendantId,
+    required this.customerId,
+    required this.customerName,
+    required this.nozzleNumber,
+    required this.litres,
+    required this.amount,
+    required this.vehiclePlate,
+    required this.driverName,
+    required this.recordedAt,
+  });
+}
+
 /// Central Reactive State Store for the entire Filling Station System
 /// Integrates with OfflineSyncService (Phase 2), Camera (Phase 3), and Kiosk (Phase 4)
 class StationAppState extends ChangeNotifier {
@@ -242,6 +268,18 @@ class StationAppState extends ChangeNotifier {
   final List<PosTransaction> _posTransactions = [];
   List<PosTransaction> get posTransactions => List.unmodifiable(_posTransactions);
 
+  // 13. Intra-Shift Credit Sales Records (§4.8)
+  final List<ShiftCreditSaleRecord> _creditSalesRecords = [];
+  List<ShiftCreditSaleRecord> get creditSalesRecords => List.unmodifiable(_creditSalesRecords);
+
+  /// Total Credit Sales logged by attendant
+  double totalAttendantCreditSales([String? attendantId]) {
+    final targetId = attendantId ?? _currentUser.id;
+    return _creditSalesRecords
+        .where((c) => c.attendantId == targetId)
+        .fold(0.0, (sum, c) => sum + c.amount);
+  }
+
   /// Total acknowledged cash drops for an attendant
   double totalAttendantAcknowledgedDrops([String? attendantId]) {
     final targetId = attendantId ?? _currentUser.id;
@@ -291,7 +329,10 @@ class StationAppState extends ChangeNotifier {
   double get attendantEstimatedCashInPouch {
     final sales = currentForecourtSalesValue;
     final drops = totalAttendantAcknowledgedDrops() + totalAttendantPendingDrops();
-    final nonCash = totalAttendantPosCard() + totalAttendantPosTransfer() + totalAttendantBankTransfer();
+    final nonCash = totalAttendantPosCard() +
+        totalAttendantPosTransfer() +
+        totalAttendantBankTransfer() +
+        totalAttendantCreditSales();
     final balance = sales - (drops + nonCash);
     return balance > 0 ? balance : 0.0;
   }
@@ -747,6 +788,23 @@ class StationAppState extends ChangeNotifier {
       lastRepayment: customer.lastRepayment,
       dueDate: customer.dueDate,
       status: CustomerCreditStatus.current,
+    );
+
+    // Record intra-shift credit sale for attendant reconciliation (§4.8)
+    _creditSalesRecords.insert(
+      0,
+      ShiftCreditSaleRecord(
+        id: 'CS-${DateTime.now().millisecondsSinceEpoch}',
+        attendantId: _currentUser.id,
+        customerId: customerId,
+        customerName: customer.name,
+        nozzleNumber: nozzleNumber,
+        litres: litres,
+        amount: saleValue,
+        vehiclePlate: vehiclePlate,
+        driverName: driverName,
+        recordedAt: DateTime.now(),
+      ),
     );
 
     // Queue in Offline Sync Engine

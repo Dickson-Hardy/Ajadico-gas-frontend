@@ -268,6 +268,8 @@ class _AppShellState extends State<AppShell> {
           onLogout: _logout,
           onOpenClosingReadings: () => setState(() => _currentView = AppView.closingReadings),
           onOpenRemittance: () => setState(() => _currentView = AppView.remittance),
+          onOpenCreditSale: () => setState(() => _currentView = AppView.creditSale),
+          onOpenFuelReturn: () => setState(() => _currentView = AppView.fuelReturn),
         );
 
       case AppView.closingReadings:

@@ -44,6 +44,7 @@ class _TankDipScreenState extends State<TankDipScreen> {
   final state = StationAppState.instance;
   late List<TankDipItem> _tanks;
   late Map<String, TextEditingController> _controllers;
+  bool _isSubmitting = false;
 
   @override
   void initState() {
@@ -87,21 +88,38 @@ class _TankDipScreenState extends State<TankDipScreen> {
 
   void _submit() {
     for (var t in _tanks) {
-      final dipVal = t.physicalDip ?? t.calculatedStock;
-      state.recordTankDipAudit(
-        tankCode: t.code,
-        physicalDipLitres: dipVal,
-        dipStickCm: 0.0,
-      );
+      if (t.physicalDip != null && t.physicalDip! > t.capacity) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.bad,
+            content: Text('${t.code} physical dip (${CurrencyFormatter.formatLitres(t.physicalDip!)}) exceeds tank capacity of ${CurrencyFormatter.formatLitres(t.capacity)}'),
+          ),
+        );
+        return;
+      }
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        backgroundColor: AppColors.ok,
-        content: Text('Daily tank dip readings saved. Real-time variances updated across all manager & director screens.'),
-      ),
-    );
-    widget.onSuccess();
+    setState(() => _isSubmitting = true);
+    try {
+      for (var t in _tanks) {
+        final dipVal = t.physicalDip ?? t.calculatedStock;
+        state.recordTankDipAudit(
+          tankCode: t.code,
+          physicalDipLitres: dipVal,
+          dipStickCm: 0.0,
+        );
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.ok,
+          content: Text('Daily tank dip readings saved. Real-time variances updated across all manager & director screens.'),
+        ),
+      );
+      widget.onSuccess();
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
   }
 
   @override
@@ -236,8 +254,14 @@ class _TankDipScreenState extends State<TankDipScreen> {
               ),
               const SizedBox(width: 12),
               ElevatedButton.icon(
-                onPressed: _submit,
-                icon: const Icon(Icons.check_circle_outline),
+                onPressed: _isSubmitting ? null : _submit,
+                icon: _isSubmitting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.check_circle_outline),
                 label: const Text('Save & Submit Dip Audit'),
               ),
             ],

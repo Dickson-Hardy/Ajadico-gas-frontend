@@ -86,6 +86,35 @@ class _BankDepositDialogState extends State<BankDepositDialog> {
       return;
     }
 
+    if (amt > widget.availableCash && widget.availableCash > 0) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: AppColors.warn),
+              SizedBox(width: 8),
+              Text('Deposit Exceeds Safe Cash'),
+            ],
+          ),
+          content: Text(
+            'The deposit amount of ${CurrencyFormatter.formatNaira(amt)} exceeds the currently computed safe cash (${CurrencyFormatter.formatNaira(widget.availableCash)}).\n\nDo you still wish to proceed with recording this deposit?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Review Amount'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Proceed Anyway'),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true) return;
+    }
+
     setState(() => _isSubmitting = true);
 
     try {

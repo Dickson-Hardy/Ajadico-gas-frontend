@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/services/camera_compression_service.dart';
 import '../../core/utils/currency_formatter.dart';
+import '../../core/widgets/evidence_photo_picker.dart';
 import '../../models/credit_customer.dart';
 import '../../state/station_app_state.dart';
 
@@ -27,10 +29,16 @@ class _CreditSaleScreenState extends State<CreditSaleScreen> {
   final TextEditingController _vehicleController = TextEditingController();
   final TextEditingController _driverController = TextEditingController();
 
+  List<CompressedImageResult> _requisitionPhotos = [];
   bool _requisitionUploaded = false;
+  bool _isSubmitting = false;
 
   double get _currentPrice {
-    final nozzle = state.nozzles.firstWhere((n) => n.nozzleNumber == _selectedNozzleNumber);
+    if (state.nozzles.isEmpty) return state.pmsPrice;
+    final nozzle = state.nozzles.firstWhere(
+      (n) => n.nozzleNumber == _selectedNozzleNumber,
+      orElse: () => state.nozzles.first,
+    );
     return nozzle.pricePerLitre;
   }
 
@@ -56,42 +64,56 @@ class _CreditSaleScreenState extends State<CreditSaleScreen> {
   void _submit() {
     if (_selectedCustomer == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select an authorized credit customer')),
+        const SnackBar(
+          backgroundColor: AppColors.bad,
+          content: Text('Please select an authorized credit customer'),
+        ),
       );
       return;
     }
     if (_litres <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter valid fuel litres')),
+        const SnackBar(
+          backgroundColor: AppColors.bad,
+          content: Text('Please enter valid fuel litres'),
+        ),
       );
       return;
     }
     if (_vehicleController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter the vehicle registration plate number')),
+        const SnackBar(
+          backgroundColor: AppColors.bad,
+          content: Text('Please enter the vehicle registration plate number'),
+        ),
       );
       return;
     }
 
-    state.recordCreditSale(
-      customerId: _selectedCustomer!.id,
-      nozzleNumber: _selectedNozzleNumber,
-      litres: _litres,
-      vehiclePlate: _vehicleController.text.trim(),
-      driverName: _driverController.text.trim(),
-    );
+    setState(() => _isSubmitting = true);
+    try {
+      state.recordCreditSale(
+        customerId: _selectedCustomer!.id,
+        nozzleNumber: _selectedNozzleNumber,
+        litres: _litres,
+        vehiclePlate: _vehicleController.text.trim(),
+        driverName: _driverController.text.trim(),
+      );
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: AppColors.ok,
-        behavior: SnackBarBehavior.floating,
-        content: Text(
-          'Credit sale of ${CurrencyFormatter.formatNaira(_totalAmount)} logged for ${_selectedCustomer!.name}!',
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.ok,
+          behavior: SnackBarBehavior.floating,
+          content: Text(
+            'Credit sale of ${CurrencyFormatter.formatNaira(_totalAmount)} logged for ${_selectedCustomer!.name}!',
+          ),
         ),
-      ),
-    );
+      );
 
-    widget.onSuccess();
+      widget.onSuccess();
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
   }
 
   @override
@@ -239,39 +261,19 @@ class _CreditSaleScreenState extends State<CreditSaleScreen> {
 
                         const SizedBox(height: 16),
 
-                        InkWell(
-                          onTap: () {
-                            setState(() => _requisitionUploaded = !_requisitionUploaded);
+                        EvidencePhotoPicker(
+                          title: 'Signed Customer Requisition Slip (<150KB)',
+                          photoType: 'requisition',
+                          stationName: state.currentStationName,
+                          staffName: state.currentUser.displayName,
+                          bucketName: 'credit-requisitions',
+                          maxPhotos: 1,
+                          onPhotosChanged: (photos) {
+                            setState(() {
+                              _requisitionPhotos = photos;
+                              _requisitionUploaded = photos.isNotEmpty;
+                            });
                           },
-                          child: Container(
-                            height: 90,
-                            decoration: BoxDecoration(
-                              color: AppColors.background,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: AppColors.line),
-                            ),
-                            child: Center(
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    _requisitionUploaded ? Icons.check_circle : Icons.camera_alt,
-                                    color: _requisitionUploaded ? AppColors.ok : AppColors.muted,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Text(
-                                    _requisitionUploaded
-                                        ? 'Signed Driver Requisition Slip Attached'
-                                        : 'Tap to photograph signed customer requisition',
-                                    style: TextStyle(
-                                      color: _requisitionUploaded ? AppColors.ok : AppColors.muted,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
                         ),
                       ],
                     ),
@@ -317,9 +319,19 @@ class _CreditSaleScreenState extends State<CreditSaleScreen> {
             Expanded(
               flex: 2,
               child: ElevatedButton.icon(
-                icon: const Icon(Icons.check),
-                onPressed: _submit,
-                label: const Text('Confirm credit sale & debit customer'),
+                icon: _isSubmitting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.check),
+                onPressed: _isSubmitting ? null : _submit,
+                label: Text(
+                  _isSubmitting
+                      ? 'Logging Credit Dispensing...'
+                      : 'Confirm credit sale & debit customer',
+                ),
               ),
             ),
             const SizedBox(width: 10),

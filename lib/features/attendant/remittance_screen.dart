@@ -28,8 +28,9 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
   final TextEditingController _posTransferController = TextEditingController();
   final TextEditingController _bankTransferController = TextEditingController();
 
-  final double _creditSales = 0.0;
+  double get _creditSales => state.totalAttendantCreditSales();
   List<CompressedImageResult> _evidencePhotos = [];
+  bool _isSubmitting = false;
 
   double get _acknowledgedDrops => state.totalAttendantAcknowledgedDrops();
   double get _finalCash => double.tryParse(_finalCashController.text.replaceAll(',', '')) ?? 0.0;
@@ -70,7 +71,7 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
   }
 
   void _submit() {
-    if (_moneyDeclared <= 0) {
+    if (_moneyDeclared <= 0 && _creditSales <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: AppColors.bad,
@@ -81,29 +82,34 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
       return;
     }
 
-    final photoUrls = _evidencePhotos
-        .map((p) => p.remoteStorageUrl ?? p.fileName)
-        .toList();
+    setState(() => _isSubmitting = true);
+    try {
+      final photoUrls = _evidencePhotos
+          .map((p) => p.remoteStorageUrl ?? p.fileName)
+          .toList();
 
-    state.submitRemittance(
-      cash: _totalCash,
-      posCard: _posCard,
-      posTransfer: _posTransfer,
-      bankTransfer: _bankTransfer,
-      credit: _creditSales,
-      evidencePhotos: photoUrls,
-      finalCashHandover: _finalCash,
-    );
+      state.submitRemittance(
+        cash: _totalCash,
+        posCard: _posCard,
+        posTransfer: _posTransfer,
+        bankTransfer: _bankTransfer,
+        credit: _creditSales,
+        evidencePhotos: photoUrls,
+        finalCashHandover: _finalCash,
+      );
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        backgroundColor: AppColors.ok,
-        behavior: SnackBarBehavior.floating,
-        content: Text('Remittance queued in Offline Engine & sent to Cashier Verification!'),
-      ),
-    );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.ok,
+          behavior: SnackBarBehavior.floating,
+          content: Text('Remittance queued in Offline Engine & sent to Cashier Verification!'),
+        ),
+      );
 
-    widget.onSubmitSuccess();
+      widget.onSubmitSuccess();
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
   }
 
   @override
@@ -125,7 +131,7 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
       body: Column(
         children: [
           // Live Forecourt Status Bar
-          const ForecourtSyncBar(stationName: 'Lekki Road Station · Island 1'),
+          ForecourtSyncBar(stationName: '${state.currentStationName} · Forecourt'),
 
           Expanded(
             child: SingleChildScrollView(
@@ -272,7 +278,7 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
                               EvidencePhotoPicker(
                                 title: 'POS Slips & Transfer Evidence (<150KB Watermarked)',
                                 photoType: 'pos_slip',
-                                stationName: 'Lekki Road',
+                                stationName: state.currentStationName,
                                 staffName: state.currentUser.displayName,
                                 bucketName: 'remittance-evidence',
                                 onPhotosChanged: (photos) {
@@ -356,14 +362,23 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
             Expanded(
               flex: 2,
               child: ElevatedButton.icon(
-                icon: const Icon(Icons.send_rounded, color: Colors.white, size: 18),
-                onPressed: _submit,
+                icon: _isSubmitting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.send_rounded, color: Colors.white, size: 18),
+                onPressed: _isSubmitting ? null : _submit,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 ),
-                label: const Text('Submit Shift Remittance', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                label: Text(
+                  _isSubmitting ? 'Submitting Remittance...' : 'Submit Shift Remittance',
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                ),
               ),
             ),
             const SizedBox(width: 12),

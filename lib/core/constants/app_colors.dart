@@ -13,4 +13,18 @@ class AppColors {
   static const Color bad = Color(0xFFC23B2E);     // Red: discrepancy / overdue / shortage
   static const Color bank = Color(0xFF2F6FB5);    // Blue: bank deposit / focus state
   static const Color draft = Color(0xFF7A8591);   // Slate: not started / draft
+
+  // Brand, UI Surface & Layout Aliases
+  static const Color primary = Color(0xFF0F7B6C);         // Deep Teal brand
+  static const Color brandPrimary = Color(0xFF0F7B6C);    // Brand primary alias
+  static const Color border = Color(0xFFD5DBE1);          // Form & card border alias
+  static const Color cardSurface = Color(0xFFFFFFFF);     // Clean card surface
+  static const Color lightBackground = Color(0xFFF8FAFC); // Subtle light container tint
+  static const Color slate = Color(0xFF64748B);           // Medium slate neutral
+  static const Color mutedSlate = Color(0xFF94A3B8);      // Light slate neutral
+  static const Color amber = Color(0xFFD97706);           // High-contrast warning amber
+  static const Color emerald = Color(0xFF10B981);         // Vibrant success emerald
+  static const Color lightEmerald = Color(0xFFD1FAE5);    // Soft success tint
+  static const Color cherry = Color(0xFFC23B2E);          // High-contrast alert crimson
+  static const Color accent = Color(0xFF0284C7);          // Informational sky accent
 }

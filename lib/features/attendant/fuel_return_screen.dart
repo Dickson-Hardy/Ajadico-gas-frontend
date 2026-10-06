@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/services/camera_compression_service.dart';
 import '../../core/utils/currency_formatter.dart';
+import '../../core/widgets/evidence_photo_picker.dart';
+import '../../state/station_app_state.dart';
 
 enum NonSaleType { calibrationTest, generatorFuel, companyVehicle }
 
@@ -19,30 +22,61 @@ class FuelReturnScreen extends StatefulWidget {
 }
 
 class _FuelReturnScreenState extends State<FuelReturnScreen> {
+  final state = StationAppState.instance;
   NonSaleType _selectedType = NonSaleType.calibrationTest;
-  int _selectedNozzleNumber = 1;
-  final TextEditingController _litresController = TextEditingController(text: '20.0');
+  late int _selectedNozzleNumber;
+  final TextEditingController _litresController = TextEditingController();
   final TextEditingController _reasonController = TextEditingController();
+  List<CompressedImageResult> _evidencePhotos = [];
   bool _evidenceAttached = false;
+  bool _isSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedNozzleNumber = state.nozzles.isNotEmpty ? state.nozzles.first.nozzleNumber : 1;
+  }
 
   void _submit() {
     final litres = double.tryParse(_litresController.text.trim()) ?? 0.0;
     if (litres <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter valid litres')),
+        const SnackBar(
+          backgroundColor: AppColors.bad,
+          content: Text('Please enter valid fuel litres to return.'),
+        ),
       );
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: AppColors.ok,
-        content: Text(
-          'Non-sale entry of ${CurrencyFormatter.formatLitres(litres)} submitted for manager approval (§3.4).',
-        ),
-      ),
+    final nozzle = state.nozzles.firstWhere(
+      (n) => n.nozzleNumber == _selectedNozzleNumber,
+      orElse: () => state.nozzles.first,
     );
-    widget.onSuccess();
+
+    setState(() => _isSubmitting = true);
+    try {
+      state.recordFuelReturn(
+        tankCode: nozzle.tankCode,
+        litres: litres,
+        reason: _reasonController.text.trim().isEmpty
+            ? 'Calibration / non-sale return from Nozzle ${nozzle.nozzleNumber} (${_selectedType.name})'
+            : _reasonController.text.trim(),
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.ok,
+          behavior: SnackBarBehavior.floating,
+          content: Text(
+            'Non-sale return of ${CurrencyFormatter.formatLitres(litres)} recorded to Tank ${nozzle.tankCode} (§3.4).',
+          ),
+        ),
+      );
+      widget.onSuccess();
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
   }
 
   @override
@@ -129,12 +163,15 @@ class _FuelReturnScreenState extends State<FuelReturnScreen> {
                                   const SizedBox(height: 6),
                                   DropdownButtonFormField<int>(
                                     value: _selectedNozzleNumber,
-                                    items: const [
-                                      DropdownMenuItem(value: 1, child: Text('Nozzle 1 · PMS')),
-                                      DropdownMenuItem(value: 2, child: Text('Nozzle 2 · PMS')),
-                                      DropdownMenuItem(value: 3, child: Text('Nozzle 3 · AGO')),
-                                    ],
-                                    onChanged: (v) => setState(() => _selectedNozzleNumber = v!),
+                                    items: state.nozzles.map((n) {
+                                      return DropdownMenuItem<int>(
+                                        value: n.nozzleNumber,
+                                        child: Text('Nozzle ${n.nozzleNumber} · ${n.productName} (Tank ${n.tankCode})'),
+                                      );
+                                    }).toList(),
+                                    onChanged: (v) {
+                                      if (v != null) setState(() => _selectedNozzleNumber = v);
+                                    },
                                   ),
                                 ],
                               ),
@@ -149,7 +186,10 @@ class _FuelReturnScreenState extends State<FuelReturnScreen> {
                                   TextField(
                                     controller: _litresController,
                                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                    decoration: const InputDecoration(suffixText: 'L'),
+                                    decoration: const InputDecoration(
+                                      hintText: 'e.g. 20.0',
+                                      suffixText: 'L',
+                                    ),
                                   ),
                                 ],
                               ),
@@ -167,37 +207,19 @@ class _FuelReturnScreenState extends State<FuelReturnScreen> {
                         ),
                         const SizedBox(height: 16),
 
-                        InkWell(
-                          onTap: () => setState(() => _evidenceAttached = !_evidenceAttached),
-                          child: Container(
-                            height: 90,
-                            decoration: BoxDecoration(
-                              color: AppColors.background,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: AppColors.line),
-                            ),
-                            child: Center(
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    _evidenceAttached ? Icons.check_circle : Icons.camera_alt,
-                                    color: _evidenceAttached ? AppColors.ok : AppColors.muted,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Text(
-                                    _evidenceAttached
-                                        ? 'Pour-back / Calibration Photo Attached'
-                                        : 'Tap to add calibration measure photo (§3.4)',
-                                    style: TextStyle(
-                                      color: _evidenceAttached ? AppColors.ok : AppColors.muted,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
+                        EvidencePhotoPicker(
+                          title: 'Pour-back / Calibration Photo (<150KB)',
+                          photoType: 'calibration',
+                          stationName: state.currentStationName,
+                          staffName: state.currentUser.displayName,
+                          bucketName: 'calibration-evidence',
+                          maxPhotos: 1,
+                          onPhotosChanged: (photos) {
+                            setState(() {
+                              _evidencePhotos = photos;
+                              _evidenceAttached = photos.isNotEmpty;
+                            });
+                          },
                         ),
                       ],
                     ),
@@ -218,9 +240,16 @@ class _FuelReturnScreenState extends State<FuelReturnScreen> {
           children: [
             Expanded(
               flex: 2,
-              child: ElevatedButton(
-                onPressed: _submit,
-                child: const Text('Log non-sale entry'),
+              child: ElevatedButton.icon(
+                icon: _isSubmitting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.check_circle_outline, size: 18),
+                onPressed: _isSubmitting ? null : _submit,
+                label: Text(_isSubmitting ? 'Recording Pour-back...' : 'Log non-sale entry'),
               ),
             ),
             const SizedBox(width: 10),
