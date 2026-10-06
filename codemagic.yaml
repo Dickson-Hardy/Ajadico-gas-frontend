@@ -10,21 +10,6 @@ workflows:
         SUPABASE_URL: "https://haeakygzrnrjwphmhlkp.supabase.co"
         SUPABASE_ANON_KEY: "sb_publishable_SmQ1nwW78Hh6Gi3RtK956w_E-QNmFMl"
     scripts:
-      - name: Generate Android Native Scaffolding
-        script: |
-          if [ ! -d "android" ]; then
-            echo "Generating Android native project scaffolding..."
-            flutter create --platforms=android --org=com.ajadico.energy .
-          fi
-
-      - name: Configure Hardware Permissions
-        script: |
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-          if [ -f "$MANIFEST" ]; then
-            echo "Configuring tablet hardware permissions..."
-            sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>' "$MANIFEST"
-          fi
-
       - name: Install Flutter Packages
         script: |
           flutter pub get
