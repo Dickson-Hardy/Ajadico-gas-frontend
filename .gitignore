@@ -3,7 +3,6 @@
 .env.*
 *.env
 !.env.example
-lib/core/config/supabase_config.dart
 
 # Miscellaneous
 *.class
