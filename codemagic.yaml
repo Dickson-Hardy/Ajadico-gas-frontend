@@ -5,7 +5,7 @@ workflows:
     instance_type: linux_x2
     environment:
       flutter: stable
-      java: 17
+      java: 21
       vars:
         SUPABASE_URL: "https://haeakygzrnrjwphmhlkp.supabase.co"
         SUPABASE_ANON_KEY: "sb_publishable_SmQ1nwW78Hh6Gi3RtK956w_E-QNmFMl"
@@ -17,6 +17,7 @@ workflows:
       - name: Build Android Release APK
         script: |
           flutter build apk --release \
+            --android-skip-build-dependency-validation \
             --dart-define=SUPABASE_URL=$SUPABASE_URL \
             --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
 
