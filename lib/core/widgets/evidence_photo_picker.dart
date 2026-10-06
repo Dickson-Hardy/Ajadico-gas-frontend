@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../services/camera_compression_service.dart';
+import '../../state/station_app_state.dart';
 
 /// Interactive Forecourt Photo Evidence Picker with real-time compression audit
 /// (BRD §4.3 & §3.7)
@@ -58,7 +59,7 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
       final uploaded = await service.uploadEvidence(
         image: compressed,
         bucketName: widget.bucketName,
-        stationId: 'lekki-01',
+        stationId: StationAppState.instance.currentStationCode,
       );
 
       setState(() {
@@ -68,7 +69,15 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
 
       widget.onPhotosChanged(_photos);
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isProcessing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.bad,
+          behavior: SnackBarBehavior.floating,
+          content: Text('Could not capture evidence photo: $e'),
+        ),
+      );
     }
   }
 
@@ -79,28 +88,93 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
     widget.onPhotosChanged(_photos);
   }
 
+  Widget _buildPhotoThumbnail(CompressedImageResult photo) {
+    const double thumbHeight = 56;
+    final bytes = photo.imageBytes;
+    if (bytes != null && bytes.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: Image.memory(
+          bytes,
+          width: double.infinity,
+          height: thumbHeight,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => _thumbnailPlaceholder(),
+        ),
+      );
+    }
+
+    final remoteUrl = photo.remoteStorageUrl;
+    if (remoteUrl != null && remoteUrl.trim().isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: Image.network(
+          remoteUrl,
+          width: double.infinity,
+          height: thumbHeight,
+          fit: BoxFit.cover,
+          loadingBuilder: (context, child, progress) {
+            if (progress == null) return child;
+            return Container(
+              width: double.infinity,
+              height: thumbHeight,
+              color: AppColors.lightBackground,
+              child: const Center(
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                ),
+              ),
+            );
+          },
+          errorBuilder: (context, error, stackTrace) => _thumbnailPlaceholder(),
+        ),
+      );
+    }
+
+    return _thumbnailPlaceholder();
+  }
+
+  Widget _thumbnailPlaceholder() {
+    return Container(
+      width: double.infinity,
+      height: 56,
+      decoration: BoxDecoration(
+        color: AppColors.lightBackground,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: const Icon(Icons.photo_library_outlined, size: 22, color: AppColors.slate),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              children: [
-                const Icon(Icons.camera_alt_outlined, size: 18, color: AppColors.primary),
-                const SizedBox(width: 8),
-                Text(
-                  widget.title,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.ink,
+            Flexible(
+              child: Row(
+                children: [
+                  const Icon(Icons.camera_alt_outlined, size: 18, color: AppColors.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      widget.title,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.ink,
+                      ),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
+            const SizedBox(width: 8),
             Text(
               '${_photos.length}/${widget.maxPhotos}',
               style: const TextStyle(fontSize: 12, color: AppColors.slate, fontWeight: FontWeight.w600),
@@ -120,12 +194,12 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
                   borderRadius: BorderRadius.circular(10),
                   child: Container(
                     width: 130,
-                    height: 120,
+                    height: 160,
                     decoration: BoxDecoration(
                       color: AppColors.lightBackground,
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(
-                        color: AppColors.primary.withOpacity(0.4),
+                        color: AppColors.primary.withValues(alpha: 0.4),
                         style: BorderStyle.solid,
                         width: 1.5,
                       ),
@@ -143,7 +217,7 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
                                 SizedBox(height: 8),
                                 Text(
                                   'Compressing...',
-                                  style: TextStyle(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.w600),
+                                  style: TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w600),
                                 ),
                               ],
                             ),
@@ -164,7 +238,7 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
                               SizedBox(height: 2),
                               Text(
                                 '< 150KB Target',
-                                style: TextStyle(fontSize: 10, color: AppColors.slate),
+                                style: TextStyle(fontSize: 12, color: AppColors.slate),
                               ),
                             ],
                           ),
@@ -181,8 +255,8 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
                   child: Stack(
                     children: [
                       Container(
-                        width: 140,
-                        height: 120,
+                        width: 150,
+                        height: 160,
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
                           color: AppColors.ink,
@@ -193,38 +267,35 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: photo.isUploaded
-                                        ? AppColors.emerald.withOpacity(0.2)
-                                        : AppColors.amber.withOpacity(0.2),
-                                    borderRadius: BorderRadius.circular(4),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: photo.isUploaded
+                                    ? AppColors.emerald.withValues(alpha: 0.2)
+                                    : AppColors.amber.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    photo.isUploaded ? Icons.cloud_done : Icons.cloud_queue,
+                                    size: 14,
+                                    color: photo.isUploaded ? AppColors.emerald : AppColors.amber,
                                   ),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        photo.isUploaded ? Icons.cloud_done : Icons.cloud_queue,
-                                        size: 11,
-                                        color: photo.isUploaded ? AppColors.emerald : AppColors.amber,
-                                      ),
-                                      const SizedBox(width: 3),
-                                      Text(
-                                        photo.isUploaded ? 'UPLOADED' : 'OFFLINE Q',
-                                        style: TextStyle(
-                                          fontSize: 9,
-                                          fontWeight: FontWeight.w800,
-                                          color: photo.isUploaded ? AppColors.emerald : AppColors.amber,
-                                        ),
-                                      ),
-                                    ],
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    photo.isUploaded ? 'UPLOADED' : 'OFFLINE Q',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                      color: photo.isUploaded ? AppColors.emerald : AppColors.amber,
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
+                            _buildPhotoThumbnail(photo),
                             // File size compression metrics
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -240,8 +311,10 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
                                 const SizedBox(height: 2),
                                 Text(
                                   'Was ${photo.originalSizeFormatted} (-${photo.compressionRatioPercent.toStringAsFixed(0)}%)',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
-                                    fontSize: 9,
+                                    fontSize: 12,
                                     color: AppColors.emerald,
                                     fontWeight: FontWeight.w600,
                                   ),
@@ -252,7 +325,7 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
-                                    fontSize: 8,
+                                    fontSize: 12,
                                     color: AppColors.mutedSlate,
                                   ),
                                 ),
@@ -262,14 +335,28 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
                         ),
                       ),
                       Positioned(
-                        top: 4,
-                        right: 4,
-                        child: InkWell(
-                          onTap: () => _removePhoto(index),
-                          child: const CircleAvatar(
-                            radius: 11,
-                            backgroundColor: Colors.redAccent,
-                            child: Icon(Icons.close, color: Colors.white, size: 13),
+                        top: 0,
+                        right: 0,
+                        child: SizedBox(
+                          width: 48,
+                          height: 48,
+                          child: Tooltip(
+                            message: 'Remove photo',
+                            child: InkWell(
+                              onTap: () => _removePhoto(index),
+                              borderRadius: BorderRadius.circular(24),
+                              child: Center(
+                                child: Container(
+                                  width: 22,
+                                  height: 22,
+                                  decoration: const BoxDecoration(
+                                    color: AppColors.bad,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(Icons.close, color: Colors.white, size: 14),
+                                ),
+                              ),
+                            ),
                           ),
                         ),
                       ),

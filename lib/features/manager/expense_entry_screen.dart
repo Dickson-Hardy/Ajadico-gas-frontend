@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/camera_compression_service.dart';
+import '../../core/navigation/shell_back_guard.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/evidence_photo_picker.dart';
 import '../../models/user_profile.dart';
@@ -22,13 +23,13 @@ class ExpenseEntryScreen extends StatefulWidget {
   State<ExpenseEntryScreen> createState() => _ExpenseEntryScreenState();
 }
 
-class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> {
+class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> with UnsavedWorkAware {
   final state = StationAppState.instance;
   String _category = 'Generator Maintenance & Servicing';
   ExpensePaymentSource _paymentSource = ExpensePaymentSource.salesCash;
   final TextEditingController _amountController = TextEditingController();
   final TextEditingController _descriptionController = TextEditingController();
-  bool _receiptAttached = false;
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   bool _isSubmitting = false;
   bool _isPreApproved = false;
   List<CompressedImageResult> _receiptPhotos = [];
@@ -44,32 +45,60 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> {
   ];
 
   @override
+  bool get hasUnsavedWork =>
+      _amountController.text.trim().isNotEmpty || _descriptionController.text.trim().isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    ShellBackGuard.register(this);
+  }
+
+  @override
   void dispose() {
+    ShellBackGuard.unregister(this);
     _amountController.dispose();
     _descriptionController.dispose();
     super.dispose();
   }
 
+  void _confirmDiscard(VoidCallback onDiscard) {
+    if (!hasUnsavedWork) {
+      onDiscard();
+      return;
+    }
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Discard expense entry?'),
+        content: const Text('This expense has not been saved yet. Leaving now discards what you typed.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+            child: const Text('Keep Editing'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              onDiscard();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.bad,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(0, 48),
+            ),
+            child: const Text('Discard'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _submit() {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+
     final amount = double.tryParse(_amountController.text.replaceAll(',', '').trim()) ?? 0.0;
-    if (amount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: AppColors.bad,
-          content: Text('Please enter a valid expense amount'),
-        ),
-      );
-      return;
-    }
-    if (_descriptionController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: AppColors.bad,
-          content: Text('Please enter a description for the expense'),
-        ),
-      );
-      return;
-    }
 
     final isCashier = state.currentUser.role == UserRole.cashier;
     final needsApproval = isCashier ? !_isPreApproved : (amount > 50000);
@@ -97,6 +126,16 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> {
         ),
       );
       widget.onSuccess();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: AppColors.bad,
+            behavior: SnackBarBehavior.floating,
+            content: Text('Could not save this expense. Please review the entries and retry.'),
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -108,7 +147,8 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> {
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: widget.onBack,
+          tooltip: 'Back',
+          onPressed: () => _confirmDiscard(widget.onBack),
         ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -155,8 +195,10 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: _isPreApproved ? AppColors.ok.withOpacity(0.08) : AppColors.warn.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(10),
+                      color: _isPreApproved
+                          ? AppColors.ok.withValues(alpha: 0.08)
+                          : AppColors.warn.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: _isPreApproved ? AppColors.ok : AppColors.warn),
                     ),
                     child: Row(
@@ -197,78 +239,99 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> {
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Expense Category', style: TextStyle(fontSize: 14, color: AppColors.muted)),
-                        const SizedBox(height: 6),
-                        DropdownButtonFormField<String>(
-                          value: _category,
-                          items: _categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                          onChanged: (v) => setState(() => _category = v!),
-                        ),
-                        const SizedBox(height: 16),
-
-                        const Text('Amount (₦)', style: TextStyle(fontSize: 14, color: AppColors.muted)),
-                        const SizedBox(height: 6),
-                        TextField(
-                          controller: _amountController,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            prefixText: '₦ ',
-                            hintText: 'e.g. 15,000',
+                    child: Form(
+                      key: _formKey,
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Expense Category', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                          const SizedBox(height: 6),
+                          DropdownButtonFormField<String>(
+                            initialValue: _category,
+                            items: _categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                            onChanged: (v) => setState(() => _category = v!),
                           ),
-                        ),
-                        const SizedBox(height: 16),
+                          const SizedBox(height: 16),
 
-                        const Text('Payment Source', style: TextStyle(fontSize: 14, color: AppColors.muted)),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: RadioListTile<ExpensePaymentSource>(
+                          const Text('Amount (₦)', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                          const SizedBox(height: 6),
+                          TextFormField(
+                            controller: _amountController,
+                            keyboardType: TextInputType.number,
+                            autovalidateMode: AutovalidateMode.onUserInteraction,
+                            validator: (v) {
+                              final amount = double.tryParse((v ?? '').replaceAll(',', '').trim()) ?? 0.0;
+                              if (amount <= 0) return 'Enter a valid expense amount greater than ₦0.';
+                              return null;
+                            },
+                            decoration: const InputDecoration(
+                              prefixText: '₦ ',
+                              hintText: 'e.g. 15,000',
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+
+                          const Text('Payment Source', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                          const SizedBox(height: 6),
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              Widget tileA = const RadioListTile<ExpensePaymentSource>(
                                 value: ExpensePaymentSource.salesCash,
-                                groupValue: _paymentSource,
-                                title: const Text('Sales Cash (Deducts from drawer)'),
-                                onChanged: (v) => setState(() => _paymentSource = v!),
-                              ),
-                            ),
-                            Expanded(
-                              child: RadioListTile<ExpensePaymentSource>(
+                                title: Text('Sales Cash (Deducts from drawer)'),
+                              );
+                              Widget tileB = const RadioListTile<ExpensePaymentSource>(
                                 value: ExpensePaymentSource.bankTransfer,
+                                title: Text('Direct Bank Transfer'),
+                              );
+                              final Widget group = constraints.maxWidth < 520
+                                  ? Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [tileA, tileB],
+                                    )
+                                  : Row(
+                                      children: [
+                                        Expanded(child: tileA),
+                                        Expanded(child: tileB),
+                                      ],
+                                    );
+                              return RadioGroup<ExpensePaymentSource>(
                                 groupValue: _paymentSource,
-                                title: const Text('Direct Bank Transfer'),
-                                onChanged: (v) => setState(() => _paymentSource = v!),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
+                                onChanged: (val) {
+                                  if (val != null) setState(() => _paymentSource = val);
+                                },
+                                child: group,
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 12),
 
-                        const Text('Description & Vendor', style: TextStyle(fontSize: 14, color: AppColors.muted)),
-                        const SizedBox(height: 6),
-                        TextField(
-                          controller: _descriptionController,
-                          decoration: const InputDecoration(hintText: 'Detailed explanation of purchase and vendor name...'),
-                          maxLines: 2,
-                        ),
-                        const SizedBox(height: 16),
+                          const Text('Description & Vendor', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                          const SizedBox(height: 6),
+                          TextFormField(
+                            controller: _descriptionController,
+                            autovalidateMode: AutovalidateMode.onUserInteraction,
+                            validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter a description for the expense.' : null,
+                            decoration: const InputDecoration(hintText: 'Detailed explanation of purchase and vendor name...'),
+                            maxLines: 2,
+                          ),
+                          const SizedBox(height: 16),
 
-                        EvidencePhotoPicker(
-                          title: 'Receipt / Invoice Photo (<150KB)',
-                          photoType: 'expense_receipt',
-                          stationName: state.currentStationName,
-                          staffName: state.currentUser.displayName,
-                          bucketName: 'expense-receipts',
-                          maxPhotos: 1,
-                          onPhotosChanged: (photos) {
-                            setState(() {
-                              _receiptPhotos = photos;
-                              _receiptAttached = photos.isNotEmpty;
-                            });
-                          },
-                        ),
-                      ],
+                          EvidencePhotoPicker(
+                            title: 'Receipt / Invoice Photo (<150KB)',
+                            photoType: 'expense_receipt',
+                            stationName: state.currentStationName,
+                            staffName: state.currentUser.displayName,
+                            bucketName: 'expense-receipts',
+                            maxPhotos: 1,
+                            onPhotosChanged: (photos) {
+                              setState(() {
+                                _receiptPhotos = photos;
+                              });
+                            },
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -281,31 +344,34 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         decoration: const BoxDecoration(
           color: AppColors.background,
-          border: Border(top: BorderSide(color: AppColors.line)),
+          border: Border(top: BorderSide(color: AppColors.border)),
         ),
-        child: Row(
-          children: [
-            Expanded(
-              flex: 2,
-              child: ElevatedButton(
-                onPressed: _isSubmitting ? null : _submit,
-                child: _isSubmitting
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Text('Save expense entry'),
+        child: SafeArea(
+          top: false,
+          child: Row(
+            children: [
+              Expanded(
+                flex: 2,
+                child: ElevatedButton(
+                  onPressed: _isSubmitting ? null : _submit,
+                  child: _isSubmitting
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Text('Save expense entry'),
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: OutlinedButton(
-                onPressed: widget.onBack,
-                child: const Text('Cancel'),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => _confirmDiscard(widget.onBack),
+                  child: const Text('Cancel'),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

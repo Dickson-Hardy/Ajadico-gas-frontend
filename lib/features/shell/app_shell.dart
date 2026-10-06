@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/navigation/shell_back_guard.dart';
 import '../../core/notifications/forecourt_notification.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/offline/offline_sync_service.dart';
@@ -87,8 +89,13 @@ class _AppShellState extends State<AppShell> {
   void _onLogin(UserProfile user) {
     state.setCurrentUser(user);
     securityManager.resetInactivityTimer();
+    securityManager.setSessionContext(
+      stationId: state.currentStationCode,
+      actorId: user.id,
+    );
     setState(() {
       if (user.role == UserRole.attendant) {
+        state.resetShiftProgress();
         _currentView = AppView.attendantHome;
       } else if (user.role == UserRole.cashier) {
         _currentView = AppView.verifySubmission;
@@ -101,20 +108,200 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _logout() {
+    securityManager.setSessionContext(stationId: '', actorId: '');
     setState(() {
       _currentView = AppView.login;
     });
   }
 
-  void _navigateToNamedRoute(String routeName) {
-    for (var v in AppView.values) {
-      final name = _viewName(v).toLowerCase();
-      final target = routeName.toLowerCase();
-      if (name.contains(target) || target.contains(name)) {
-        setState(() => _currentView = v);
-        break;
-      }
+  /// Screens each role is allowed to open (shared-tablet role gating).
+  List<AppView> _allowedViews() {
+    switch (state.currentUser.role) {
+      case UserRole.attendant:
+        return [
+          AppView.attendantHome,
+          AppView.closingReadings,
+          AppView.remittance,
+          AppView.creditSale,
+          AppView.fuelReturn,
+        ];
+      case UserRole.cashier:
+        return [
+          AppView.verifySubmission,
+          AppView.dailyCashCount,
+          AppView.expenseEntry,
+          AppView.creditCustomers,
+        ];
+      case UserRole.manager:
+        return [
+          AppView.managerDashboard,
+          AppView.verifySubmission,
+          AppView.dailyCashCount,
+          AppView.expenseEntry,
+          AppView.tankDip,
+          AppView.fuelDelivery,
+          AppView.creditCustomers,
+          AppView.staffManagement,
+        ];
+      case UserRole.director:
+        return [
+          AppView.companyReports,
+          AppView.managerDashboard,
+          AppView.verifySubmission,
+          AppView.dailyCashCount,
+          AppView.expenseEntry,
+          AppView.tankDip,
+          AppView.fuelDelivery,
+          AppView.priceChange,
+          AppView.salaryLedger,
+          AppView.bankDeposits,
+          AppView.creditCustomers,
+          AppView.stationSetup,
+          AppView.staffManagement,
+        ];
     }
+  }
+
+  void _navigateTo(AppView view) {
+    if (!_allowedViews().contains(view)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${_viewName(view)} is not available to ${state.currentUser.role.name} accounts.'),
+          backgroundColor: AppColors.bad,
+        ),
+      );
+      return;
+    }
+    setState(() => _currentView = view);
+  }
+
+  AppView? _resolveRoute(String routeName) {
+    final key = routeName.trim().toLowerCase();
+    const aliases = <String, AppView>{
+      '19 salary ledger': AppView.salaryLedger,
+      '16 cashier verification': AppView.verifySubmission,
+      'attendant home': AppView.attendantHome,
+      'cashier verification': AppView.verifySubmission,
+      'credit ledgers': AppView.creditCustomers,
+      'credit customers': AppView.creditCustomers,
+    };
+    final alias = aliases[key];
+    if (alias != null) return alias;
+    for (final v in AppView.values) {
+      if (_viewName(v).toLowerCase() == key) return v;
+    }
+    return null;
+  }
+
+  void _navigateToNamedRoute(String routeName) {
+    final view = _resolveRoute(routeName);
+    if (view == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('This alert does not map to an openable screen ($routeName).'),
+          backgroundColor: AppColors.warn,
+        ),
+      );
+      return;
+    }
+    _navigateTo(view);
+  }
+
+  Widget _buildShellControlBar(int pendingAudits) {
+    final canVerify = _allowedViews().contains(AppView.verifySubmission);
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.ink,
+        border: const Border(top: BorderSide(color: AppColors.line, width: 0.5)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 8,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            Container(
+              height: 48,
+              width: 48,
+              decoration: const BoxDecoration(color: AppColors.slate, shape: BoxShape.circle),
+              child: NotificationBell(
+                currentRole: state.currentUser.role,
+                onNavigateToScreen: _navigateToNamedRoute,
+              ),
+            ),
+            const SizedBox(width: 10),
+            if (canVerify && pendingAudits > 0)
+              InkWell(
+                onTap: () => _navigateTo(AppView.verifySubmission),
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.warnSurface,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppColors.warn),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.pending_actions, size: 16, color: AppColors.warnInk),
+                      const SizedBox(width: 6),
+                      Text(
+                        '$pendingAudits pending audit${pendingAudits == 1 ? '' : 's'}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.warnInk,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            const Spacer(),
+            Material(
+              color: AppColors.cardSurface,
+              borderRadius: BorderRadius.circular(8),
+              child: InkWell(
+                onTap: _showScreenSwitcherDialog,
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  height: 44,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.layers, size: 18, color: AppColors.ink),
+                      const SizedBox(width: 8),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 220),
+                        child: Text(
+                          'View: ${_viewName(_currentView)}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.ink,
+                          ),
+                        ),
+                      ),
+                      const Icon(Icons.arrow_drop_down, size: 20, color: AppColors.slate),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -124,51 +311,23 @@ class _AppShellState extends State<AppShell> {
 
     return KioskSecurityGuard(
       onLockedOutLogout: _logout,
-      child: Stack(
-        children: [
-          Scaffold(
-            body: _buildCurrentScreen(),
-            floatingActionButton: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // 1. Notification Bell
-                Container(
-                  height: 48,
-                  width: 48,
-                  decoration: BoxDecoration(
-                    color: AppColors.ink,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.25),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
-                      ),
+      child: PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) {
+          if (didPop) return;
+          _handleSystemBack();
+        },
+        child: Stack(
+          children: [
+            Scaffold(
+            body: _currentView == AppView.login
+                ? _buildCurrentScreen()
+                : Column(
+                    children: [
+                      Expanded(child: _buildCurrentScreen()),
+                      _buildShellControlBar(pendingAudits),
                     ],
                   ),
-                  child: NotificationBell(
-                    currentRole: state.currentUser.role,
-                    onNavigateToScreen: _navigateToNamedRoute,
-                  ),
-                ),
-                const SizedBox(width: 10),
-
-                // 2. View Switcher
-                FloatingActionButton.extended(
-                  onPressed: _showScreenSwitcherDialog,
-                  backgroundColor: AppColors.ink,
-                  icon: Badge(
-                    isLabelVisible: pendingAudits > 0,
-                    label: Text('$pendingAudits'),
-                    child: const Icon(Icons.layers, color: Colors.white, size: 20),
-                  ),
-                  label: Text(
-                    'View: ${_viewName(_currentView)}',
-                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
-                  ),
-                ),
-              ],
-            ),
           ),
 
           // In-App Heads-Up Alert Popup Toast
@@ -184,15 +343,15 @@ class _AppShellState extends State<AppShell> {
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   decoration: BoxDecoration(
                     color: headsUp.type == NotificationType.critical
-                        ? const Color(0xFFFEF2F2)
+                        ? AppColors.badSurface
                         : (headsUp.type == NotificationType.warning
-                            ? const Color(0xFFFFFBEB)
-                            : const Color(0xFFF0FDF4)),
+                            ? AppColors.warnSurface
+                            : AppColors.okSurface),
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
                       color: headsUp.type == NotificationType.critical
-                          ? Colors.redAccent
-                          : (headsUp.type == NotificationType.warning ? Colors.amber : AppColors.emerald),
+                          ? AppColors.bad
+                          : (headsUp.type == NotificationType.warning ? AppColors.warn : AppColors.ok),
                       width: 1.5,
                     ),
                   ),
@@ -205,8 +364,8 @@ class _AppShellState extends State<AppShell> {
                                 ? Icons.warning_amber_rounded
                                 : Icons.check_circle_outline),
                         color: headsUp.type == NotificationType.critical
-                            ? Colors.redAccent
-                            : (headsUp.type == NotificationType.warning ? const Color(0xFFB45309) : AppColors.emerald),
+                            ? AppColors.bad
+                            : (headsUp.type == NotificationType.warning ? AppColors.warnInk : AppColors.ok),
                         size: 24,
                       ),
                       const SizedBox(width: 12),
@@ -238,9 +397,10 @@ class _AppShellState extends State<AppShell> {
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.ink,
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            minimumSize: const Size(64, 44),
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
                           ),
-                          child: const Text('View', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                          child: const Text('View', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                         ),
                       ],
                       IconButton(
@@ -252,6 +412,89 @@ class _AppShellState extends State<AppShell> {
                 ),
               ),
             ),
+        ],
+       ),
+      ),
+    );
+  }
+
+  AppView _homeViewForRole() {
+    switch (state.currentUser.role) {
+      case UserRole.attendant:
+        return AppView.attendantHome;
+      case UserRole.cashier:
+        return AppView.verifySubmission;
+      case UserRole.manager:
+        return AppView.managerDashboard;
+      case UserRole.director:
+        return AppView.companyReports;
+    }
+  }
+
+  void _handleSystemBack() {
+    if (_currentView == AppView.login) {
+      SystemNavigator.pop();
+      return;
+    }
+    if (ShellBackGuard.hasUnsavedWork) {
+      _confirmDiscardWork();
+      return;
+    }
+    final home = _homeViewForRole();
+    if (_currentView == home) {
+      _confirmSignOut();
+      return;
+    }
+    _navigateTo(home);
+  }
+
+  void _confirmDiscardWork() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Discard unsaved changes?'),
+        content: const Text(
+          'This screen still has entries that have not been submitted. Leaving now discards them.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Keep Editing'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _navigateTo(_homeViewForRole());
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.bad,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Discard'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmSignOut() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('End shift session?'),
+        content: const Text('Sign out of this shared forecourt tablet?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _logout();
+            },
+            child: const Text('Sign Out'),
+          ),
         ],
       ),
     );
@@ -522,7 +765,7 @@ class _AppShellState extends State<AppShell> {
                             ),
                             Switch.adaptive(
                               value: syncService.isOnline,
-                              activeColor: AppColors.primary,
+                              activeThumbColor: AppColors.primary,
                               onChanged: (val) {
                                 syncService.setSimulatedConnectivity(val);
                               },
@@ -534,42 +777,47 @@ class _AppShellState extends State<AppShell> {
                   ),
 
                   const SizedBox(height: 12),
-                  const Text(
-                    'Jump to any production screen or role workflow:',
-                    style: TextStyle(fontSize: 13, color: AppColors.slate),
+                  Text(
+                    'Jump to any screen your ${state.currentUser.role.name} account can open:',
+                    style: const TextStyle(fontSize: 13, color: AppColors.slate),
                   ),
                   const SizedBox(height: 12),
                   Expanded(
-                    child: ListView.separated(
-                      controller: scrollController,
-                      itemCount: AppView.values.length,
-                      separatorBuilder: (context, index) => const Divider(height: 1, color: AppColors.border),
-                      itemBuilder: (context, index) {
-                        final view = AppView.values[index];
-                        final isSelected = view == _currentView;
+                    child: Builder(
+                      builder: (context) {
+                        final allowedViews = _allowedViews();
+                        return ListView.separated(
+                          controller: scrollController,
+                          itemCount: allowedViews.length,
+                          separatorBuilder: (context, index) => const Divider(height: 1, color: AppColors.border),
+                          itemBuilder: (context, index) {
+                            final view = allowedViews[index];
+                            final isSelected = view == _currentView;
 
-                        return ListTile(
-                          dense: true,
-                          selected: isSelected,
-                          selectedTileColor: AppColors.primary.withOpacity(0.08),
-                          leading: Icon(
-                            _viewIcon(view),
-                            color: isSelected ? AppColors.primary : AppColors.slate,
-                            size: 20,
-                          ),
-                          title: Text(
-                            _viewName(view),
-                            style: TextStyle(
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                              color: isSelected ? AppColors.primary : AppColors.ink,
-                            ),
-                          ),
-                          trailing: isSelected
-                              ? const Icon(Icons.check, color: AppColors.primary, size: 18)
-                              : null,
-                          onTap: () {
-                            setState(() => _currentView = view);
-                            Navigator.pop(context);
+                            return ListTile(
+                              dense: true,
+                              selected: isSelected,
+                              selectedTileColor: AppColors.primary.withValues(alpha: 0.08),
+                              leading: Icon(
+                                _viewIcon(view),
+                                color: isSelected ? AppColors.primary : AppColors.slate,
+                                size: 20,
+                              ),
+                              title: Text(
+                                _viewName(view),
+                                style: TextStyle(
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                  color: isSelected ? AppColors.primary : AppColors.ink,
+                                ),
+                              ),
+                              trailing: isSelected
+                                  ? const Icon(Icons.check, color: AppColors.primary, size: 18)
+                                  : null,
+                              onTap: () {
+                                Navigator.pop(context);
+                                _navigateTo(view);
+                              },
+                            );
                           },
                         );
                       },

@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 /// Status of an item in the offline synchronization queue
 enum SyncItemStatus {
   pending,
@@ -22,6 +20,7 @@ enum SyncActionType {
   salaryAdjustment,
   bankDepositConfirmation,
   evidencePhotoUpload,
+  evidencePhoto,
 }
 
 /// Represents an idempotent forecourt transaction queued for database synchronization
@@ -106,6 +105,8 @@ class SyncQueueItem {
         return 'Commercial Bank Deposit Verification';
       case SyncActionType.evidencePhotoUpload:
         return 'Forecourt Receipt / Waybill Photo';
+      case SyncActionType.evidencePhoto:
+        return 'POS Transaction Evidence Photo';
     }
   }
 }

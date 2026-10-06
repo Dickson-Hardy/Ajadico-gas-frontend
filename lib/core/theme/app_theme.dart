@@ -25,7 +25,7 @@ class AppTheme {
           color: AppColors.background,
         ),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: AppColors.card,
         elevation: 0,
         margin: const EdgeInsets.only(bottom: 16),

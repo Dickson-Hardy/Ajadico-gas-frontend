@@ -2,7 +2,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/config/supabase_config.dart';
 import '../models/credit_customer.dart';
 import '../models/nozzle.dart';
-import '../models/user_profile.dart';
 
 class SupabaseService {
   static final SupabaseService instance = SupabaseService._internal();
@@ -19,7 +18,7 @@ class SupabaseService {
     try {
       await Supabase.initialize(
         url: SupabaseConfig.url,
-        anonKey: SupabaseConfig.anonKey,
+        publishableKey: SupabaseConfig.anonKey,
       );
       _client = Supabase.instance.client;
       _isInitialized = true;
@@ -154,7 +153,7 @@ class SupabaseService {
   /// Fetch registered credit customers
   Future<List<CreditCustomer>> getCreditCustomers(String stationId) async {
     if (!_isInitialized) {
-      return CreditCustomer.getDemoCustomers();
+      return CreditCustomer.getDefaultCustomers();
     }
 
     try {
@@ -184,7 +183,7 @@ class SupabaseService {
         );
       }).toList();
     } catch (e) {
-      return CreditCustomer.getDemoCustomers();
+      return CreditCustomer.getDefaultCustomers();
     }
   }
 

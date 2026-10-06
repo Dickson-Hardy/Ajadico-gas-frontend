@@ -9,10 +9,10 @@ class AppColors {
   
   // Status & semantic colors
   static const Color ok = Color(0xFF0F7B6C);      // Green: confirmed / verified / positive
-  static const Color warn = Color(0xFFB77F00);    // Amber: action required / pending
+  static const Color warn = Color(0xFF8A5F00);    // Amber: action required / pending (AA on white text & as text on light)
   static const Color bad = Color(0xFFC23B2E);     // Red: discrepancy / overdue / shortage
   static const Color bank = Color(0xFF2F6FB5);    // Blue: bank deposit / focus state
-  static const Color draft = Color(0xFF7A8591);   // Slate: not started / draft
+  static const Color draft = Color(0xFF64748B);   // Slate: not started / draft (AA on white text)
 
   // Brand, UI Surface & Layout Aliases
   static const Color primary = Color(0xFF0F7B6C);         // Deep Teal brand
@@ -27,4 +27,13 @@ class AppColors {
   static const Color lightEmerald = Color(0xFFD1FAE5);    // Soft success tint
   static const Color cherry = Color(0xFFC23B2E);          // High-contrast alert crimson
   static const Color accent = Color(0xFF0284C7);          // Informational sky accent
+  static const Color pos = Color(0xFF6366F1);             // POS / card terminal branding indigo
+
+  // Soft status surfaces (banners, tinted cards) — pair with the matching ink color
+  static const Color okSurface = Color(0xFFF0FDF4);       // Soft success tint
+  static const Color warnSurface = Color(0xFFFFFBEB);     // Soft warning tint
+  static const Color badSurface = Color(0xFFFEF2F2);      // Soft error tint
+  static const Color lightCherry = Color(0xFFFEE2E2);     // Error banner / destructive tint
+  static const Color warnInk = Color(0xFF92400E);         // AA text/icon on warnSurface
+  static const Color okInk = Color(0xFF047857);           // AA text/icon on okSurface
 }

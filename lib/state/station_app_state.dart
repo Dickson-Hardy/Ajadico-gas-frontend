@@ -223,6 +223,28 @@ class StationAppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // 1b. Attendant shift progress (drives home checklist & flow ordering)
+  bool _closingReadingsSubmitted = false;
+  bool get closingReadingsSubmitted => _closingReadingsSubmitted;
+  bool _remittanceSubmitted = false;
+  bool get remittanceSubmitted => _remittanceSubmitted;
+
+  void markClosingReadingsSubmitted() {
+    _closingReadingsSubmitted = true;
+    notifyListeners();
+  }
+
+  void markRemittanceSubmitted() {
+    _remittanceSubmitted = true;
+    notifyListeners();
+  }
+
+  void resetShiftProgress() {
+    _closingReadingsSubmitted = false;
+    _remittanceSubmitted = false;
+    notifyListeners();
+  }
+
   // 2. Active Fuel Prices
   double _pmsPrice = 1050.0;
   double _agoPrice = 1320.0;
@@ -1241,7 +1263,7 @@ class StationAppState extends ChangeNotifier {
     _notifService.postNotification(
       title: 'Monthly Payroll Settled ($monthYear)',
       message: 'Attendant $attendantName settled. Base: ${CurrencyFormatter.formatNaira(baseSalary)} | Shortages: -${CurrencyFormatter.formatNaira(totalShortages)} | Net: ${CurrencyFormatter.formatNaira(netPayable)}',
-      type: NotificationType.approval,
+      type: NotificationType.success,
       targetRole: UserRole.director,
       actionRouteName: '19 Salary Ledger',
     );
@@ -1323,15 +1345,11 @@ class StationAppState extends ChangeNotifier {
         payload: dep.toJson(),
       );
 
-      _notifService.pushNotification(
-        ForecourtNotification(
-          id: 'NOTIF-DEP-${DateTime.now().millisecondsSinceEpoch}',
-          title: 'Bank Remittance Handed Over',
-          body: '$bearerName handed over ${CurrencyFormatter.formatNaira(amount)} for deposit into $bankName. Awaiting Director alert match.',
-          type: ForecourtNotificationType.compliance,
-          timestamp: DateTime.now(),
-          actionRouteName: '20 Bank Deposits',
-        ),
+      _notifService.postNotification(
+        title: 'Bank Remittance Handed Over',
+        message: '$bearerName handed over ${CurrencyFormatter.formatNaira(amount)} for deposit into $bankName. Awaiting Director alert match.',
+        type: NotificationType.warning,
+        actionRouteName: '20 Bank Deposits',
       );
 
       notifyListeners();
@@ -1365,15 +1383,11 @@ class StationAppState extends ChangeNotifier {
         },
       );
 
-      _notifService.pushNotification(
-        ForecourtNotification(
-          id: 'NOTIF-CONF-${DateTime.now().millisecondsSinceEpoch}',
-          title: 'Bank Deposit Confirmed',
-          body: 'Director confirmed commercial bank credit alert for deposit $depositId (${CurrencyFormatter.formatNaira(_deposits[idx].amount)}).',
-          type: ForecourtNotificationType.stock,
-          timestamp: DateTime.now(),
-          actionRouteName: '17 Manager Dashboard',
-        ),
+      _notifService.postNotification(
+        title: 'Bank Deposit Confirmed',
+        message: 'Director confirmed commercial bank credit alert for deposit $depositId (${CurrencyFormatter.formatNaira(_deposits[idx].amount)}).',
+        type: NotificationType.success,
+        actionRouteName: '17 Manager Dashboard',
       );
 
       notifyListeners();
@@ -1395,15 +1409,11 @@ class StationAppState extends ChangeNotifier {
       _deposits[idx].status = 'discrepancy';
       _deposits[idx].directorNotes = discrepancyNotes;
 
-      _notifService.pushNotification(
-        ForecourtNotification(
-          id: 'NOTIF-DISC-${DateTime.now().millisecondsSinceEpoch}',
-          title: 'Bank Deposit Discrepancy Flagged',
-          body: 'Director flagged discrepancy on deposit of ${CurrencyFormatter.formatNaira(_deposits[idx].amount)}: $discrepancyNotes',
-          type: ForecourtNotificationType.compliance,
-          timestamp: DateTime.now(),
-          actionRouteName: '17 Manager Dashboard',
-        ),
+      _notifService.postNotification(
+        title: 'Bank Deposit Discrepancy Flagged',
+        message: 'Director flagged discrepancy on deposit of ${CurrencyFormatter.formatNaira(_deposits[idx].amount)}: $discrepancyNotes',
+        type: NotificationType.warning,
+        actionRouteName: '17 Manager Dashboard',
       );
 
       notifyListeners();
@@ -1531,15 +1541,11 @@ class StationAppState extends ChangeNotifier {
       if (t.code == toTankCode && toTankDip != null) t.physicalDip = toTankDip;
     }
 
-    _notifService.pushNotification(
-      ForecourtNotification(
-        id: 'NOTIF-CO-${DateTime.now().millisecondsSinceEpoch}',
-        title: 'Manifold Changeover Applied',
-        body: 'Switched from $fromTankCode to $toTankCode for $productCode at $_currentStationName.',
-        type: ForecourtNotificationType.compliance,
-        timestamp: DateTime.now(),
-        actionRouteName: '17 Manager Dashboard',
-      ),
+    _notifService.postNotification(
+      title: 'Manifold Changeover Applied',
+      message: 'Switched from $fromTankCode to $toTankCode for $productCode at $_currentStationName.',
+      type: NotificationType.info,
+      actionRouteName: '17 Manager Dashboard',
     );
 
     notifyListeners();
@@ -1771,15 +1777,11 @@ class StationAppState extends ChangeNotifier {
       );
 
       // Post high-priority notification to Cashier
-      _notifService.pushNotification(
-        ForecourtNotification(
-          id: 'NOTIF-DROP-${DateTime.now().millisecondsSinceEpoch}',
-          title: 'Incoming Interim Cash Drop',
-          body: '${_currentUser.displayName} submitted ₦${amount.toStringAsFixed(0)} cash drop for acknowledgement.',
-          type: ForecourtNotificationType.compliance,
-          timestamp: DateTime.now(),
-          actionRouteName: '16 Cashier Verification',
-        ),
+      _notifService.postNotification(
+        title: 'Incoming Interim Cash Drop',
+        message: '${_currentUser.displayName} submitted ₦${amount.toStringAsFixed(0)} cash drop for acknowledgement.',
+        type: NotificationType.warning,
+        actionRouteName: '16 Cashier Verification',
       );
 
       notifyListeners();
@@ -1801,15 +1803,11 @@ class StationAppState extends ChangeNotifier {
       _cashDrops[idx].acknowledgedBy = _currentUser.displayName;
       _cashDrops[idx].acknowledgedAt = DateTime.now();
 
-      _notifService.pushNotification(
-        ForecourtNotification(
-          id: 'NOTIF-ACK-${DateTime.now().millisecondsSinceEpoch}',
-          title: 'Cash Drop Acknowledged',
-          body: 'Cashier ${_currentUser.displayName} confirmed receipt of ₦${_cashDrops[idx].amount.toStringAsFixed(0)}.',
-          type: ForecourtNotificationType.stock,
-          timestamp: DateTime.now(),
-          actionRouteName: 'Attendant Home',
-        ),
+      _notifService.postNotification(
+        title: 'Cash Drop Acknowledged',
+        message: 'Cashier ${_currentUser.displayName} confirmed receipt of ₦${_cashDrops[idx].amount.toStringAsFixed(0)}.',
+        type: NotificationType.success,
+        actionRouteName: 'Attendant Home',
       );
 
       notifyListeners();

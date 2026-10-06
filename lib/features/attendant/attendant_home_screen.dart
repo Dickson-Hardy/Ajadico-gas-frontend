@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/forecourt_sync_bar.dart';
 import '../../core/widgets/status_chip.dart';
-import '../../models/interim_cash_drop.dart';
-import '../../models/pos_transaction.dart';
 import '../../models/user_profile.dart';
 import '../../state/station_app_state.dart';
 
@@ -79,78 +79,78 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                 ],
               ),
               content: SizedBox(
-                width: 440,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withOpacity(0.06),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppColors.primary.withOpacity(0.2)),
+                width: MediaQuery.of(context).size.width < 480
+                    ? MediaQuery.of(context).size.width - 80
+                    : 440,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.06),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Current Est. Cash in Pouch', style: TextStyle(fontSize: 12, color: AppColors.muted)),
+                                  Text('Forecourt Physical Cash', style: TextStyle(fontSize: 12, color: AppColors.slate)),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              CurrencyFormatter.formatNaira(estimatedPouch),
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ok),
+                            ),
+                          ],
+                        ),
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: amountCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                        decoration: const InputDecoration(
+                          labelText: 'Drop Amount (₦) *',
+                          hintText: 'e.g. 100,000',
+                          prefixText: '₦ ',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        onChanged: (_) => setDlgState(() {}),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
                         children: [
-                          const Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Current Est. Cash in Pouch', style: TextStyle(fontSize: 12, color: AppColors.muted)),
-                              Text('Forecourt Physical Cash', style: TextStyle(fontSize: 11, color: AppColors.slate)),
-                            ],
-                          ),
-                          Text(
-                            CurrencyFormatter.formatNaira(estimatedPouch),
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ok),
-                          ),
+                          _buildQuickAddButton('+₦50,000', 50000, amountCtrl, setDlgState),
+                          _buildQuickAddButton('+₦100,000', 100000, amountCtrl, setDlgState),
+                          _buildQuickAddButton('+₦150,000', 150000, amountCtrl, setDlgState),
+                          if (estimatedPouch > 0)
+                            OutlinedButton(
+                              onPressed: () {
+                                setDlgState(() => amountCtrl.text = estimatedPouch.toStringAsFixed(0));
+                              },
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size(0, 48),
+                                padding: const EdgeInsets.symmetric(horizontal: 14),
+                                textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              child: const Text('All Pouch Cash'),
+                            ),
                         ],
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: amountCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      decoration: const InputDecoration(
-                        labelText: 'Drop Amount (₦) *',
-                        hintText: 'e.g. 100,000',
-                        prefixText: '₦ ',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 6,
-                      children: [
-                        ActionChip(
-                          label: const Text('+₦50,000'),
-                          onPressed: () {
-                            setDlgState(() => amountCtrl.text = '50000');
-                          },
-                        ),
-                        ActionChip(
-                          label: const Text('+₦100,000'),
-                          onPressed: () {
-                            setDlgState(() => amountCtrl.text = '100000');
-                          },
-                        ),
-                        ActionChip(
-                          label: const Text('+₦150,000'),
-                          onPressed: () {
-                            setDlgState(() => amountCtrl.text = '150000');
-                          },
-                        ),
-                        if (estimatedPouch > 0)
-                          ActionChip(
-                            label: const Text('All Pouch Cash'),
-                            onPressed: () {
-                              setDlgState(() => amountCtrl.text = estimatedPouch.toStringAsFixed(0));
-                            },
-                          ),
-                      ],
-                    ),
                     const SizedBox(height: 14),
                     TextField(
                       controller: notesCtrl,
@@ -164,11 +164,12 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                   ],
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Cancel'),
-                ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
                 ElevatedButton.icon(
                   onPressed: () async {
                     final amt = double.tryParse(amountCtrl.text.replaceAll(',', '').trim()) ?? 0.0;
@@ -210,6 +211,60 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
     );
   }
 
+  void _confirmLogout() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('End shift session?'),
+        content: const Text(
+          'Log out of this shared forecourt tablet? Any unsaved entries on other screens will be lost.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              widget.onLogout();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.bad,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Log out'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Quick-add chips accumulate on top of whatever is already typed instead of
+  /// overwriting the attendant's entry.
+  Widget _buildQuickAddButton(
+    String label,
+    double amount,
+    TextEditingController controller,
+    StateSetter setDlgState,
+  ) {
+    return OutlinedButton(
+      onPressed: () {
+        setDlgState(() {
+          final current = double.tryParse(controller.text.replaceAll(',', '').trim()) ?? 0.0;
+          controller.text = (current + amount).toStringAsFixed(0);
+        });
+      },
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(0, 48),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+      child: Text(label),
+    );
+  }
+
   void _openLogPosDialog() {
     String channel = 'pos_card';
     final amountCtrl = TextEditingController();
@@ -225,7 +280,7 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
             return AlertDialog(
               title: const Row(
                 children: [
-                  Icon(Icons.point_of_sale, color: Color(0xFF6366F1)),
+                  Icon(Icons.point_of_sale, color: AppColors.pos),
                   SizedBox(width: 8),
                   Text('Log In-Between POS / Transfer Sale', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
                 ],
@@ -243,7 +298,7 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                       ),
                       const SizedBox(height: 14),
                       DropdownButtonFormField<String>(
-                        value: channel,
+                        initialValue: channel,
                         decoration: const InputDecoration(
                           labelText: 'Payment Channel *',
                           border: OutlineInputBorder(),
@@ -349,7 +404,7 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                   icon: const Icon(Icons.check, size: 16),
                   label: const Text('Save Transaction'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF6366F1),
+                    backgroundColor: AppColors.pos,
                     foregroundColor: Colors.white,
                   ),
                 ),
@@ -365,7 +420,6 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
   Widget build(BuildContext context) {
     final nozzles = state.nozzles;
     final unconfirmedCount = nozzles.where((n) => !n.isOpeningConfirmed).length;
-    final hasClosingEntered = nozzles.any((n) => n.closingReading != null);
 
     return Scaffold(
       appBar: AppBar(
@@ -374,7 +428,9 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
           children: [
             const Text('Attendant Forecourt Home', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             Text(
-              '${widget.user.displayName} · Forecourt On Duty · ${state.currentStationName}',
+              '${widget.user.displayName} · Forecourt On Duty · ${DateFormat('EEE dd MMM · h:mm a').format(DateTime.now())}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 12, color: Colors.white70),
             ),
           ],
@@ -395,7 +451,7 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Log out',
-            onPressed: widget.onLogout,
+            onPressed: _confirmLogout,
           ),
         ],
       ),
@@ -416,34 +472,45 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Welcome, ${widget.user.displayName.split(" ")[0]}',
-                                style: const TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.ink,
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Welcome, ${widget.user.displayName.split(" ")[0]}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.ink,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 4),
-                              const Text(
-                                'Carry-forward opening readings & shift operations (BRD §2.5).',
-                                style: TextStyle(fontSize: 13, color: AppColors.slate),
-                              ),
-                            ],
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: AppColors.primary.withOpacity(0.08),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: AppColors.primary.withOpacity(0.2)),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Carry-forward opening readings & shift operations (BRD §2.5).',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(fontSize: 13, color: AppColors.slate),
+                                ),
+                              ],
                             ),
-                            child: Text(
-                              'PMS: ${CurrencyFormatter.formatNaira(state.pmsPrice)}/L | AGO: ${CurrencyFormatter.formatNaira(state.agoPrice)}/L',
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.primary),
+                          ),
+                          const SizedBox(width: 12),
+                          Flexible(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+                              ),
+                              child: Text(
+                                'PMS: ${CurrencyFormatter.formatNaira(state.pmsPrice)}/L | AGO: ${CurrencyFormatter.formatNaira(state.agoPrice)}/L',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.primary),
+                              ),
                             ),
                           ),
                         ],
@@ -471,28 +538,38 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                                         Row(
                                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                           children: [
-                                            Text(
-                                              'Nozzle ${nozzle.nozzleNumber} · ${nozzle.productName}',
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 15,
-                                                color: AppColors.ink,
+                                            Expanded(
+                                              child: Text(
+                                                'Nozzle ${nozzle.nozzleNumber} · ${nozzle.productName}',
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 15,
+                                                  color: AppColors.ink,
+                                                ),
                                               ),
                                             ),
-                                            InkWell(
-                                              borderRadius: BorderRadius.circular(20),
-                                              onTap: nozzle.isOpeningConfirmed
-                                                  ? null
-                                                  : () => _confirmNozzle(nozzle.nozzleNumber),
-                                              child: Padding(
-                                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-                                                child: StatusChip(
-                                                  label: nozzle.isOpeningConfirmed
-                                                      ? 'Confirmed'
-                                                      : 'Confirm opening',
-                                                  type: nozzle.isOpeningConfirmed
-                                                      ? ChipType.ok
-                                                      : ChipType.warn,
+                                            const SizedBox(width: 8),
+                                            SizedBox(
+                                              height: 48,
+                                              child: InkWell(
+                                                borderRadius: BorderRadius.circular(20),
+                                                onTap: nozzle.isOpeningConfirmed
+                                                    ? null
+                                                    : () => _confirmNozzle(nozzle.nozzleNumber),
+                                                child: Padding(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                                                  child: Center(
+                                                    child: StatusChip(
+                                                      label: nozzle.isOpeningConfirmed
+                                                          ? 'Confirmed'
+                                                          : 'Confirm opening',
+                                                      type: nozzle.isOpeningConfirmed
+                                                          ? ChipType.ok
+                                                          : ChipType.warn,
+                                                    ),
+                                                  ),
                                                 ),
                                               ),
                                             ),
@@ -529,7 +606,7 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                           borderRadius: BorderRadius.circular(14),
                           side: BorderSide(
                             color: state.attendantEstimatedCashInPouch > 150000
-                                ? AppColors.amber.withOpacity(0.5)
+                                ? AppColors.amber.withValues(alpha: 0.5)
                                 : AppColors.border,
                             width: state.attendantEstimatedCashInPouch > 150000 ? 1.5 : 1.0,
                           ),
@@ -542,37 +619,46 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(8),
-                                        decoration: BoxDecoration(
-                                          color: AppColors.ok.withOpacity(0.12),
-                                          borderRadius: BorderRadius.circular(8),
+                                  Expanded(
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.ok.withValues(alpha: 0.12),
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                          child: const Icon(Icons.account_balance_wallet, color: AppColors.ok, size: 20),
                                         ),
-                                        child: const Icon(Icons.account_balance_wallet, color: AppColors.ok, size: 20),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      const Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            'Forecourt Pouch & Intra-Shift Ledger',
-                                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
+                                        const SizedBox(width: 10),
+                                        const Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                'Forecourt Pouch & Intra-Shift Ledger',
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
+                                              ),
+                                              Text(
+                                                'In-between sales cash drops & POS card/transfer logger (§2.6, §4.4)',
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(fontSize: 12, color: AppColors.slate),
+                                              ),
+                                            ],
                                           ),
-                                          Text(
-                                            'In-between sales cash drops & POS card/transfer logger (§2.6, §4.4)',
-                                            style: TextStyle(fontSize: 12, color: AppColors.slate),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                  if (state.attendantEstimatedCashInPouch > 150000)
+                                  if (state.attendantEstimatedCashInPouch > 150000) ...[
+                                    const SizedBox(width: 8),
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                       decoration: BoxDecoration(
-                                        color: AppColors.amber.withOpacity(0.15),
+                                        color: AppColors.warnSurface,
                                         borderRadius: BorderRadius.circular(20),
                                         border: Border.all(color: AppColors.amber),
                                       ),
@@ -583,11 +669,12 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                                           SizedBox(width: 4),
                                           Text(
                                             'High Cash in Pouch',
-                                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.amber),
+                                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.warnInk),
                                           ),
                                         ],
                                       ),
                                     ),
+                                  ],
                                 ],
                               ),
                               const SizedBox(height: 16),
@@ -620,14 +707,14 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                                       _buildPouchMetricBox(
                                         'POS / Card Slips',
                                         CurrencyFormatter.formatNaira(state.totalAttendantPosCard(widget.user.id)),
-                                        const Color(0xFF6366F1),
+                                        AppColors.pos,
                                         Icons.credit_card,
                                         isMobile ? (constraints.maxWidth - 10) / 2 : (constraints.maxWidth - 30) / 4,
                                       ),
                                       _buildPouchMetricBox(
                                         'Transfers Logged',
                                         CurrencyFormatter.formatNaira(state.totalAttendantPosTransfer(widget.user.id) + state.totalAttendantBankTransfer(widget.user.id)),
-                                        const Color(0xFF0284C7),
+                                        AppColors.accent,
                                         Icons.swap_horiz,
                                         isMobile ? (constraints.maxWidth - 10) / 2 : (constraints.maxWidth - 30) / 4,
                                       ),
@@ -660,7 +747,7 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                                       icon: const Icon(Icons.point_of_sale, size: 18),
                                       label: const Text('Log POS / Bank Transfer'),
                                       style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFF6366F1),
+                                        backgroundColor: AppColors.pos,
                                         foregroundColor: Colors.white,
                                         padding: const EdgeInsets.symmetric(vertical: 12),
                                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -690,20 +777,34 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                                     child: Row(
                                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                       children: [
-                                        Row(
-                                          children: [
-                                            const Icon(Icons.arrow_upward, size: 14, color: AppColors.ok),
-                                            const SizedBox(width: 6),
-                                            Text(
-                                              'Cash Drop: ${CurrencyFormatter.formatNaira(drop.amount)}',
-                                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.ink),
-                                            ),
-                                            if (drop.notes != null) ...[
+                                        Expanded(
+                                          child: Row(
+                                            children: [
+                                              const Icon(Icons.arrow_upward, size: 14, color: AppColors.ok),
                                               const SizedBox(width: 6),
-                                              Text('(${drop.notes})', style: const TextStyle(fontSize: 11, color: AppColors.muted)),
+                                              Flexible(
+                                                child: Text(
+                                                  'Cash Drop: ${CurrencyFormatter.formatNaira(drop.amount)}',
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.ink),
+                                                ),
+                                              ),
+                                              if (drop.notes != null) ...[
+                                                const SizedBox(width: 6),
+                                                Flexible(
+                                                  child: Text(
+                                                    '(${drop.notes})',
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                                                  ),
+                                                ),
+                                              ],
                                             ],
-                                          ],
+                                          ),
                                         ),
+                                        const SizedBox(width: 8),
                                         StatusChip(
                                           label: drop.isAcknowledged ? 'Acknowledged' : 'Awaiting Cashier',
                                           type: drop.isAcknowledged ? ChipType.ok : ChipType.warn,
@@ -721,22 +822,38 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                                     child: Row(
                                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                       children: [
-                                        Row(
-                                          children: [
-                                            const Icon(Icons.credit_card, size: 14, color: Color(0xFF6366F1)),
-                                            const SizedBox(width: 6),
-                                            Text(
-                                              '${pos.channelDisplayName}: ${CurrencyFormatter.formatNaira(pos.amount)}',
-                                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.ink),
-                                            ),
-                                            if (pos.referenceNumber != null) ...[
+                                        Expanded(
+                                          child: Row(
+                                            children: [
+                                              const Icon(Icons.credit_card, size: 14, color: AppColors.pos),
                                               const SizedBox(width: 6),
-                                              Text('Ref: ${pos.referenceNumber}', style: const TextStyle(fontSize: 11, color: AppColors.muted)),
+                                              Flexible(
+                                                child: Text(
+                                                  '${pos.channelDisplayName}: ${CurrencyFormatter.formatNaira(pos.amount)}',
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.ink),
+                                                ),
+                                              ),
+                                              if (pos.referenceNumber != null) ...[
+                                                const SizedBox(width: 6),
+                                                Flexible(
+                                                  child: Text(
+                                                    'Ref: ${pos.referenceNumber}',
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                                                  ),
+                                                ),
+                                              ],
                                             ],
-                                          ],
+                                          ),
                                         ),
+                                        const SizedBox(width: 8),
                                         Text(
                                           pos.terminalName ?? 'POS',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
                                           style: const TextStyle(fontSize: 12, color: AppColors.slate, fontStyle: FontStyle.italic),
                                         ),
                                       ],
@@ -747,13 +864,17 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                                 const SizedBox(height: 14),
                                 const Divider(height: 1),
                                 const SizedBox(height: 10),
-                                const Row(
+                                Row(
                                   children: [
-                                    Icon(Icons.info_outline, size: 14, color: AppColors.muted),
-                                    SizedBox(width: 6),
-                                    Text(
-                                      'No interim drops or POS slips recorded yet for this shift.',
-                                      style: TextStyle(fontSize: 12, color: AppColors.slate, fontStyle: FontStyle.italic),
+                                    const Icon(Icons.info_outline, size: 14, color: AppColors.muted),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        'No interim drops or POS slips recorded yet for this shift.',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 12, color: AppColors.slate, fontStyle: FontStyle.italic),
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -850,13 +971,15 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                               ),
                               _buildChecklistRow(
                                 'Submit closing readings',
-                                hasClosingEntered
-                                    ? const StatusChip(label: 'Entered (Ready)', type: ChipType.ok)
+                                state.closingReadingsSubmitted
+                                    ? const StatusChip(label: 'Submitted', type: ChipType.ok)
                                     : const StatusChip(label: 'Not started', type: ChipType.draft),
                               ),
                               _buildChecklistRow(
                                 'Submit remittance declaration',
-                                const StatusChip(label: '4 Channels', type: ChipType.draft),
+                                state.remittanceSubmitted
+                                    ? const StatusChip(label: 'Submitted', type: ChipType.ok)
+                                    : const StatusChip(label: 'Draft', type: ChipType.draft),
                               ),
                               _buildChecklistRow(
                                 'Active credit customers',
@@ -914,7 +1037,7 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: OutlinedButton(
-                onPressed: widget.onLogout,
+                onPressed: _confirmLogout,
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -934,7 +1057,15 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(title, style: const TextStyle(fontSize: 14, color: AppColors.ink)),
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 14, color: AppColors.ink),
+            ),
+          ),
+          const SizedBox(width: 8),
           trailing,
         ],
       ),
@@ -953,9 +1084,9 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
       width: width,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.06),
+        color: color.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -967,8 +1098,9 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
               Expanded(
                 child: Text(
                   label,
-                  style: const TextStyle(fontSize: 11, color: AppColors.slate, fontWeight: FontWeight.w600),
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12, color: AppColors.slate, fontWeight: FontWeight.w600),
                 ),
               ),
             ],
@@ -982,7 +1114,8 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
             const SizedBox(height: 2),
             Text(
               subtitle,
-              style: const TextStyle(fontSize: 10, color: AppColors.muted),
+              maxLines: 1,
+              style: const TextStyle(fontSize: 12, color: AppColors.muted),
               overflow: TextOverflow.ellipsis,
             ),
           ],

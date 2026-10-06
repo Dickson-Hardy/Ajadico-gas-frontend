@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/navigation/shell_back_guard.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/status_chip.dart';
 import '../../models/interim_cash_drop.dart';
@@ -22,7 +23,7 @@ class VerifySubmissionScreen extends StatefulWidget {
   State<VerifySubmissionScreen> createState() => _VerifySubmissionScreenState();
 }
 
-class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
+class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with UnsavedWorkAware {
   final state = StationAppState.instance;
 
   int _selectedSubmissionIndex = 0;
@@ -36,15 +37,21 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
   final TextEditingController _commentController = TextEditingController();
   final Set<String> _acknowledgingDropIds = {};
   bool _showItemizedDrops = false;
+  String _commentError = '';
+
+  @override
+  bool get hasUnsavedWork => _commentController.text.trim().isNotEmpty;
 
   @override
   void initState() {
     super.initState();
+    ShellBackGuard.register(this);
     state.addListener(_onStateChanged);
   }
 
   @override
   void dispose() {
+    ShellBackGuard.unregister(this);
     state.removeListener(_onStateChanged);
     _commentController.dispose();
     super.dispose();
@@ -52,6 +59,87 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
 
   void _onStateChanged() {
     if (mounted) setState(() {});
+  }
+
+  void _onSubmissionChanged(int index) {
+    if (index == _selectedSubmissionIndex) return;
+
+    if (hasUnsavedWork) {
+      showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Switch to another shift?'),
+          content: const Text('Your typed cashier remarks belong to the shift you are leaving and will be cleared.'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                if (mounted) setState(() {});
+              },
+              style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+              child: const Text('Stay On This Shift'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _applySubmissionChange(index);
+              },
+              style: ElevatedButton.styleFrom(minimumSize: const Size(0, 48)),
+              child: const Text('Switch Shift'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    _applySubmissionChange(index);
+  }
+
+  void _applySubmissionChange(int index) {
+    setState(() {
+      _selectedSubmissionIndex = index;
+      _currentEvidenceIndex = 0;
+      _showItemizedDrops = false;
+      _commentError = '';
+      _commentController.clear();
+    });
+  }
+
+  bool get _allSectionsChecked =>
+      _cashChecked && _posCardChecked && _posTransferChecked && _bankTransferChecked && _creditChecked;
+
+  void _confirmDiscard(VoidCallback onDiscard) {
+    if (!hasUnsavedWork) {
+      onDiscard();
+      return;
+    }
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Discard audit comment?'),
+        content: const Text('Your cashier remarks for this submission have not been used yet. Leaving now discards them.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+            child: const Text('Keep Editing'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              onDiscard();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.bad,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(0, 48),
+            ),
+            child: const Text('Leave'),
+          ),
+        ],
+      ),
+    );
   }
 
   String _formatTime(DateTime dt) {
@@ -81,7 +169,7 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
             const SnackBar(
               backgroundColor: AppColors.bad,
               behavior: SnackBarBehavior.floating,
-              content: Text('Failed to acknowledge cash drop. Please retry.'),
+              content: Text('Could not accept this cash drop. Please retry.'),
             ),
           );
         }
@@ -89,10 +177,10 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             backgroundColor: AppColors.bad,
             behavior: SnackBarBehavior.floating,
-            content: Text('Error acknowledging drop: $e'),
+            content: Text('Could not accept this cash drop. Please retry.'),
           ),
         );
       }
@@ -104,54 +192,161 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
   }
 
   void _verify(ShiftSubmission sub) {
-    state.verifyShiftSubmission(
-      submissionId: sub.id,
-      cashierComment: _commentController.text.trim().isEmpty
-          ? 'Audited and verified against interim cash drops and POS printouts'
-          : _commentController.text.trim(),
-    );
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: AppColors.ok,
-        behavior: SnackBarBehavior.floating,
-        content: Text(
-          'Shift ${sub.id} verified! ${CurrencyFormatter.formatNaira(sub.cashDeclared)} recorded in station safe.',
-        ),
-      ),
-    );
-
-    widget.onVerified();
-  }
-
-  void _flagUnresolved(ShiftSubmission sub) {
-    if (_commentController.text.trim().isEmpty) {
+    if (!_allSectionsChecked) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          backgroundColor: AppColors.bad,
+          backgroundColor: AppColors.warn,
           behavior: SnackBarBehavior.floating,
-          content: Text('Please add a comment explaining why this submission is unresolved.'),
+          content: Text('Check off every section (cash, card, POS transfer, bank transfer, credit) before verifying.'),
         ),
       );
       return;
     }
 
-    state.flagShiftUnresolved(
-      submissionId: sub.id,
-      cashierComment: _commentController.text.trim(),
-    );
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: AppColors.bad,
-        behavior: SnackBarBehavior.floating,
-        content: Text(
-          'Shift flagged as unresolved! Shortfall of ${CurrencyFormatter.formatVariance(sub.variance)} routed to Director salary ledger.',
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Verify this shift submission?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('${sub.attendantName} · ${sub.shiftType} Shift'),
+            const SizedBox(height: 8),
+            Text('Declared physical cash: ${CurrencyFormatter.formatNaira(sub.cashDeclared)}'),
+            const SizedBox(height: 6),
+            Text(
+              'Shift variance: ${CurrencyFormatter.formatVariance(sub.variance)}',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: sub.variance < 0 ? AppColors.bad : (sub.variance > 0 ? AppColors.ok : AppColors.ink),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'The declared cash will be accepted into the station safe and this submission will be closed.',
+              style: TextStyle(fontSize: 13, color: AppColors.muted),
+            ),
+          ],
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _performVerify(sub);
+            },
+            style: ElevatedButton.styleFrom(minimumSize: const Size(0, 48)),
+            child: const Text('Verify & Accept'),
+          ),
+        ],
       ),
     );
+  }
 
-    widget.onVerified();
+  void _performVerify(ShiftSubmission sub) {
+    try {
+      state.verifyShiftSubmission(
+        submissionId: sub.id,
+        cashierComment: _commentController.text.trim().isEmpty
+            ? 'Audited and verified against interim cash drops and POS printouts'
+            : _commentController.text.trim(),
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.ok,
+          behavior: SnackBarBehavior.floating,
+          content: Text(
+            'Shift ${sub.id} verified! ${CurrencyFormatter.formatNaira(sub.cashDeclared)} recorded in station safe.',
+          ),
+        ),
+      );
+
+      widget.onVerified();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: AppColors.bad,
+            behavior: SnackBarBehavior.floating,
+            content: Text('Could not verify this submission. Please retry.'),
+          ),
+        );
+      }
+    }
+  }
+
+  void _flagUnresolved(ShiftSubmission sub) {
+    if (_commentController.text.trim().isEmpty) {
+      setState(() => _commentError = 'Explain why this submission is unresolved before flagging it.');
+      return;
+    }
+    setState(() => _commentError = '');
+
+    try {
+      state.flagShiftUnresolved(
+        submissionId: sub.id,
+        cashierComment: _commentController.text.trim(),
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.bad,
+          behavior: SnackBarBehavior.floating,
+          content: Text(
+            'Shift flagged as unresolved! Shortfall of ${CurrencyFormatter.formatVariance(sub.variance)} routed to Director salary ledger.',
+          ),
+        ),
+      );
+
+      widget.onVerified();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: AppColors.bad,
+            behavior: SnackBarBehavior.floating,
+            content: Text('Could not flag this submission. Please retry.'),
+          ),
+        );
+      }
+    }
+  }
+
+  PreferredSizeWidget _buildAppBar({StatusChip? queueChip}) {
+    return AppBar(
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back),
+        tooltip: 'Back',
+        onPressed: () => _confirmDiscard(widget.onBack),
+      ),
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Cashier Verification Queue', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          Text('${state.currentUser.displayName} · Station Cashier Booth', style: const TextStyle(fontSize: 13, color: Colors.white70)),
+        ],
+      ),
+      actions: [
+        if (widget.onOpenExpenseEntry != null)
+          IconButton(
+            icon: const Icon(Icons.receipt_long),
+            tooltip: 'Disburse / Record Safe Expense',
+            onPressed: widget.onOpenExpenseEntry,
+          ),
+        if (queueChip != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            alignment: Alignment.center,
+            child: queueChip,
+          ),
+      ],
+    );
   }
 
   @override
@@ -162,27 +357,12 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
 
     // If no submissions are in queue, show the Live Cash Drops Hub
     if (submissions.isEmpty) {
+      final pendingCount = pendingDrops.length;
       return Scaffold(
-        appBar: AppBar(
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: widget.onBack,
-          ),
-          title: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Cashier Verification Queue', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              Text('${state.currentUser.displayName} · Station Cashier Booth', style: const TextStyle(fontSize: 13, color: Colors.white70)),
-            ],
-          ),
-          actions: [
-            if (widget.onOpenExpenseEntry != null)
-              IconButton(
-                icon: const Icon(Icons.receipt_long),
-                tooltip: 'Disburse / Record Safe Expense',
-                onPressed: widget.onOpenExpenseEntry,
-              ),
-          ],
+        appBar: _buildAppBar(
+          queueChip: pendingCount > 0
+              ? StatusChip(label: '$pendingCount Drop${pendingCount == 1 ? '' : 's'} Waiting', type: ChipType.warn)
+              : null,
         ),
         body: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
@@ -243,54 +423,12 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
     final currentIndex = _selectedSubmissionIndex < submissions.length ? _selectedSubmissionIndex : 0;
     final sub = submissions[currentIndex];
 
-    // Compute drops and pos transactions for this submission
-    final subDrops = sub.cashDrops.isNotEmpty
-        ? sub.cashDrops
-        : state.cashDrops.where((d) => d.attendantId == sub.attendantId).toList();
-
-    final ackDrops = subDrops.where((d) => d.isAcknowledged).toList();
-    final ackDropsTotal = ackDrops.fold(0.0, (sum, d) => sum + d.amount);
-    final finalCashInHand = sub.finalCashHandover > 0
-        ? sub.finalCashHandover
-        : (sub.cashDeclared >= ackDropsTotal ? sub.cashDeclared - ackDropsTotal : sub.cashDeclared);
-
-    final subPosTransactions = sub.posTransactions.isNotEmpty
-        ? sub.posTransactions
-        : state.posTransactions.where((p) => p.attendantId == sub.attendantId).toList();
-
-    final cardTxs = subPosTransactions.where((p) => p.paymentChannel == 'pos_card').toList();
-    final posTransferTxs = subPosTransactions.where((p) => p.paymentChannel == 'pos_transfer').toList();
-    final bankTransferTxs = subPosTransactions.where((p) => p.paymentChannel == 'bank_transfer').toList();
-
     return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: widget.onBack,
+      appBar: _buildAppBar(
+        queueChip: StatusChip(
+          label: '${submissions.where((s) => s.status == "Pending Verification").length} Pending',
+          type: ChipType.warn,
         ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Cashier Verification Queue', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('${state.currentUser.displayName} · Station Cashier Booth', style: const TextStyle(fontSize: 13, color: Colors.white70)),
-          ],
-        ),
-        actions: [
-          if (widget.onOpenExpenseEntry != null)
-            IconButton(
-              icon: const Icon(Icons.receipt_long),
-              tooltip: 'Disburse / Record Safe Expense',
-              onPressed: widget.onOpenExpenseEntry,
-            ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            alignment: Alignment.center,
-            child: StatusChip(
-              label: '${submissions.where((s) => s.status == "Pending Verification").length} Pending',
-              type: ChipType.warn,
-            ),
-          ),
-        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
@@ -326,10 +464,7 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
                           }).toList(),
                           onChanged: (val) {
                             if (val != null) {
-                              setState(() {
-                                _selectedSubmissionIndex = val;
-                                _currentEvidenceIndex = 0;
-                              });
+                              _onSubmissionChanged(val);
                             }
                           },
                         ),
@@ -339,384 +474,67 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
                   const SizedBox(height: 12),
                 ],
 
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Audit: ${sub.attendantName} (${sub.shiftType} Shift)',
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.ink,
-                      ),
-                    ),
-                    StatusChip(
-                      label: sub.status,
-                      type: sub.status == 'Verified'
-                          ? ChipType.ok
-                          : (sub.status == 'Flagged Unresolved' ? ChipType.bad : ChipType.warn),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  'Audit physical cash (interim sweeps + final handoff) and verify card/transfer receipts against POS slips before confirming (§4.2).',
-                  style: TextStyle(fontSize: 14, color: AppColors.muted),
-                ),
-                const SizedBox(height: 16),
-
                 LayoutBuilder(
                   builder: (context, constraints) {
-                    final isNarrow = constraints.maxWidth < 650;
-                    return Flex(
-                      direction: isNarrow ? Axis.vertical : Axis.horizontal,
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    final isNarrow = constraints.maxWidth < 700;
+                    final header = Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        // Left: Entered Numbers & Verification Checkboxes
                         Expanded(
-                          flex: isNarrow ? 0 : 6,
-                          child: Card(
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    '1. Meter readings breakdown',
-                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  ...sub.nozzles.map((n) {
-                                    return Padding(
-                                      padding: const EdgeInsets.symmetric(vertical: 4),
-                                      child: Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Text('Nozzle ${n.nozzleNumber} (${n.productName})', style: const TextStyle(color: AppColors.muted)),
-                                          Text(
-                                            '${CurrencyFormatter.formatLitres(n.openingReading)} → ${CurrencyFormatter.formatLitres(n.closingReading ?? n.openingReading)}',
-                                            style: const TextStyle(fontWeight: FontWeight.bold),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  }).toList(),
-                                  const Divider(color: AppColors.line),
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      const Text('Target Expected Sales', style: TextStyle(fontWeight: FontWeight.bold)),
-                                      Text(
-                                        CurrencyFormatter.formatNaira(sub.expectedSalesValue),
-                                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 16),
-
-                                  const Text(
-                                    '2. Check off physical money & proof',
-                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
-                                  ),
-                                  const SizedBox(height: 8),
-
-                                  // Cash Tile with Itemized Interim Drops Sub-Card
-                                  _buildCheckTile(
-                                    'Physical Drawer Cash',
-                                    sub.cashDeclared,
-                                    _cashChecked,
-                                    (v) => setState(() => _cashChecked = v!),
-                                  ),
-
-                                  // Sub-breakdown of cash: Drops + Final Handover
-                                  Container(
-                                    margin: const EdgeInsets.only(left: 36, bottom: 8),
-                                    padding: const EdgeInsets.all(10),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.background,
-                                      borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(color: AppColors.line),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Text(
-                                              '• Intra-Shift Sweeps (${ackDrops.length} drops):',
-                                              style: const TextStyle(fontSize: 12, color: AppColors.muted),
-                                            ),
-                                            Text(
-                                              CurrencyFormatter.formatNaira(ackDropsTotal),
-                                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.ok),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            const Text(
-                                              '• Final Cash Handover at Close:',
-                                              style: TextStyle(fontSize: 12, color: AppColors.muted),
-                                            ),
-                                            Text(
-                                              CurrencyFormatter.formatNaira(finalCashInHand),
-                                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.ink),
-                                            ),
-                                          ],
-                                        ),
-                                        if (ackDrops.isNotEmpty) ...[
-                                          const SizedBox(height: 6),
-                                          InkWell(
-                                            onTap: () => setState(() => _showItemizedDrops = !_showItemizedDrops),
-                                            child: Row(
-                                              children: [
-                                                Icon(
-                                                  _showItemizedDrops ? Icons.expand_less : Icons.expand_more,
-                                                  size: 16,
-                                                  color: AppColors.brandPrimary,
-                                                ),
-                                                const SizedBox(width: 4),
-                                                Text(
-                                                  _showItemizedDrops ? 'Hide itemized drop log' : 'View itemized drop log',
-                                                  style: const TextStyle(fontSize: 11, color: AppColors.brandPrimary, fontWeight: FontWeight.bold),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          if (_showItemizedDrops) ...[
-                                            const SizedBox(height: 6),
-                                            ...ackDrops.map((d) => Padding(
-                                              padding: const EdgeInsets.symmetric(vertical: 2),
-                                              child: Row(
-                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                                children: [
-                                                  Text(
-                                                    '  - ${_formatTime(d.createdAt)} (${d.notes ?? "Sweep"}):',
-                                                    style: const TextStyle(fontSize: 11, color: AppColors.muted),
-                                                  ),
-                                                  Text(
-                                                    CurrencyFormatter.formatNaira(d.amount),
-                                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                                                  ),
-                                                ],
-                                              ),
-                                            )),
-                                          ],
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-
-                                  _buildCheckTile(
-                                    'POS Card Swipes (${cardTxs.length} slips)',
-                                    sub.posCardDeclared,
-                                    _posCardChecked,
-                                    (v) => setState(() => _posCardChecked = v!),
-                                  ),
-                                  _buildCheckTile(
-                                    'POS Terminal Transfer (${posTransferTxs.length} slips)',
-                                    sub.posTransferDeclared,
-                                    _posTransferChecked,
-                                    (v) => setState(() => _posTransferChecked = v!),
-                                  ),
-                                  _buildCheckTile(
-                                    'Company Bank Direct Transfer (${bankTransferTxs.length} slips)',
-                                    sub.bankTransferDeclared,
-                                    _bankTransferChecked,
-                                    (v) => setState(() => _bankTransferChecked = v!),
-                                  ),
-                                  _buildCheckTile(
-                                    'Credit Sales on signed requisition',
-                                    sub.creditSalesDeclared,
-                                    _creditChecked,
-                                    (v) => setState(() => _creditChecked = v!),
-                                  ),
-                                  const Divider(color: AppColors.line),
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      const Text('Shift Variance', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                                      Text(
-                                        CurrencyFormatter.formatVariance(sub.variance),
-                                        style: TextStyle(
-                                          fontSize: 22,
-                                          fontWeight: FontWeight.bold,
-                                          color: sub.variance < 0 ? AppColors.bad : (sub.variance > 0 ? AppColors.ok : AppColors.ink),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
+                          child: Text(
+                            'Audit: ${sub.attendantName} (${sub.shiftType} Shift)',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.ink,
                             ),
                           ),
                         ),
-
-                        if (!isNarrow) const SizedBox(width: 16),
-
-                        // Right: In-Shift POS Slips & Evidence Photos & Remarks
-                        Expanded(
-                          flex: isNarrow ? 0 : 5,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // 3. In-Shift Digital POS Slips Audit
-                              Card(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          const Text(
-                                            '3. In-Shift POS & Transfer Slips',
-                                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
-                                          ),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: AppColors.background,
-                                              borderRadius: BorderRadius.circular(12),
-                                              border: Border.all(color: AppColors.line),
-                                            ),
-                                            child: Text(
-                                              '${subPosTransactions.length} slips',
-                                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.muted),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 8),
-                                      if (subPosTransactions.isEmpty)
-                                        Container(
-                                          padding: const EdgeInsets.all(12),
-                                          decoration: BoxDecoration(
-                                            color: AppColors.background,
-                                            borderRadius: BorderRadius.circular(8),
-                                            border: Border.all(color: AppColors.line),
-                                          ),
-                                          child: const Row(
-                                            children: [
-                                              Icon(Icons.info_outline, size: 20, color: AppColors.muted),
-                                              const SizedBox(width: 8),
-                                              Expanded(
-                                                child: Text(
-                                                  'No individual POS slips logged in-between sales for this shift. Check physical thermal roll printouts.',
-                                                  style: TextStyle(fontSize: 12, color: AppColors.muted),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        )
-                                      else
-                                        ConstrainedBox(
-                                          constraints: const BoxConstraints(maxHeight: 220),
-                                          child: ListView.separated(
-                                            shrinkWrap: true,
-                                            itemCount: subPosTransactions.length,
-                                            separatorBuilder: (_, __) => const Divider(height: 8, color: AppColors.line),
-                                            itemBuilder: (context, idx) {
-                                              final tx = subPosTransactions[idx];
-                                              return _buildPosSlipAuditItem(tx);
-                                            },
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-
-                              const SizedBox(height: 16),
-
-                              // 4. Uploaded Evidence Slips & Comments
-                              Card(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      const Text(
-                                        '4. Uploaded evidence slips',
-                                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
-                                      ),
-                                      const SizedBox(height: 10),
-                                      Container(
-                                        height: 140,
-                                        width: double.infinity,
-                                        decoration: BoxDecoration(
-                                          color: AppColors.background,
-                                          borderRadius: BorderRadius.circular(8),
-                                          border: Border.all(color: AppColors.line),
-                                        ),
-                                        child: Center(
-                                          child: Column(
-                                            mainAxisAlignment: MainAxisAlignment.center,
-                                            children: [
-                                              const Icon(Icons.receipt_long, size: 36, color: AppColors.bank),
-                                              const SizedBox(height: 8),
-                                              Text(
-                                                sub.evidencePhotos.isNotEmpty
-                                                    ? sub.evidencePhotos[_currentEvidenceIndex % sub.evidencePhotos.length]
-                                                    : 'No evidence photo uploaded',
-                                                style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.ink),
-                                                textAlign: TextAlign.center,
-                                              ),
-                                              const SizedBox(height: 4),
-                                              Text(
-                                                'Proof ${_currentEvidenceIndex + 1} of ${sub.evidencePhotos.isEmpty ? 1 : sub.evidencePhotos.length}',
-                                                style: const TextStyle(fontSize: 12, color: AppColors.muted),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                      if (sub.evidencePhotos.length > 1) ...[
-                                        const SizedBox(height: 8),
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: OutlinedButton(
-                                                onPressed: _currentEvidenceIndex > 0
-                                                    ? () => setState(() => _currentEvidenceIndex--)
-                                                    : null,
-                                                child: const Text('Previous'),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Expanded(
-                                              child: OutlinedButton(
-                                                onPressed: _currentEvidenceIndex < sub.evidencePhotos.length - 1
-                                                    ? () => setState(() => _currentEvidenceIndex++)
-                                                    : null,
-                                                child: const Text('Next'),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                      const SizedBox(height: 16),
-
-                                      const Text('Cashier remarks / comments', style: TextStyle(fontSize: 13, color: AppColors.muted)),
-                                      const SizedBox(height: 4),
-                                      TextField(
-                                        controller: _commentController,
-                                        decoration: const InputDecoration(
-                                          hintText: 'Enter audit notes or shortage reason...',
-                                        ),
-                                        maxLines: 2,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
+                        const SizedBox(width: 12),
+                        StatusChip(
+                          label: sub.status,
+                          type: sub.status == 'Verified'
+                              ? ChipType.ok
+                              : (sub.status == 'Flagged Unresolved' ? ChipType.bad : ChipType.warn),
                         ),
+                      ],
+                    );
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        isNarrow
+                            ? Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Audit: ${sub.attendantName} (${sub.shiftType} Shift)',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.ink,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  StatusChip(
+                                    label: sub.status,
+                                    type: sub.status == 'Verified'
+                                        ? ChipType.ok
+                                        : (sub.status == 'Flagged Unresolved' ? ChipType.bad : ChipType.warn),
+                                  ),
+                                ],
+                              )
+                            : header,
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Audit physical cash (interim sweeps + final handoff) and verify card/transfer receipts against POS slips before confirming (§4.2).',
+                          style: TextStyle(fontSize: 14, color: AppColors.muted),
+                        ),
+                        const SizedBox(height: 16),
+                        _buildAuditColumns(sub, isNarrow),
                       ],
                     );
                   },
@@ -730,37 +548,489 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         decoration: const BoxDecoration(
           color: AppColors.background,
-          border: Border(top: BorderSide(color: AppColors.line)),
+          border: Border(top: BorderSide(color: AppColors.border)),
         ),
-        child: Row(
+        child: SafeArea(
+          top: false,
+          child: Row(
+            children: [
+              Expanded(
+                flex: 2,
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.check),
+                  onPressed: sub.status == 'Verified' ? null : () => _verify(sub),
+                  style: ElevatedButton.styleFrom(minimumSize: const Size(0, 48)),
+                  label: Text(sub.status == 'Verified' ? 'Already Verified' : 'Verify & accept into safe'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.bad,
+                    minimumSize: const Size(0, 48),
+                  ),
+                  icon: const Icon(Icons.flag),
+                  onPressed: sub.status == 'Verified' ? null : () => _flagUnresolved(sub),
+                  label: const Text('Flag difference'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => _confirmDiscard(widget.onBack),
+                  style: OutlinedButton.styleFrom(minimumSize: const Size(0, 48)),
+                  child: const Text('Back'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAuditColumns(ShiftSubmission sub, bool isNarrow) {
+    final subDrops = sub.cashDrops.isNotEmpty
+        ? sub.cashDrops
+        : state.cashDrops.where((d) => d.attendantId == sub.attendantId).toList();
+
+    final ackDrops = subDrops.where((d) => d.isAcknowledged).toList();
+    final ackDropsTotal = ackDrops.fold(0.0, (sum, d) => sum + d.amount);
+    final finalCashInHand = sub.finalCashHandover > 0
+        ? sub.finalCashHandover
+        : (sub.cashDeclared >= ackDropsTotal ? sub.cashDeclared - ackDropsTotal : sub.cashDeclared);
+
+    final subPosTransactions = sub.posTransactions.isNotEmpty
+        ? sub.posTransactions
+        : state.posTransactions.where((p) => p.attendantId == sub.attendantId).toList();
+
+    final cardTxs = subPosTransactions.where((p) => p.paymentChannel == 'pos_card').toList();
+    final posTransferTxs = subPosTransactions.where((p) => p.paymentChannel == 'pos_transfer').toList();
+    final bankTransferTxs = subPosTransactions.where((p) => p.paymentChannel == 'bank_transfer').toList();
+
+    final leftColumn = Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              flex: 2,
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.check),
-                onPressed: sub.status == 'Verified' ? null : () => _verify(sub),
-                label: Text(sub.status == 'Verified' ? 'Already Verified' : 'Verify & accept into safe'),
+            const Text(
+              '1. Meter readings breakdown',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
+            ),
+            const SizedBox(height: 10),
+            ...sub.nozzles.map((n) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Nozzle ${n.nozzleNumber} (${n.productName})',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: AppColors.muted),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      '${CurrencyFormatter.formatLitres(n.openingReading)} → ${CurrencyFormatter.formatLitres(n.closingReading ?? n.openingReading)}',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+            const Divider(color: AppColors.line),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text('Target Expected Sales', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  CurrencyFormatter.formatNaira(sub.expectedSalesValue),
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            const Text(
+              '2. Check off physical money & proof',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
+            ),
+            const SizedBox(height: 8),
+
+            // Cash Tile with Itemized Interim Drops Sub-Card
+            _buildCheckTile(
+              'Physical Drawer Cash',
+              sub.cashDeclared,
+              _cashChecked,
+              (v) => setState(() => _cashChecked = v!),
+            ),
+
+            // Sub-breakdown of cash: Drops + Final Handover
+            Container(
+              margin: const EdgeInsets.only(left: 36, bottom: 8),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.background,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: AppColors.line),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '• Intra-Shift Sweeps (${ackDrops.length} drops):',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        CurrencyFormatter.formatNaira(ackDropsTotal),
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.ok),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          '• Final Cash Handover at Close:',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 12, color: AppColors.muted),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        CurrencyFormatter.formatNaira(finalCashInHand),
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.ink),
+                      ),
+                    ],
+                  ),
+                  if (ackDrops.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    InkWell(
+                      onTap: () => setState(() => _showItemizedDrops = !_showItemizedDrops),
+                      borderRadius: BorderRadius.circular(6),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _showItemizedDrops ? Icons.expand_less : Icons.expand_more,
+                              size: 18,
+                              color: AppColors.brandPrimary,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _showItemizedDrops ? 'Hide itemized drop log' : 'View itemized drop log',
+                              style: const TextStyle(fontSize: 12, color: AppColors.brandPrimary, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (_showItemizedDrops) ...[
+                      const SizedBox(height: 2),
+                      ...ackDrops.map((d) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '  - ${_formatTime(d.createdAt)} (${d.notes ?? "Sweep"}):',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              CurrencyFormatter.formatNaira(d.amount),
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      )),
+                    ],
+                  ],
+                ],
               ),
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(backgroundColor: AppColors.bad),
-                icon: const Icon(Icons.flag),
-                onPressed: sub.status == 'Verified' ? null : () => _flagUnresolved(sub),
-                label: const Text('Flag difference'),
-              ),
+
+            _buildCheckTile(
+              'POS Card Swipes (${cardTxs.length} slips)',
+              sub.posCardDeclared,
+              _posCardChecked,
+              (v) => setState(() => _posCardChecked = v!),
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: OutlinedButton(
-                onPressed: widget.onBack,
-                child: const Text('Back'),
+            _buildCheckTile(
+              'POS Terminal Transfer (${posTransferTxs.length} slips)',
+              sub.posTransferDeclared,
+              _posTransferChecked,
+              (v) => setState(() => _posTransferChecked = v!),
+            ),
+            _buildCheckTile(
+              'Company Bank Direct Transfer (${bankTransferTxs.length} slips)',
+              sub.bankTransferDeclared,
+              _bankTransferChecked,
+              (v) => setState(() => _bankTransferChecked = v!),
+            ),
+            _buildCheckTile(
+              'Credit Sales on signed requisition',
+              sub.creditSalesDeclared,
+              _creditChecked,
+              (v) => setState(() => _creditChecked = v!),
+            ),
+            if (!_allSectionsChecked) ...[
+              const SizedBox(height: 4),
+              const Row(
+                children: [
+                  Icon(Icons.info_outline, size: 16, color: AppColors.warn),
+                  SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Check off every section above before verifying this shift.',
+                      style: TextStyle(fontSize: 12, color: AppColors.warn, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
               ),
+            ],
+            const Divider(color: AppColors.line),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text('Shift Variance', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  CurrencyFormatter.formatVariance(sub.variance),
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: sub.variance < 0 ? AppColors.bad : (sub.variance > 0 ? AppColors.ok : AppColors.ink),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
       ),
+    );
+
+    final rightColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // 3. In-Shift Digital POS Slips Audit
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        '3. In-Shift POS & Transfer Slips',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppColors.background,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.line),
+                      ),
+                      child: Text(
+                        '${subPosTransactions.length} slips',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.muted),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                if (subPosTransactions.isEmpty)
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.background,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.line),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.info_outline, size: 20, color: AppColors.muted),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'No individual POS slips logged in-between sales for this shift. Check physical thermal roll printouts.',
+                            style: TextStyle(fontSize: 12, color: AppColors.muted),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 220),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: subPosTransactions.length,
+                      separatorBuilder: (_, __) => const Divider(height: 8, color: AppColors.line),
+                      itemBuilder: (context, idx) {
+                        final tx = subPosTransactions[idx];
+                        return _buildPosSlipAuditItem(tx);
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        // 4. Uploaded Evidence Slips & Comments
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '4. Uploaded evidence slips',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  height: 140,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: sub.evidencePhotos.isEmpty ? AppColors.badSurface : AppColors.background,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: sub.evidencePhotos.isEmpty ? AppColors.bad : AppColors.line,
+                    ),
+                  ),
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            sub.evidencePhotos.isEmpty ? Icons.warning_amber_rounded : Icons.receipt_long,
+                            size: 36,
+                            color: sub.evidencePhotos.isEmpty ? AppColors.bad : AppColors.bank,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            sub.evidencePhotos.isNotEmpty
+                                ? sub.evidencePhotos[_currentEvidenceIndex % sub.evidencePhotos.length]
+                                : 'No evidence photo uploaded by the attendant',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.ink),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            sub.evidencePhotos.isEmpty
+                                ? 'Ask the attendant for the POS printouts before verifying'
+                                : 'Proof ${_currentEvidenceIndex + 1} of ${sub.evidencePhotos.length}',
+                            style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                if (sub.evidencePhotos.length > 1) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: _currentEvidenceIndex > 0
+                              ? () => setState(() => _currentEvidenceIndex--)
+                              : null,
+                          style: OutlinedButton.styleFrom(minimumSize: const Size(0, 48)),
+                          child: const Text('Previous'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: _currentEvidenceIndex < sub.evidencePhotos.length - 1
+                              ? () => setState(() => _currentEvidenceIndex++)
+                              : null,
+                          style: OutlinedButton.styleFrom(minimumSize: const Size(0, 48)),
+                          child: const Text('Next'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 16),
+
+                const Text('Cashier remarks / comments', style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                const SizedBox(height: 4),
+                TextField(
+                  controller: _commentController,
+                  onChanged: (_) {
+                    if (_commentError.isNotEmpty) setState(() => _commentError = '');
+                  },
+                  decoration: InputDecoration(
+                    hintText: 'Enter audit notes or shortage reason...',
+                    errorText: _commentError.isEmpty ? null : _commentError,
+                    errorMaxLines: 2,
+                  ),
+                  maxLines: 2,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+
+    if (isNarrow) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          leftColumn,
+          const SizedBox(height: 16),
+          rightColumn,
+        ],
+      );
+    }
+
+    return Flex(
+      direction: Axis.horizontal,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(flex: 6, child: leftColumn),
+        const SizedBox(width: 16),
+        Expanded(flex: 5, child: rightColumn),
+      ],
     );
   }
 
@@ -769,9 +1039,9 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.warn.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.warn.withValues(alpha: 0.5)),
+        color: AppColors.warnSurface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.warn),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -780,9 +1050,13 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
             children: [
               const Icon(Icons.bolt, color: AppColors.warn, size: 22),
               const SizedBox(width: 8),
-              Text(
-                'Incoming Intra-Shift Cash Drops (${pendingDrops.length})',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.ink),
+              Expanded(
+                child: Text(
+                  'Incoming Intra-Shift Cash Drops (${pendingDrops.length})',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.ink),
+                ),
               ),
             ],
           ),
@@ -798,7 +1072,7 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
               margin: const EdgeInsets.only(bottom: 8),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: AppColors.card,
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: AppColors.line),
               ),
@@ -819,11 +1093,15 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
                       children: [
                         Text(
                           '${drop.attendantName} — ${CurrencyFormatter.formatNaira(drop.amount)}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.ink),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           'Submitted at ${_formatTime(drop.createdAt)}${drop.notes != null ? " • ${drop.notes}" : ""}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontSize: 12, color: AppColors.muted),
                         ),
                       ],
@@ -833,6 +1111,7 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.ok,
+                      minimumSize: const Size(0, 48),
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                     ),
                     onPressed: isAcknowledging ? null : () => _acknowledgeDrop(drop),
@@ -864,27 +1143,29 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
         border: Border.all(color: AppColors.line),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              const Icon(Icons.check_circle, color: AppColors.ok, size: 20),
-              const SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${drop.attendantName} • ${drop.notes ?? "Mid-shift sweep"}',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.ink),
-                  ),
-                  Text(
-                    'Accepted at ${drop.acknowledgedAt != null ? _formatTime(drop.acknowledgedAt!) : _formatTime(drop.createdAt)} by ${drop.acknowledgedBy ?? "Cashier"}',
-                    style: const TextStyle(fontSize: 11, color: AppColors.muted),
-                  ),
-                ],
-              ),
-            ],
+          const Icon(Icons.check_circle, color: AppColors.ok, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${drop.attendantName} • ${drop.notes ?? "Mid-shift sweep"}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.ink),
+                ),
+                Text(
+                  'Accepted at ${drop.acknowledgedAt != null ? _formatTime(drop.acknowledgedAt!) : _formatTime(drop.createdAt)} by ${drop.acknowledgedBy ?? "Cashier"}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                ),
+              ],
+            ),
           ),
+          const SizedBox(width: 10),
           Text(
             CurrencyFormatter.formatNaira(drop.amount),
             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.ok),
@@ -927,12 +1208,16 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      tx.channelDisplayName,
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.ink),
+                    Flexible(
+                      child: Text(
+                        tx.channelDisplayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.ink),
+                      ),
                     ),
+                    const SizedBox(width: 8),
                     Text(
                       CurrencyFormatter.formatNaira(tx.amount),
                       style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.ok),
@@ -941,7 +1226,7 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
                 ),
                 Text(
                   '${tx.terminalName ?? "POS"} • Ref: ${tx.referenceNumber ?? "N/A"}${tx.customerVehicle != null ? " • Plate: ${tx.customerVehicle}" : ""} • ${_formatTime(tx.createdAt)}',
-                  style: const TextStyle(fontSize: 11, color: AppColors.muted),
+                  style: const TextStyle(fontSize: 12, color: AppColors.muted),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -958,7 +1243,13 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
       value: isChecked,
       onChanged: onChanged,
       contentPadding: EdgeInsets.zero,
-      title: Text(label, style: const TextStyle(fontSize: 14, color: AppColors.ink)),
+      dense: false,
+      title: Text(
+        label,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 14, color: AppColors.ink),
+      ),
       secondary: Text(
         CurrencyFormatter.formatNaira(amount),
         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),

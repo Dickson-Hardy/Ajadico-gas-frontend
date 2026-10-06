@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../utils/currency_formatter.dart';
-import 'status_chip.dart';
 
 /// Industrial Graphical Underground Storage Tank (UST) Level Visualizer
 /// Displays physical dip vs book stock, real-time ullage, and color-coded threshold safety.
@@ -84,38 +83,39 @@ class ForecourtTankGauge extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               // Header Row: Tank Code, Product, Station, and Percentage
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: isPms ? const Color(0xFFFFF7ED) : const Color(0xFFF0FDF4),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                            color: isPms ? const Color(0xFFFDBA74) : const Color(0xFF86EFAC),
-                          ),
-                        ),
-                        child: Text(
-                          '$tankCode · $productName',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: isCompact ? 13 : 15,
-                            color: isPms ? const Color(0xFF9A3412) : const Color(0xFF166534),
-                          ),
-                        ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isPms ? AppColors.warnSurface : AppColors.okSurface,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: isPms
+                            ? AppColors.amber.withValues(alpha: 0.5)
+                            : AppColors.emerald.withValues(alpha: 0.5),
                       ),
-                      if (stationName != null) ...[
-                        const SizedBox(width: 8),
-                        Text(
-                          stationName!,
-                          style: const TextStyle(fontSize: 12, color: AppColors.muted),
-                        ),
-                      ],
-                    ],
+                    ),
+                    child: Text(
+                      '$tankCode · $productName',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: isCompact ? 13 : 15,
+                        color: isPms ? AppColors.warnInk : AppColors.okInk,
+                      ),
+                    ),
                   ),
+                  if (stationName != null)
+                    Text(
+                      stationName!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                    ),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
@@ -173,8 +173,8 @@ class ForecourtTankGauge extends StatelessWidget {
                           subtitle: varianceLitres == 0
                               ? 'Balanced'
                               : (varianceLitres < 0
-                                  ? '${varianceLitres.toStringAsFixed(0)} L deficit'
-                                  : '+${varianceLitres.toStringAsFixed(0)} L surplus'),
+                                  ? '${CurrencyFormatter.formatLitres(varianceLitres.abs())} deficit'
+                                  : '+${CurrencyFormatter.formatLitres(varianceLitres)} surplus'),
                           subtitleColor: varianceLitres < -50
                               ? AppColors.bad
                               : (varianceLitres > 50 ? AppColors.ok : AppColors.muted),
@@ -192,22 +192,26 @@ class ForecourtTankGauge extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      statusText,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: statusColor,
-                        letterSpacing: 0.5,
+                    Expanded(
+                      child: Text(
+                        statusText,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: statusColor,
+                          letterSpacing: 0.5,
+                        ),
                       ),
                     ),
-                    if (lastDipTime != null)
+                    if (lastDipTime != null) ...[
+                      const SizedBox(width: 8),
                       Text(
                         'Dip: ${_formatTime(lastDipTime!)}',
-                        style: const TextStyle(fontSize: 11, color: AppColors.muted),
+                        style: const TextStyle(fontSize: 12, color: AppColors.muted),
                       ),
+                    ],
                   ],
                 ),
               ],
@@ -239,12 +243,12 @@ class ForecourtTankGauge extends StatelessWidget {
         borderRadius: BorderRadius.circular(8.5),
         child: Stack(
           children: [
-            // Liquid Level Fill
+            // Liquid Level Fill (rises from the bottom of the vault)
             FractionallySizedBox(
-              widthFactor: fillRatio,
-              heightFactor: 1.0,
-              alignment: Alignment.centerLeft,
+              heightFactor: fillRatio,
+              alignment: Alignment.bottomCenter,
               child: Container(
+                width: double.infinity,
                 decoration: BoxDecoration(
                   gradient: fuelGradient,
                   boxShadow: [
@@ -258,16 +262,30 @@ class ForecourtTankGauge extends StatelessWidget {
               ),
             ),
 
-            // Book Stock Indicator Line (dashed / contrasting marker)
+            // Book Stock Indicator Line (calculated stock marker across the vault)
             if (calculatedStockLitres != null && (calculatedStockLitres! - currentLitres).abs() > 20)
-              Positioned(
-                left: null,
-                right: null,
-                top: 0,
-                bottom: 0,
+              Positioned.fill(
                 child: LayoutBuilder(
                   builder: (context, box) {
-                    return Container(); // Built cleanly via custom overlay
+                    final maxOffset = box.maxHeight > 2 ? box.maxHeight - 2 : 0.0;
+                    final markerBottom = (box.maxHeight * bookStockRatio).clamp(0.0, maxOffset);
+                    return Align(
+                      alignment: Alignment.bottomCenter,
+                      child: Transform.translate(
+                        offset: Offset(0, -markerBottom),
+                        child: Container(
+                          height: 2,
+                          margin: const EdgeInsets.symmetric(horizontal: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.9),
+                            borderRadius: BorderRadius.circular(1),
+                            boxShadow: [
+                              BoxShadow(color: Colors.black.withValues(alpha: 0.5), blurRadius: 3),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
                   },
                 ),
               ),
@@ -277,37 +295,52 @@ class ForecourtTankGauge extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 10),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     // Fuel Type & Level
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.local_gas_station,
-                          size: isCompact ? 14 : 18,
-                          color: fillRatio > 0.25 ? Colors.white : Colors.white70,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '${CurrencyFormatter.formatLitres(currentLitres)} in Tank',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: isCompact ? 11 : 13,
-                            fontWeight: FontWeight.bold,
-                            shadows: const [Shadow(blurRadius: 3, color: Colors.black)],
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.local_gas_station,
+                            size: isCompact ? 14 : 18,
+                            color: fillRatio > 0.25 ? Colors.white : Colors.white70,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              '${CurrencyFormatter.formatLitres(currentLitres)} in Tank',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: isCompact ? 12 : 13,
+                                fontWeight: FontWeight.bold,
+                                shadows: const [Shadow(blurRadius: 3, color: Colors.black)],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
 
+                    const SizedBox(width: 8),
+
                     // Ullage Tag
-                    Text(
-                      'Ullage: ${CurrencyFormatter.formatLitres(ullageLitres)}',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.85),
-                        fontSize: isCompact ? 10 : 12,
-                        fontWeight: FontWeight.w600,
-                        shadows: const [Shadow(blurRadius: 3, color: Colors.black)],
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.45),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'Ullage: ${CurrencyFormatter.formatLitres(ullageLitres)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.9),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ],
@@ -324,22 +357,24 @@ class ForecourtTankGauge extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontSize: 11, color: AppColors.muted)),
+        Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
         const SizedBox(height: 2),
         Text(
           value,
           style: TextStyle(
             fontSize: 15,
             fontWeight: FontWeight.bold,
-            color: highlight ? const Color(0xFF0D9488) : AppColors.ink,
+            color: highlight ? AppColors.primary : AppColors.ink,
           ),
         ),
         if (subtitle != null) ...[
           const SizedBox(height: 1),
           Text(
             subtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 11,
+              fontSize: 12,
               fontWeight: FontWeight.w500,
               color: subtitleColor ?? AppColors.muted,
             ),

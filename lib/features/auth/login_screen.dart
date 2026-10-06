@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/network/supabase_repository.dart';
 import '../../core/security/kiosk_security_manager.dart';
@@ -27,15 +28,21 @@ class _LoginScreenState extends State<LoginScreen> {
   void initState() {
     super.initState();
     _security.addListener(_onSecurityChanged);
+    StationAppState.instance.addListener(_onStateChanged);
   }
 
   @override
   void dispose() {
     _security.removeListener(_onSecurityChanged);
+    StationAppState.instance.removeListener(_onStateChanged);
     super.dispose();
   }
 
   void _onSecurityChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _onStateChanged() {
     if (mounted) setState(() {});
   }
 
@@ -72,14 +79,23 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       final repo = SupabaseRepository.instance;
-      // Real Supabase RPC check or local validation
+      if (!repo.isConnected) {
+        setState(() {
+          _isAuthenticating = false;
+          _pin = '';
+          _authError =
+              'Authentication service unavailable — check connection or ask the station manager to unlock';
+        });
+        return;
+      }
+
       final res = await repo.verifyAttendantPin(
         stationId: 'lekki-01',
         profileId: _selectedUser!.id,
         pin: _pin,
       );
 
-      final success = res['success'] == true || _pin == '1234' || _pin == '0000';
+      final success = res['success'] == true;
 
       if (success) {
         _security.recordSuccessfulPin(
@@ -88,6 +104,13 @@ class _LoginScreenState extends State<LoginScreen> {
         );
         setState(() => _isAuthenticating = false);
         widget.onLoginSuccess(_selectedUser!);
+      } else if (_isServiceFault(res['message']?.toString() ?? '')) {
+        setState(() {
+          _isAuthenticating = false;
+          _pin = '';
+          _authError =
+              'Authentication service unavailable — check connection or ask the station manager to unlock';
+        });
       } else {
         _security.recordFailedPinAttempt(
           actorId: _selectedUser!.id,
@@ -107,9 +130,91 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() {
         _isAuthenticating = false;
         _pin = '';
-        _authError = 'Authentication service error. Try again.';
+        _authError =
+            'Authentication service unavailable — check connection or ask the station manager to unlock';
       });
     }
+  }
+
+  /// Distinguishes a transport/backend failure from a genuine wrong-PIN answer,
+  /// so a network fault never burns an attendant's lockout attempt.
+  bool _isServiceFault(String message) {
+    return message.contains('Exception') ||
+        message.contains('Failed host lookup') ||
+        message.contains('SocketException') ||
+        message.contains('TimeoutException') ||
+        message.contains('Connection closed');
+  }
+
+  void _showDirectorLoginDialog() {
+    final pinCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        String? overrideError;
+
+        return StatefulBuilder(
+          builder: (context, setDlgState) {
+            void submitPin() {
+              if (KioskSecurityManager.instance.validateManagerOverridePin(pinCtrl.text.trim())) {
+                Navigator.pop(ctx);
+                widget.onLoginSuccess(UserProfile.defaultDirector);
+                return;
+              }
+              setDlgState(() {
+                overrideError = 'Invalid manager override PIN. Ask the station manager for the correct PIN.';
+              });
+            }
+
+            return AlertDialog(
+              title: const Text(
+                'Station Manager Override',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Managing Director sign-in is protected. Enter the Station Manager override PIN to continue.',
+                    style: TextStyle(fontSize: 14, color: AppColors.slate),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: pinCtrl,
+                    autofocus: true,
+                    obscureText: true,
+                    maxLength: 6,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: InputDecoration(
+                      labelText: 'Manager Override PIN *',
+                      counterText: '',
+                      errorText: overrideError,
+                      errorMaxLines: 2,
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    onSubmitted: (_) => setDlgState(submitPin),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () => setDlgState(submitPin),
+                  child: const Text('Continue'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    ).then((_) => pinCtrl.dispose());
   }
 
   @override
@@ -186,9 +291,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ElevatedButton.icon(
                                   icon: const Icon(Icons.shield_outlined),
                                   label: const Text('Login as Managing Director (Engr. Dickson)'),
-                                  onPressed: () {
-                                    widget.onLoginSuccess(UserProfile.defaultDirector);
-                                  },
+                                  onPressed: _showDirectorLoginDialog,
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: AppColors.ink,
                                     foregroundColor: Colors.white,
@@ -210,7 +313,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               physics: const NeverScrollableScrollPhysics(),
                               crossAxisSpacing: 10,
                               mainAxisSpacing: 10,
-                              childAspectRatio: 2.8,
+                              childAspectRatio: 2.2,
                               children: staffList.map((user) {
                                 final isSelected = _selectedUser?.id == user.id;
                                 return OutlinedButton(
@@ -223,7 +326,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   },
                                   style: OutlinedButton.styleFrom(
                                     backgroundColor: isSelected
-                                        ? AppColors.primary.withOpacity(0.08)
+                                        ? AppColors.primary.withValues(alpha: 0.08)
                                         : Colors.transparent,
                                     side: BorderSide(
                                       color: isSelected ? AppColors.primary : AppColors.border,
@@ -233,6 +336,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                   child: Text(
                                     user.displayName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
                                       color: isSelected ? AppColors.primary : AppColors.ink,
                                       fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
@@ -257,27 +362,31 @@ class _LoginScreenState extends State<LoginScreen> {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Text(
-                                    'PIN for ${_selectedUser?.displayName ?? "—"}',
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      color: AppColors.ink,
+                                  Expanded(
+                                    child: Text(
+                                      'PIN for ${_selectedUser?.displayName ?? "—"}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.ink,
+                                      ),
                                     ),
                                   ),
                                   if (_security.failedAttempts > 0)
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                       decoration: BoxDecoration(
-                                        color: Colors.redAccent.withOpacity(0.1),
+                                        color: AppColors.badSurface,
                                         borderRadius: BorderRadius.circular(4),
                                       ),
                                       child: Text(
                                         'Attempt ${_security.failedAttempts}/3',
                                         style: const TextStyle(
-                                          fontSize: 11,
+                                          fontSize: 12,
                                           fontWeight: FontWeight.bold,
-                                          color: Colors.redAccent,
+                                          color: AppColors.bad,
                                         ),
                                       ),
                                     ),
@@ -294,18 +403,21 @@ class _LoginScreenState extends State<LoginScreen> {
                                   color: AppColors.lightBackground,
                                   borderRadius: BorderRadius.circular(8),
                                   border: Border.all(
-                                    color: _authError != null ? Colors.redAccent : AppColors.border,
+                                    color: _authError != null ? AppColors.bad : AppColors.border,
                                   ),
                                 ),
-                                child: Text(
-                                  _pin.isEmpty
-                                      ? '• • • •'
-                                      : '• ' * _pin.length,
-                                  style: const TextStyle(
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: 8,
-                                    color: AppColors.ink,
+                                child: Semantics(
+                                  label: 'PIN length ${_pin.length}',
+                                  child: Text(
+                                    _pin.isEmpty
+                                        ? '• • • •'
+                                        : '• ' * _pin.length,
+                                    style: const TextStyle(
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 8,
+                                      color: AppColors.ink,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -316,7 +428,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   _authError!,
                                   style: const TextStyle(
                                     fontSize: 12,
-                                    color: Colors.redAccent,
+                                    color: AppColors.bad,
                                     fontWeight: FontWeight.w600,
                                   ),
                                   textAlign: TextAlign.center,
@@ -396,7 +508,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   SizedBox(width: 4),
                                   Text(
                                     'BRD §2.4: Locked for 15m after 3 failed attempts',
-                                    style: TextStyle(fontSize: 11, color: AppColors.slate),
+                                    style: TextStyle(fontSize: 12, color: AppColors.slate),
                                   ),
                                 ],
                               ),

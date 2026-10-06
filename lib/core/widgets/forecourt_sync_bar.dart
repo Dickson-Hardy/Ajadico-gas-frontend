@@ -33,38 +33,38 @@ class ForecourtSyncBar extends StatelessWidget {
         String statusText;
 
         if (!isOnline) {
-          bannerBg = const Color(0xFFFFFBEB); // Light amber
-          textColor = const Color(0xFFB45309);
+          bannerBg = AppColors.warnSurface;
+          textColor = AppColors.warn;
           statusIcon = Icons.wifi_off_rounded;
           statusText = 'OFFLINE MODE (Forecourt Outbox: $pending items queued)';
         } else if (isSyncing) {
-          bannerBg = const Color(0xFFEFF6FF); // Light blue
-          textColor = const Color(0xFF1D4ED8);
+          bannerBg = AppColors.lightBackground;
+          textColor = AppColors.bank;
           statusIcon = Icons.sync_rounded;
           statusText = 'SYNCING: ${syncService.statusInfo.activeItemTitle ?? "Transmitting records..."}';
         } else if (failed > 0) {
-          bannerBg = const Color(0xFFFEF2F2); // Light red
-          textColor = const Color(0xFFB91C1C);
+          bannerBg = AppColors.badSurface;
+          textColor = AppColors.bad;
           statusIcon = Icons.error_outline_rounded;
           statusText = '$failed item(s) failed sync. Tap to retry.';
         } else if (pending > 0) {
-          bannerBg = const Color(0xFFFFFBEB);
-          textColor = const Color(0xFFB45309);
+          bannerBg = AppColors.warnSurface;
+          textColor = AppColors.warn;
           statusIcon = Icons.cloud_queue_rounded;
           statusText = '$pending transaction(s) pending sync';
         } else {
-          bannerBg = const Color(0xFFF0FDF4); // Light green
-          textColor = const Color(0xFF15803D);
+          bannerBg = AppColors.okSurface;
+          textColor = AppColors.ok;
           statusIcon = Icons.cloud_done_rounded;
           statusText = 'ONLINE & CLOUD SYNCED';
         }
 
-        return Container(
+        Widget banner = Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
             color: bannerBg,
             border: Border(
-              bottom: BorderSide(color: textColor.withOpacity(0.2), width: 1),
+              bottom: BorderSide(color: textColor.withValues(alpha: 0.2), width: 1),
             ),
           ),
           child: Row(
@@ -82,35 +82,36 @@ class ForecourtSyncBar extends StatelessWidget {
 
               // Status text
               Expanded(
-                child: Row(
+                child: Wrap(
+                  spacing: 12,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Text(
                       statusText,
                       style: TextStyle(
-                        fontSize: 11,
+                        fontSize: 12,
                         fontWeight: FontWeight.w700,
                         color: textColor,
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
-                    if (showStationName) ...[
-                      const SizedBox(width: 12),
+                    if (showStationName)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: AppColors.ink.withOpacity(0.08),
+                          color: AppColors.ink.withValues(alpha: 0.08),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
                           stationName,
                           style: const TextStyle(
-                            fontSize: 10,
+                            fontSize: 12,
                             fontWeight: FontWeight.w600,
                             color: AppColors.ink,
                           ),
                         ),
                       ),
-                    ],
                   ],
                 ),
               ),
@@ -120,24 +121,24 @@ class ForecourtSyncBar extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: securityManager.secondsRemaining <= 15
-                      ? Colors.redAccent.withOpacity(0.15)
-                      : AppColors.slate.withOpacity(0.1),
+                      ? AppColors.lightCherry
+                      : AppColors.slate.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Row(
                   children: [
                     Icon(
                       Icons.timer_outlined,
-                      size: 11,
-                      color: securityManager.secondsRemaining <= 15 ? Colors.redAccent : AppColors.slate,
+                      size: 14,
+                      color: securityManager.secondsRemaining <= 15 ? AppColors.bad : AppColors.slate,
                     ),
                     const SizedBox(width: 3),
                     Text(
                       '${securityManager.secondsRemaining}s',
                       style: TextStyle(
-                        fontSize: 10,
+                        fontSize: 12,
                         fontWeight: FontWeight.bold,
-                        color: securityManager.secondsRemaining <= 15 ? Colors.redAccent : AppColors.slate,
+                        color: securityManager.secondsRemaining <= 15 ? AppColors.bad : AppColors.slate,
                       ),
                     ),
                   ],
@@ -148,33 +149,35 @@ class ForecourtSyncBar extends StatelessWidget {
 
               // Sync / Retry button if items pending or failed
               if (pending > 0 || failed > 0)
-                InkWell(
-                  onTap: () {
+                TextButton(
+                  onPressed: () {
                     if (failed > 0) {
                       syncService.retryFailedItems();
                     } else {
                       syncService.triggerSync();
                     }
                   },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: textColor,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      failed > 0 ? 'Retry' : 'Sync Now',
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
+                  style: TextButton.styleFrom(
+                    backgroundColor: textColor,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(48, 48),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                   ),
+                  child: Text(failed > 0 ? 'Retry' : 'Sync Now'),
                 ),
             ],
           ),
         );
+
+        if (failed > 0) {
+          banner = InkWell(
+            onTap: syncService.retryFailedItems,
+            child: banner,
+          );
+        }
+
+        return banner;
       },
     );
   }

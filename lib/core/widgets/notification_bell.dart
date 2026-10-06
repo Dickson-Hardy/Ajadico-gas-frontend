@@ -28,7 +28,7 @@ class NotificationBell extends StatelessWidget {
           icon: Badge(
             isLabelVisible: unreadCount > 0,
             label: Text('$unreadCount'),
-            backgroundColor: Colors.redAccent,
+            backgroundColor: AppColors.bad,
             child: const Icon(Icons.notifications_outlined, color: Colors.white, size: 22),
           ),
           tooltip: 'Forecourt Alerts ($unreadCount unread)',
@@ -67,33 +67,36 @@ class NotificationBell extends StatelessWidget {
                     children: [
                       // Header
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.notifications_active, color: AppColors.primary, size: 22),
-                              const SizedBox(width: 8),
-                              const Text(
-                                'Forecourt Alerts',
-                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.ink),
-                              ),
-                              if (unreadTotal > 0) ...[
+                          Flexible(
+                            child: Row(
+                              children: [
+                                const Icon(Icons.notifications_active, color: AppColors.primary, size: 22),
                                 const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: Colors.redAccent,
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Text(
-                                    '$unreadTotal new',
-                                    style: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold),
-                                  ),
+                                const Text(
+                                  'Forecourt Alerts',
+                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.ink),
                                 ),
+                                if (unreadTotal > 0) ...[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.bad,
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      '$unreadTotal new',
+                                      style: const TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ],
                               ],
-                            ],
+                            ),
                           ),
+                          const SizedBox(width: 8),
                           Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
                               if (unreadTotal > 0)
                                 TextButton(
@@ -105,6 +108,7 @@ class NotificationBell extends StatelessWidget {
                                 ),
                               IconButton(
                                 icon: const Icon(Icons.close, size: 20),
+                                tooltip: 'Close',
                                 onPressed: () => Navigator.pop(ctx),
                               ),
                             ],
@@ -154,7 +158,7 @@ class NotificationBell extends StatelessWidget {
                                 },
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
-                                  color: notif.isRead ? Colors.transparent : AppColors.primary.withOpacity(0.04),
+                                  color: notif.isRead ? Colors.transparent : AppColors.primary.withValues(alpha: 0.04),
                                   child: Row(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
@@ -168,11 +172,11 @@ class NotificationBell extends StatelessWidget {
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
                                             Row(
-                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                               children: [
                                                 Expanded(
                                                   child: Text(
                                                     notif.title,
+                                                    overflow: TextOverflow.ellipsis,
                                                     style: TextStyle(
                                                       fontSize: 14,
                                                       fontWeight: notif.isRead ? FontWeight.w600 : FontWeight.w800,
@@ -180,9 +184,10 @@ class NotificationBell extends StatelessWidget {
                                                     ),
                                                   ),
                                                 ),
+                                                const SizedBox(width: 8),
                                                 Text(
                                                   notif.timeAgo,
-                                                  style: const TextStyle(fontSize: 11, color: AppColors.mutedSlate),
+                                                  style: const TextStyle(fontSize: 12, color: AppColors.mutedSlate),
                                                 ),
                                               ],
                                             ),
@@ -192,27 +197,28 @@ class NotificationBell extends StatelessWidget {
                                               style: const TextStyle(fontSize: 13, color: AppColors.slate),
                                             ),
                                             const SizedBox(height: 6),
-                                            Row(
+                                            Wrap(
+                                              spacing: 8,
+                                              runSpacing: 4,
+                                              crossAxisAlignment: WrapCrossAlignment.center,
                                               children: [
                                                 if (notif.targetRole != null)
                                                   Container(
                                                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                                     decoration: BoxDecoration(
-                                                      color: AppColors.ink.withOpacity(0.06),
+                                                      color: AppColors.ink.withValues(alpha: 0.06),
                                                       borderRadius: BorderRadius.circular(4),
                                                     ),
                                                     child: Text(
                                                       notif.targetRole!.name.toUpperCase(),
-                                                      style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppColors.ink),
+                                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.ink),
                                                     ),
                                                   ),
-                                                if (notif.actionRouteName != null) ...[
-                                                  const SizedBox(width: 8),
+                                                if (notif.actionRouteName != null)
                                                   Text(
-                                                    'Tap to view ${notif.actionRouteName} →',
-                                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary),
+                                                    'Tap to view ${_friendlyRouteName(notif.actionRouteName!)} →',
+                                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary),
                                                   ),
-                                                ],
                                               ],
                                             ),
                                           ],
@@ -236,6 +242,14 @@ class NotificationBell extends StatelessWidget {
     );
   }
 
+  String _friendlyRouteName(String route) {
+    var name = route.trim().replaceFirst(RegExp(r'_?screen$', caseSensitive: false), '');
+    name = name.replaceFirst(RegExp(r'^\d+'), '');
+    final words = name.split('_').where((w) => w.trim().isNotEmpty).toList();
+    if (words.isEmpty) return 'this screen';
+    return words.map((w) => '${w[0].toUpperCase()}${w.substring(1)}').join(' ');
+  }
+
   Widget _buildTypeAvatar(NotificationType type) {
     Color bg;
     Color iconColor;
@@ -243,23 +257,23 @@ class NotificationBell extends StatelessWidget {
 
     switch (type) {
       case NotificationType.critical:
-        bg = const Color(0xFFFEE2E2);
-        iconColor = Colors.redAccent;
+        bg = AppColors.lightCherry;
+        iconColor = AppColors.bad;
         icon = Icons.error_outline;
         break;
       case NotificationType.warning:
-        bg = const Color(0xFFFEF3C7);
-        iconColor = const Color(0xFFD97706);
+        bg = AppColors.warnSurface;
+        iconColor = AppColors.amber;
         icon = Icons.warning_amber_rounded;
         break;
       case NotificationType.success:
-        bg = const Color(0xFFDCFCE7);
-        iconColor = AppColors.emerald;
+        bg = AppColors.lightEmerald;
+        iconColor = AppColors.okInk;
         icon = Icons.check_circle_outline;
         break;
       case NotificationType.info:
-        bg = const Color(0xFFEFF6FF);
-        iconColor = AppColors.primary;
+        bg = AppColors.lightBackground;
+        iconColor = AppColors.bank;
         icon = Icons.info_outline;
         break;
     }

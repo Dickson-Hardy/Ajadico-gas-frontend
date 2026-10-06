@@ -53,6 +53,37 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
     if (mounted) setState(() {});
   }
 
+  void _confirmLogout() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Log out of this kiosk?'),
+        content: const Text(
+          'You will be returned to the PIN sign-in screen. Any unsubmitted entries on this shared tablet will be lost.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+            child: const Text('Stay Signed In'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              widget.onLogout();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.bad,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(0, 48),
+            ),
+            child: const Text('Log Out'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _openBankDepositDialog(double availableCash) {
     showDialog(
       context: context,
@@ -83,13 +114,13 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
             const SizedBox(height: 4),
             Text('Description: ${expense.description}'),
             const SizedBox(height: 4),
-            Text('Recorded By: ${expense.recordedByRole.toUpperCase()} (${expense.approvedBy.isNotEmpty ? expense.approvedBy : "Pending Approval"})'),
+            Text('Recorded By: ${expense.recordedByRole.toUpperCase()} (${(expense.approvedBy?.isNotEmpty ?? false) ? expense.approvedBy : "Pending Approval"})'),
             const SizedBox(height: 12),
             Container(
               height: 180,
               width: double.infinity,
               decoration: BoxDecoration(
-                color: Colors.grey.shade100,
+                color: AppColors.lightBackground,
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: AppColors.line),
               ),
@@ -109,7 +140,7 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+          TextButton(onPressed: () => Navigator.pop(ctx), style: TextButton.styleFrom(minimumSize: const Size(0, 48)), child: const Text('Close')),
         ],
       ),
     );
@@ -124,11 +155,11 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
           'Confirm approval of ${CurrencyFormatter.formatNaira(expense.amount)} for "${expense.description}". This will formalize the deduction from the safe cash drawer.',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx), style: TextButton.styleFrom(minimumSize: const Size(0, 48)), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () {
               Navigator.pop(ctx);
-              state.approveExpense(expense.id, state.currentUser.displayName);
+              state.approveExpense(expenseId: expense.id, approverNotes: state.currentUser.displayName);
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text('Approved ${CurrencyFormatter.formatNaira(expense.amount)} (${expense.category})'),
@@ -136,7 +167,7 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                 ),
               );
             },
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.ok, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.ok, foregroundColor: Colors.white, minimumSize: const Size(0, 48)),
             child: const Text('Confirm Approval'),
           ),
         ],
@@ -146,42 +177,63 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
 
   void _confirmRejectExpense(BranchExpense expense) {
     final reasonController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Reject Expense Disbursal?'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Rejecting ${CurrencyFormatter.formatNaira(expense.amount)} for "${expense.description}". The physical safe balance will not deduct this amount and the disbursing cashier must reconcile the difference.',
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: reasonController,
-              decoration: const InputDecoration(
-                labelText: 'Rejection Reason',
-                hintText: 'e.g. Unapproved petty purchase, invalid receipt',
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Rejecting ${CurrencyFormatter.formatNaira(expense.amount)} for "${expense.description}". The physical safe balance will not deduct this amount and the disbursing cashier must reconcile the difference.',
               ),
-            ),
-          ],
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: reasonController,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'A rejection reason is required.' : null,
+                decoration: const InputDecoration(
+                  labelText: 'Rejection Reason',
+                  hintText: 'e.g. Unapproved petty purchase, invalid receipt',
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              state.rejectExpense(expense.id, state.currentUser.displayName);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Rejected ${CurrencyFormatter.formatNaira(expense.amount)} (${expense.category})'),
+          TextButton(onPressed: () => Navigator.pop(ctx), style: TextButton.styleFrom(minimumSize: const Size(0, 48)), child: const Text('Cancel')),
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: reasonController,
+            builder: (context, value, _) {
+              final canReject = value.text.trim().isNotEmpty;
+              return ElevatedButton(
+                onPressed: !canReject
+                    ? null
+                    : () {
+                        if (formKey.currentState?.validate() != true) return;
+                        final reason = value.text.trim();
+                        Navigator.pop(ctx);
+                        state.rejectExpense(expenseId: expense.id, reason: reason);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Rejected ${CurrencyFormatter.formatNaira(expense.amount)} (${expense.category})'),
+                            backgroundColor: AppColors.bad,
+                          ),
+                        );
+                      },
+                style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.bad,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: AppColors.mutedSlate,
+                  minimumSize: const Size(0, 48),
                 ),
+                child: const Text('Reject Expense'),
               );
             },
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.bad, foregroundColor: Colors.white),
-            child: const Text('Reject Expense'),
           ),
         ],
       ),
@@ -230,7 +282,7 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
             ),
           IconButton(
             icon: const Icon(Icons.print_outlined),
-            tooltip: 'Print / Export Shift Summary',
+            tooltip: 'Copy Shift Summary',
             onPressed: () => ShiftSummaryExportDialog.show(context),
           ),
           IconButton(
@@ -241,7 +293,7 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Log out',
-            onPressed: widget.onLogout,
+            onPressed: _confirmLogout,
           ),
         ],
       ),
@@ -256,24 +308,27 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Today at ${state.currentStationName}',
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.ink,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Today at ${state.currentStationName}',
+                            style: const TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.ink,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'Real-time operational status, forecourt exceptions, and cash movements.',
-                          style: TextStyle(fontSize: 15, color: AppColors.muted),
-                        ),
-                      ],
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Real-time operational status, forecourt exceptions, and cash movements.',
+                            style: TextStyle(fontSize: 15, color: AppColors.muted),
+                          ),
+                        ],
+                      ),
                     ),
+                    const SizedBox(width: 12),
                     StatusChip(
                       label: pendingVerifications > 0 ? '$pendingVerifications Submissions Need Audit' : 'All Clear',
                       type: pendingVerifications > 0 ? ChipType.warn : ChipType.ok,
@@ -285,7 +340,9 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                 // KPI Metric Tiles
                 LayoutBuilder(
                   builder: (context, constraints) {
-                    final itemWidth = (constraints.maxWidth - 24) / 3;
+                    final width = constraints.maxWidth;
+                    final columns = width >= 800 ? 3 : (width >= 460 ? 2 : 1);
+                    final itemWidth = (width - 12 * (columns - 1)) / columns;
                     return Wrap(
                       spacing: 12,
                       runSpacing: 12,
@@ -304,10 +361,9 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                 const SizedBox(height: 20),
 
                 // Graphical Underground Storage Tanks (UST) Real-Time Levels
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Column(
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final title = const Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
@@ -324,36 +380,67 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                           style: TextStyle(fontSize: 13, color: AppColors.muted),
                         ),
                       ],
-                    ),
-                    Row(
+                    );
+                    final actions = <Widget>[
+                      if (state.hasInterlockedTanks)
+                        ElevatedButton.icon(
+                          onPressed: () => TankChangeoverDialog.show(context, state),
+                          icon: const Icon(Icons.alt_route, size: 16),
+                          label: const Text('Manifold Changeover'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.warn,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            minimumSize: const Size(0, 48),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                        ),
+                      if (widget.onOpenTankDip != null)
+                        OutlinedButton.icon(
+                          onPressed: widget.onOpenTankDip,
+                          icon: const Icon(Icons.straighten, size: 16),
+                          label: const Text('Record Daily Dip'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.ink,
+                            side: const BorderSide(color: AppColors.line),
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            minimumSize: const Size(0, 48),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                        ),
+                      if (widget.onOpenFuelDelivery != null)
+                        OutlinedButton.icon(
+                          onPressed: widget.onOpenFuelDelivery,
+                          icon: const Icon(Icons.local_shipping_outlined, size: 16),
+                          label: const Text('Record Fuel Delivery'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.ink,
+                            side: const BorderSide(color: AppColors.line),
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            minimumSize: const Size(0, 48),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                        ),
+                    ];
+                    if (constraints.maxWidth < 700) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          title,
+                          const SizedBox(height: 12),
+                          Wrap(spacing: 8, runSpacing: 8, children: actions),
+                        ],
+                      );
+                    }
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (state.hasInterlockedTanks)
-                          ElevatedButton.icon(
-                            onPressed: () => TankChangeoverDialog.show(context, state),
-                            icon: const Icon(Icons.alt_route, size: 16),
-                            label: const Text('Manifold Changeover'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF92400E),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            ),
-                          ),
-                        if (state.hasInterlockedTanks && widget.onOpenTankDip != null)
-                          const SizedBox(width: 8),
-                        if (widget.onOpenTankDip != null)
-                          OutlinedButton.icon(
-                            onPressed: widget.onOpenTankDip,
-                            icon: const Icon(Icons.straighten, size: 16),
-                            label: const Text('Record Daily Dip'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppColors.ink,
-                              side: const BorderSide(color: AppColors.line),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            ),
-                          ),
+                        Expanded(child: title),
+                        const SizedBox(width: 12),
+                        Wrap(spacing: 8, runSpacing: 8, children: actions),
                       ],
-                    ),
-                  ],
+                    );
+                  },
                 ),
                 const SizedBox(height: 12),
 
@@ -404,37 +491,62 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                 // Pending Safe & Station Expense Approvals Card
                 if (state.pendingExpenses.isNotEmpty) ...[
                   Card(
-                    color: const Color(0xFFFFFBEB),
+                    color: AppColors.warnSurface,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
-                      side: const BorderSide(color: Color(0xFFFDE68A)),
+                      side: const BorderSide(color: AppColors.warn),
                     ),
                     child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Row(
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              final heading = Row(
                                 children: [
-                                  const Icon(Icons.pending_actions, color: Color(0xFFD97706), size: 22),
+                                  const Icon(Icons.pending_actions, color: AppColors.amber, size: 22),
                                   const SizedBox(width: 8),
-                                  Text(
-                                    'Pending Expense Approvals (${state.pendingExpenses.length})',
-                                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF92400E)),
+                                  Expanded(
+                                    child: Text(
+                                      'Pending Expense Approvals (${state.pendingExpenses.length})',
+                                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.warnInk),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
                                 ],
-                              ),
-                              if (widget.onOpenExpenseEntry != null)
-                                TextButton.icon(
-                                  onPressed: widget.onOpenExpenseEntry,
-                                  icon: const Icon(Icons.add, size: 16),
-                                  label: const Text('Record Safe Expense'),
-                                  style: TextButton.styleFrom(foregroundColor: const Color(0xFF92400E)),
-                                ),
-                            ],
+                              );
+                              final recordButton = widget.onOpenExpenseEntry == null
+                                  ? null
+                                  : TextButton.icon(
+                                      onPressed: widget.onOpenExpenseEntry,
+                                      icon: const Icon(Icons.add, size: 16),
+                                      label: const Text('Record Safe Expense'),
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: AppColors.warnInk,
+                                        minimumSize: const Size(0, 48),
+                                      ),
+                                    );
+                              if (constraints.maxWidth < 700 || recordButton == null) {
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    heading,
+                                    if (recordButton != null) ...[
+                                      const SizedBox(height: 4),
+                                      Align(alignment: Alignment.centerLeft, child: recordButton),
+                                    ],
+                                  ],
+                                );
+                              }
+                              return Row(
+                                children: [
+                                  Expanded(child: heading),
+                                  recordButton,
+                                ],
+                              );
+                            },
                           ),
                           const SizedBox(height: 12),
                           ...state.pendingExpenses.map((expense) => _buildPendingExpenseTile(expense)),
@@ -490,12 +602,15 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                                       type: totalDepositsPending > 0 ? ChipType.bank : ChipType.ok,
                                     ),
                                   ),
-                                  ...state.tanks.where((t) => t.hasDeficit).map((t) {
-                                    return _buildActionRow(
-                                      'Tank ${t.code} dip vs calculated',
-                                      StatusChip(label: '${t.variance.toStringAsFixed(0)} L', type: ChipType.bad),
-                                    );
-                                  }),
+                                    ...state.tanks.where((t) => t.hasDeficit).map((t) {
+                                      return _buildActionRow(
+                                        'Tank ${t.code} dip vs calculated',
+                                        StatusChip(
+                                          label: '${t.variance >= 0 ? '+' : '−'}${CurrencyFormatter.formatLitres(t.variance.abs())}',
+                                          type: ChipType.bad,
+                                        ),
+                                      );
+                                    }),
                                   ...state.tanks.where((t) => t.isLowStock).map((t) {
                                     return _buildActionRow(
                                       'Low stock: ${t.product} ${t.code}',
@@ -566,40 +681,43 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         decoration: const BoxDecoration(
           color: AppColors.background,
-          border: Border(top: BorderSide(color: AppColors.line)),
+          border: Border(top: BorderSide(color: AppColors.border)),
         ),
-        child: Row(
-          children: [
-            Expanded(
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.playlist_add_check),
-                onPressed: widget.onOpenVerificationQueue,
-                label: const Text('Verify queue'),
+        child: SafeArea(
+          top: false,
+          child: Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.playlist_add_check),
+                  onPressed: widget.onOpenVerificationQueue,
+                  label: const Text('Verify queue'),
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.point_of_sale),
-                onPressed: widget.onOpenCashCount,
-                label: const Text('Cash count'),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.point_of_sale),
+                  onPressed: widget.onOpenCashCount,
+                  label: const Text('Cash count'),
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.account_balance, color: AppColors.bank),
-                onPressed: () => _openBankDepositDialog(state.totalCountedCash > 0 ? state.totalCountedCash : state.expectedClosingCash),
-                label: const Text('Bank deposit'),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.account_balance, color: AppColors.bank),
+                  onPressed: () => _openBankDepositDialog(state.totalCountedCash > 0 ? state.totalCountedCash : state.expectedClosingCash),
+                  label: const Text('Bank deposit'),
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            IconButton(
-              icon: const Icon(Icons.print_outlined, color: AppColors.primary),
-              tooltip: 'Print / Export Shift Summary',
-              onPressed: () => ShiftSummaryExportDialog.show(context),
-            ),
-          ],
+              const SizedBox(width: 8),
+              IconButton(
+                icon: const Icon(Icons.print_outlined, color: AppColors.primary),
+                tooltip: 'Copy Shift Summary',
+                onPressed: () => ShiftSummaryExportDialog.show(context),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -635,9 +753,16 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(fontSize: 14, color: AppColors.ink)),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 14, color: AppColors.ink),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
           chip,
         ],
       ),
@@ -650,9 +775,9 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.card,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFFDE68A)),
+        border: Border.all(color: AppColors.warn),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -667,9 +792,13 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                   children: [
                     Row(
                       children: [
-                        Text(
-                          expense.category,
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.ink),
+                        Flexible(
+                          child: Text(
+                            expense.category,
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.ink),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                         const SizedBox(width: 8),
                         StatusChip(
@@ -693,7 +822,9 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                     const SizedBox(height: 2),
                     Text(
                       'Recorded: ${_formatTime(expense.recordedAt)} · Source: ${expense.paymentSource}',
-                      style: const TextStyle(fontSize: 11, color: AppColors.muted),
+                      style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
@@ -706,66 +837,85 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
             ],
           ),
           const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              if (expense.receiptUrl != null && expense.receiptUrl!.isNotEmpty)
-                TextButton.icon(
-                  onPressed: () => _showReceiptPreview(expense),
-                  icon: const Icon(Icons.receipt, size: 16, color: AppColors.primary),
-                  label: const Text('View Receipt Proof', style: TextStyle(fontSize: 12)),
-                )
-              else
-                const Text('No receipt attached', style: TextStyle(fontSize: 11, color: AppColors.muted, fontStyle: FontStyle.italic)),
-              if (requiresDirector)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFEF2F2),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: const Color(0xFFFCA5A5)),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.shield_outlined, size: 14, color: AppColors.bad),
-                      SizedBox(width: 4),
-                      Text(
-                        'Requires Director Approval (>₦50k)',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.bad),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final left = expense.receiptUrl != null && expense.receiptUrl!.isNotEmpty
+                  ? TextButton.icon(
+                      onPressed: () => _showReceiptPreview(expense),
+                      icon: const Icon(Icons.receipt, size: 16, color: AppColors.primary),
+                      label: const Text('View Receipt Proof', style: TextStyle(fontSize: 13)),
+                      style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+                    )
+                  : const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: Text(
+                        'No receipt attached',
+                        style: TextStyle(fontSize: 12, color: AppColors.muted, fontStyle: FontStyle.italic),
                       ),
-                    ],
-                  ),
-                )
-              else
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed: () => _confirmRejectExpense(expense),
-                      icon: const Icon(Icons.close, size: 14, color: AppColors.bad),
-                      label: const Text('Reject', style: TextStyle(fontSize: 12, color: AppColors.bad)),
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: AppColors.bad),
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        visualDensity: VisualDensity.compact,
+                    );
+              final right = requiresDirector
+                  ? Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: AppColors.badSurface,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: AppColors.bad),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    ElevatedButton.icon(
-                      onPressed: () => _confirmApproveExpense(expense),
-                      icon: const Icon(Icons.check, size: 14),
-                      label: const Text('Approve', style: TextStyle(fontSize: 12)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.ok,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        visualDensity: VisualDensity.compact,
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.shield_outlined, size: 16, color: AppColors.bad),
+                          SizedBox(width: 4),
+                          Text(
+                            'Requires Director Approval (>₦50k)',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.bad),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
-                ),
-            ],
+                    )
+                  : Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () => _confirmRejectExpense(expense),
+                          icon: const Icon(Icons.close, size: 16, color: AppColors.bad),
+                          label: const Text('Reject', style: TextStyle(fontSize: 13, color: AppColors.bad)),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: AppColors.bad),
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            minimumSize: const Size(0, 48),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton.icon(
+                          onPressed: () => _confirmApproveExpense(expense),
+                          icon: const Icon(Icons.check, size: 16),
+                          label: const Text('Approve', style: TextStyle(fontSize: 13)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.ok,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            minimumSize: const Size(0, 48),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                          ),
+                        ),
+                      ],
+                    );
+              if (constraints.maxWidth < 520) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [left, const SizedBox(height: 8), right],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: left),
+                  const SizedBox(width: 8),
+                  right,
+                ],
+              );
+            },
           ),
         ],
       ),

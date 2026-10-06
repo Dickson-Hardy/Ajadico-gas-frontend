@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/navigation/shell_back_guard.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/status_chip.dart';
 import '../../models/station.dart';
@@ -28,13 +29,17 @@ class StaffManagementScreen extends StatefulWidget {
   State<StaffManagementScreen> createState() => _StaffManagementScreenState();
 }
 
-class _StaffManagementScreenState extends State<StaffManagementScreen> {
+class _StaffManagementScreenState extends State<StaffManagementScreen> with UnsavedWorkAware {
   final state = StationAppState.instance;
 
   String _searchQuery = '';
   UserRole? _filterRole;
   String _filterStation = 'All';
   bool _isProcessing = false;
+  bool _onboardDirty = false;
+
+  @override
+  bool get hasUnsavedWork => _onboardDirty || _isProcessing;
 
   List<Station> get _activeStations {
     if (state.stations.isNotEmpty) {
@@ -52,11 +57,13 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
   @override
   void initState() {
     super.initState();
+    ShellBackGuard.register(this);
     state.addListener(_onStateChanged);
   }
 
   @override
   void dispose() {
+    ShellBackGuard.unregister(this);
     state.removeListener(_onStateChanged);
     super.dispose();
   }
@@ -99,6 +106,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
+          tooltip: 'Back',
           onPressed: widget.onBack,
         ),
         title: Column(
@@ -117,24 +125,36 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
           ],
         ),
         actions: [
-          ElevatedButton.icon(
-            onPressed: _openOnboardStaffDialog,
-            icon: const Icon(Icons.person_add, size: 18),
-            label: const Text('Onboard New Staff'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.accent,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: ElevatedButton.icon(
+                onPressed: _isProcessing ? null : _openOnboardStaffDialog,
+                icon: _isProcessing
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.person_add, size: 18),
+                label: Text(_isProcessing ? 'Processing...' : 'Onboard New Staff'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.accent,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(48, 48),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                ),
+              ),
             ),
           ),
-          const SizedBox(width: 12),
         ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1050),
+            constraints: const BoxConstraints(maxWidth: 1000),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -145,7 +165,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                   children: [
                     _buildMetricChip('Total Registered Staff', '${state.staff.length}', AppColors.ink, Icons.badge),
                     _buildMetricChip('Pump Attendants', '$totalAttendants', AppColors.primary, Icons.local_gas_station),
-                    _buildMetricChip('Cashiers', '$totalCashiers', const Color(0xFF6366F1), Icons.point_of_sale),
+                    _buildMetricChip('Cashiers', '$totalCashiers', AppColors.pos, Icons.point_of_sale),
                     _buildMetricChip('Branch Managers', '$totalManagers', AppColors.amber, Icons.manage_accounts),
                     _buildMetricChip('Active On Duty', '$totalActive', AppColors.ok, Icons.check_circle_outline),
                   ],
@@ -300,7 +320,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
               ),
               Text(
                 label,
-                style: const TextStyle(fontSize: 11, color: AppColors.muted),
+                style: const TextStyle(fontSize: 12, color: AppColors.muted),
               ),
             ],
           ),
@@ -317,7 +337,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
       onSelected: (val) {
         setState(() => _filterRole = val ? role : null);
       },
-      selectedColor: AppColors.primary.withOpacity(0.15),
+      selectedColor: AppColors.primary.withValues(alpha: 0.15),
       labelStyle: TextStyle(
         fontSize: 12,
         fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
@@ -334,7 +354,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: staff.isActive ? AppColors.border : AppColors.border.withOpacity(0.5),
+          color: staff.isActive ? AppColors.border : AppColors.border.withValues(alpha: 0.5),
         ),
       ),
       child: Padding(
@@ -349,7 +369,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                 // Avatar with Role Indicator
                 CircleAvatar(
                   radius: 26,
-                  backgroundColor: roleColor.withOpacity(0.15),
+                  backgroundColor: roleColor.withValues(alpha: 0.15),
                   child: Text(
                     _getInitials(staff.fullName),
                     style: TextStyle(
@@ -379,14 +399,17 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Text(
-                            '(${staff.displayName})',
-                            style: const TextStyle(fontSize: 13, color: AppColors.muted),
+                          Flexible(
+                            child: Text(
+                              '(${staff.displayName})',
+                              style: const TextStyle(fontSize: 13, color: AppColors.muted),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                           const SizedBox(width: 8),
                           StatusChip(
                             label: staff.isActive ? 'Active' : 'Inactive',
-                            type: staff.isActive ? ChipType.ok : ChipType.warn,
+                            type: staff.isActive ? ChipType.ok : ChipType.draft,
                           ),
                         ],
                       ),
@@ -399,13 +422,13 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
-                              color: roleColor.withOpacity(0.12),
+                              color: roleColor.withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
                               staff.role.name.toUpperCase(),
                               style: TextStyle(
-                                fontSize: 11,
+                                fontSize: 12,
                                 fontWeight: FontWeight.bold,
                                 color: roleColor,
                               ),
@@ -454,13 +477,13 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFF8FAFC),
+                          color: AppColors.lightBackground,
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(color: AppColors.border),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.verified_user_outlined, size: 15, color: Color(0xFF475569)),
+                            const Icon(Icons.verified_user_outlined, size: 15, color: AppColors.slate),
                             const SizedBox(width: 6),
                             Text(
                               'Shortee (Guarantor): ',
@@ -479,7 +502,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                                 Flexible(
                                   child: Text(
                                     '· ${staff.suretyAddress}',
-                                    style: const TextStyle(fontSize: 11, color: AppColors.muted),
+                                    style: const TextStyle(fontSize: 12, color: AppColors.muted),
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
@@ -499,7 +522,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                         decoration: BoxDecoration(
-                          color: _isDirector ? const Color(0xFFF0FDF4) : const Color(0xFFF8FAFC),
+                          color: _isDirector ? AppColors.okSurface : AppColors.lightBackground,
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(
                             color: _isDirector ? const Color(0xFFBBF7D0) : AppColors.border,
@@ -532,25 +555,21 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              InkWell(
-                                onTap: () => _openEditSalaryDialog(staff),
-                                child: const Padding(
-                                  padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.edit, size: 13, color: AppColors.primary),
-                                      SizedBox(width: 2),
-                                      Text(
-                                        'Edit',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: AppColors.primary,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
+                              TextButton.icon(
+                                onPressed: () => _openEditSalaryDialog(staff),
+                                icon: const Icon(Icons.edit, size: 14, color: AppColors.primary),
+                                label: const Text(
+                                  'Edit',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.bold,
                                   ),
+                                ),
+                                style: TextButton.styleFrom(
+                                  minimumSize: const Size(48, 48),
+                                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                                  visualDensity: VisualDensity.standard,
                                 ),
                               ),
                             ] else ...[
@@ -633,13 +652,13 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
   Color _getRoleColor(UserRole role) {
     switch (role) {
       case UserRole.attendant:
-        return const Color(0xFF0284C7); // Sky Blue
+        return AppColors.accent;
       case UserRole.cashier:
-        return const Color(0xFF6366F1); // Indigo
+        return AppColors.pos;
       case UserRole.manager:
-        return const Color(0xFFD97706); // Amber
+        return AppColors.amber;
       case UserRole.director:
-        return AppColors.ok; // Emerald
+        return AppColors.ok;
     }
   }
 
@@ -674,6 +693,30 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
         : _activeStations.first.code;
     bool obscurePin = true;
 
+    final controllers = [
+      fullNameCtrl,
+      displayNameCtrl,
+      phoneCtrl,
+      addressCtrl,
+      suretyNameCtrl,
+      suretyPhoneCtrl,
+      suretyAddressCtrl,
+      pinCtrl,
+      salaryCtrl,
+    ];
+    void markDirty() {
+      if (!_onboardDirty && mounted) {
+        setState(() => _onboardDirty = true);
+      }
+    }
+
+    for (final c in controllers) {
+      c.addListener(markDirty);
+    }
+    _onboardDirty = false;
+
+    final formKey = GlobalKey<FormState>();
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -691,7 +734,9 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
               content: SizedBox(
                 width: 560,
                 child: SingleChildScrollView(
-                  child: Column(
+                  child: Form(
+                    key: formKey,
+                    child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -739,7 +784,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                           const SizedBox(width: 12),
                           Expanded(
                             child: DropdownButtonFormField<UserRole>(
-                              value: selectedRole,
+                              initialValue: selectedRole,
                               decoration: const InputDecoration(
                                 labelText: 'Assigned Role *',
                                 isDense: true,
@@ -765,7 +810,10 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                                   ),
                               ],
                               onChanged: (val) {
-                                if (val != null) setDialogState(() => selectedRole = val);
+                                if (val != null) {
+                                  markDirty();
+                                  setDialogState(() => selectedRole = val);
+                                }
                               },
                             ),
                           ),
@@ -778,7 +826,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                         children: [
                           Expanded(
                             child: DropdownButtonFormField<String>(
-                              value: selectedStationCode,
+                              initialValue: selectedStationCode,
                               decoration: const InputDecoration(
                                 labelText: 'Assigned Station *',
                                 isDense: true,
@@ -791,13 +839,16 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                                 );
                               }).toList(),
                               onChanged: (val) {
-                                if (val != null) setDialogState(() => selectedStationCode = val);
+                                if (val != null) {
+                                  markDirty();
+                                  setDialogState(() => selectedStationCode = val);
+                                }
                               },
                             ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
-                            child: TextField(
+                            child: TextFormField(
                               controller: phoneCtrl,
                               keyboardType: TextInputType.phone,
                               decoration: const InputDecoration(
@@ -806,6 +857,12 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                                 isDense: true,
                                 border: OutlineInputBorder(),
                               ),
+                              validator: (val) {
+                                final v = (val ?? '').trim();
+                                if (v.isEmpty) return 'Phone number is required.';
+                                if (RegExp(r'^\d{7,15}$').hasMatch(v)) return null;
+                                return 'Enter a valid phone number.';
+                              },
                             ),
                           ),
                         ],
@@ -916,7 +973,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
 
                       // BASE SALARY SECTION (Role Sensitive)
                       if (_isDirector) ...[
-                        TextField(
+                        TextFormField(
                           controller: salaryCtrl,
                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
                           decoration: const InputDecoration(
@@ -926,6 +983,15 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                             prefixText: '₦ ',
                             border: OutlineInputBorder(),
                           ),
+                          validator: (val) {
+                            final v = (val ?? '').trim();
+                            if (v.isEmpty) return 'Monthly base salary is required.';
+                            final parsed = double.tryParse(v);
+                            if (parsed == null || parsed <= 0) {
+                              return 'Enter an amount greater than ₦0.';
+                            }
+                            return null;
+                          },
                         ),
                       ] else ...[
                         Container(
@@ -950,91 +1016,154 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                         ),
                       ],
                     ],
+                    ),
                   ),
                 ),
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.pop(ctx),
+                  onPressed: () async {
+                    if (_onboardDirty) {
+                      final discard = await showDialog<bool>(
+                        context: context,
+                        builder: (dctx) => AlertDialog(
+                          title: const Text('Discard onboarding form?'),
+                          content: const Text('This staff profile has unsaved entries. Closing now discards them.'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(dctx, false),
+                              child: const Text('Keep Editing'),
+                            ),
+                            ElevatedButton(
+                              onPressed: () => Navigator.pop(dctx, true),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.bad,
+                                foregroundColor: Colors.white,
+                              ),
+                              child: const Text('Discard'),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (discard != true) return;
+                    }
+                    if (ctx.mounted) Navigator.pop(ctx);
+                  },
                   child: const Text('Cancel'),
                 ),
                 ElevatedButton(
-                  onPressed: () async {
-                    final fullName = fullNameCtrl.text.trim();
-                    final displayName = displayNameCtrl.text.trim();
-                    final pin = pinCtrl.text.trim();
-                    final phone = phoneCtrl.text.trim();
-                    final address = addressCtrl.text.trim();
-                    final suretyName = suretyNameCtrl.text.trim();
-                    final suretyPhone = suretyPhoneCtrl.text.trim();
-                    final suretyAddress = suretyAddressCtrl.text.trim();
-                    final salary = double.tryParse(salaryCtrl.text.trim()) ?? 0.0;
+                  onPressed: _isProcessing
+                      ? null
+                      : () async {
+                          if (formKey.currentState?.validate() != true) return;
 
-                    if (fullName.isEmpty || displayName.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Please provide full legal name and display name.')),
-                      );
-                      return;
-                    }
-                    if (pin.length != 4 || int.tryParse(pin) == null) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Tablet login PIN must be exactly 4 digits.')),
-                      );
-                      return;
-                    }
-                    if (address.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Please enter staff residential address.')),
-                      );
-                      return;
-                    }
-                    if (suretyName.isEmpty || suretyPhone.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Please enter shortee (guarantor) name and phone number.')),
-                      );
-                      return;
-                    }
+                          final fullName = fullNameCtrl.text.trim();
+                          final displayName = displayNameCtrl.text.trim();
+                          final pin = pinCtrl.text.trim();
+                          final phone = phoneCtrl.text.trim();
+                          final address = addressCtrl.text.trim();
+                          final suretyName = suretyNameCtrl.text.trim();
+                          final suretyPhone = suretyPhoneCtrl.text.trim();
+                          final suretyAddress = suretyAddressCtrl.text.trim();
+                          final salary = double.tryParse(salaryCtrl.text.trim()) ?? 0.0;
 
-                    Navigator.pop(ctx);
-                    setState(() => _isProcessing = true);
+                          if (fullName.isEmpty || displayName.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Please provide full legal name and display name.')),
+                            );
+                            return;
+                          }
+                          if (pin.length != 4 || int.tryParse(pin) == null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Tablet login PIN must be exactly 4 digits.')),
+                            );
+                            return;
+                          }
+                          if (address.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Please enter staff residential address.')),
+                            );
+                            return;
+                          }
+                          if (suretyName.isEmpty || suretyPhone.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Please enter shortee (guarantor) name and phone number.')),
+                            );
+                            return;
+                          }
 
-                    final created = await state.onboardStaff(
-                      fullName: fullName,
-                      displayName: displayName,
-                      role: selectedRole,
-                      pin: pin,
-                      stationCode: selectedStationCode,
-                      phone: phone.isNotEmpty ? phone : null,
-                      address: address,
-                      suretyName: suretyName,
-                      suretyPhone: suretyPhone,
-                      suretyAddress: suretyAddress.isNotEmpty ? suretyAddress : null,
-                      baseSalary: salary,
-                    );
+                          if (!mounted) return;
+                          setState(() => _isProcessing = true);
+                          setDialogState(() {});
 
-                    setState(() => _isProcessing = false);
+                          try {
+                            final created = await state.onboardStaff(
+                              fullName: fullName,
+                              displayName: displayName,
+                              role: selectedRole,
+                              pin: pin,
+                              stationCode: selectedStationCode,
+                              phone: phone.isNotEmpty ? phone : null,
+                              address: address,
+                              suretyName: suretyName,
+                              suretyPhone: suretyPhone,
+                              suretyAddress: suretyAddress.isNotEmpty ? suretyAddress : null,
+                              baseSalary: salary,
+                            );
 
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          backgroundColor: created != null ? AppColors.ok : AppColors.cherry,
-                          content: Text(
-                            created != null
-                                ? 'Staff profile onboarded successfully for ${created.fullName}.'
-                                : 'Failed to create staff profile. Please try again.',
-                          ),
-                        ),
-                      );
-                    }
-                  },
-                  child: const Text('Save & Register'),
+                            if (mounted) {
+                              setState(() {
+                                _isProcessing = false;
+                                _onboardDirty = false;
+                              });
+                            }
+                            if (ctx.mounted) Navigator.pop(ctx);
+
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  backgroundColor: created != null ? AppColors.ok : AppColors.cherry,
+                                  content: Text(
+                                    created != null
+                                        ? 'Staff profile onboarded successfully for ${created.fullName}.'
+                                        : 'Failed to create staff profile. Please try again.',
+                                  ),
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              setState(() => _isProcessing = false);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  backgroundColor: AppColors.cherry,
+                                  content: Text('Onboarding failed: $e'),
+                                ),
+                              );
+                            }
+                          }
+                        },
+                  child: _isProcessing
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Text('Save & Register'),
                 ),
               ],
             );
           },
         );
       },
-    );
+    ).whenComplete(() {
+      for (final c in controllers) {
+        c.removeListener(markDirty);
+      }
+      if (mounted && _onboardDirty) {
+        setState(() => _onboardDirty = false);
+      }
+    });
   }
 
   void _openEditSalaryDialog(UserProfile staff) {

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import '../network/supabase_repository.dart';
@@ -198,6 +197,9 @@ class OfflineSyncService extends ChangeNotifier {
         return await repo.syncBankDepositPayload(p);
 
       case SyncActionType.evidencePhotoUpload:
+        return await repo.syncEvidencePhotoPayload(p);
+
+      case SyncActionType.evidencePhoto:
         return await repo.syncEvidencePhotoPayload(p);
     }
   }

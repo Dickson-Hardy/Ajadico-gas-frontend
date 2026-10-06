@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
-import '../../core/widgets/status_chip.dart';
 import '../../state/station_app_state.dart';
 
 /// Shift Summary Export & Print Modal Dialog (BRD v3 §5.3, §5.5, §6.1)
@@ -40,11 +39,11 @@ class ShiftSummaryExportDialog extends StatelessWidget {
     double totalLitres = 0.0;
     double totalExpectedValue = 0.0;
     for (var n in state.nozzles) {
-      buffer.writeln('${n.nozzleNumber},"${n.productName}",${n.openingReading},${n.closingReading},${n.litresSold},${n.pricePerLitre},${n.salesValue}');
+      buffer.writeln('${n.nozzleNumber},"${n.productName}",${n.openingReading},${n.closingReading ?? ''},${n.litresSold},${n.pricePerLitre},${n.salesValue}');
       totalLitres += n.litresSold;
       totalExpectedValue += n.salesValue;
     }
-    buffer.writeln('TOTAL,,,$totalLitres,,$totalExpectedValue');
+    buffer.writeln('TOTAL,,,,$totalLitres,,$totalExpectedValue');
     buffer.writeln('');
 
     // 2. Attendant Remittances
@@ -60,9 +59,10 @@ class ShiftSummaryExportDialog extends StatelessWidget {
     buffer.writeln('SECTION 3: PHYSICAL CASH SAFE RECONCILIATION');
     buffer.writeln('Item,Amount (NGN)');
     buffer.writeln('Opening Cash Safe,${state.openingCash}');
-    buffer.writeln('Verified Cash Receipts,+${state.totalCashReceipts}');
+    buffer.writeln('Acknowledged Interim Cash Drops,${state.totalAcknowledgedInterimDrops}');
+    buffer.writeln('Verified Cash Receipts,${state.totalVerifiedCashReceipts}');
     buffer.writeln('Approved Cash Expenses,-${state.totalPhysicalCashExpenses}');
-    buffer.writeln('Handed Over for Bank Deposit,-${state.totalDepositsPending}');
+    buffer.writeln('Handed Over for Bank Deposit,-${state.totalHandedOverDeposits}');
     buffer.writeln('Expected Closing Safe Cash,${state.expectedClosingCash}');
     buffer.writeln('Actual Physical Counted Cash,${state.totalCountedCash}');
     buffer.writeln('Cash Drawer Variance,${state.cashDrawerVariance}');
@@ -73,7 +73,7 @@ class ShiftSummaryExportDialog extends StatelessWidget {
     buffer.writeln('Denomination (NGN),Note Count,Subtotal (NGN)');
     final denoms = [1000, 500, 200, 100, 50, 20, 10];
     for (var d in denoms) {
-      final count = state.cashDenominations[d] ?? 0;
+      final count = state.cashCounts[d] ?? 0;
       buffer.writeln('$d,$count,${d * count}');
     }
     buffer.writeln('');
@@ -124,9 +124,10 @@ class ShiftSummaryExportDialog extends StatelessWidget {
 
     buffer.writeln('\n[3. CASH SAFE RECONCILIATION]');
     buffer.writeln(' Opening Safe:        ${CurrencyFormatter.formatNaira(state.openingCash)}');
-    buffer.writeln(' + Cash Receipts:     ${CurrencyFormatter.formatNaira(state.totalCashReceipts)}');
+    buffer.writeln(' + Interim Drops:     ${CurrencyFormatter.formatNaira(state.totalAcknowledgedInterimDrops)}');
+    buffer.writeln(' + Cash Receipts:     ${CurrencyFormatter.formatNaira(state.totalVerifiedCashReceipts)}');
     buffer.writeln(' - Cash Expenses:     ${CurrencyFormatter.formatNaira(state.totalPhysicalCashExpenses)}');
-    buffer.writeln(' - Bank Handover:     ${CurrencyFormatter.formatNaira(state.totalDepositsPending)}');
+    buffer.writeln(' - Bank Handover:     ${CurrencyFormatter.formatNaira(state.totalHandedOverDeposits)}');
     buffer.writeln(' Expected Closing:    ${CurrencyFormatter.formatNaira(state.expectedClosingCash)}');
     buffer.writeln(' Physical Counted:    ${CurrencyFormatter.formatNaira(state.totalCountedCash)}');
     buffer.writeln(' Drawer Variance:     ${CurrencyFormatter.formatVariance(state.cashDrawerVariance)}');
@@ -167,29 +168,31 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                 borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
               ),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.print_outlined, color: Colors.white, size: 24),
-                      const SizedBox(width: 12),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Shift Summary & Audit Report',
-                            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                          ),
-                          Text(
-                            '${state.currentStationName} · ${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}',
-                            style: const TextStyle(color: Colors.white70, fontSize: 13),
-                          ),
-                        ],
-                      ),
-                    ],
+                  const Icon(Icons.print_outlined, color: Colors.white, size: 24),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Shift Summary & Audit Report',
+                          style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          '${state.currentStationName} · ${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}',
+                          style: const TextStyle(color: Colors.white70, fontSize: 13),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
                   ),
                   IconButton(
                     icon: const Icon(Icons.close, color: Colors.white70),
+                    tooltip: 'Close shift summary',
                     onPressed: () => Navigator.pop(context),
                   ),
                 ],
@@ -212,20 +215,33 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                         border: Border.all(color: AppColors.line),
                       ),
                       child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('AJADICO ENERGY LIMITED', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.ink)),
-                              const SizedBox(height: 2),
-                              Text('Station Code: ${state.currentStationCode} · Forecourt Multi-Tank Branch', style: const TextStyle(fontSize: 12, color: AppColors.muted)),
-                            ],
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('AJADICO ENERGY LIMITED', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.ink)),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Station Code: ${state.currentStationCode} · Forecourt Multi-Tank Branch',
+                                  style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
                           ),
+                          const SizedBox(width: 12),
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
-                              Text('Auditor: ${state.currentUser.displayName}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.ink)),
+                              Text(
+                                'Auditor: ${state.currentUser.displayName}',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.ink),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                               const SizedBox(height: 2),
                               Text('Role: ${state.currentUser.role.name.toUpperCase()} · Certified', style: const TextStyle(fontSize: 12, color: AppColors.ok)),
                             ],
@@ -238,39 +254,45 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                     // Section 1: Pump Meter Reconciliation
                     _buildSectionHeader('1. Pump Meter Sales & Litres Reconciliation (§2.5, §2.10)', Icons.speed),
                     const SizedBox(height: 8),
-                    Table(
-                      border: TableBorder.all(color: AppColors.line, width: 0.8),
-                      columnWidths: const {
-                        0: FlexColumnWidth(1.2),
-                        1: FlexColumnWidth(1.2),
-                        2: FlexColumnWidth(1.5),
-                        3: FlexColumnWidth(1.5),
-                        4: FlexColumnWidth(1.5),
-                        5: FlexColumnWidth(2.0),
-                      },
-                      children: [
-                        TableRow(
-                          decoration: const BoxDecoration(color: Color(0xFFF1F5F9)),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(minWidth: 640),
+                        child: Table(
+                          border: TableBorder.all(color: AppColors.line, width: 0.8),
+                          columnWidths: const {
+                            0: FlexColumnWidth(1.2),
+                            1: FlexColumnWidth(1.2),
+                            2: FlexColumnWidth(1.5),
+                            3: FlexColumnWidth(1.5),
+                            4: FlexColumnWidth(1.5),
+                            5: FlexColumnWidth(2.0),
+                          },
                           children: [
-                            _buildTableHeader('Nozzle'),
-                            _buildTableHeader('Product'),
-                            _buildTableHeader('Opening (L)'),
-                            _buildTableHeader('Closing (L)'),
-                            _buildTableHeader('Sold (L)'),
-                            _buildTableHeader('Expected Sales (₦)'),
+                            TableRow(
+                              decoration: const BoxDecoration(color: AppColors.lightBackground),
+                              children: [
+                                _buildTableHeader('Nozzle'),
+                                _buildTableHeader('Product'),
+                                _buildTableHeader('Opening (L)'),
+                                _buildTableHeader('Closing (L)'),
+                                _buildTableHeader('Sold (L)'),
+                                _buildTableHeader('Expected Sales (₦)'),
+                              ],
+                            ),
+                            ...state.nozzles.map((n) => TableRow(
+                                  children: [
+                                    _buildTableCell('Pump #${n.nozzleNumber}'),
+                                    _buildTableCell(n.productName, isBold: true),
+                                    _buildTableCell(n.openingReading.toStringAsFixed(1)),
+                                    _buildTableCell(n.closingReading?.toStringAsFixed(1) ?? '—'),
+                                    _buildTableCell(n.litresSold.toStringAsFixed(1), isBold: true),
+                                    _buildTableCell(CurrencyFormatter.formatNaira(n.salesValue), isBold: true),
+                                  ],
+                                )),
                           ],
                         ),
-                        ...state.nozzles.map((n) => TableRow(
-                              children: [
-                                _buildTableCell('Pump #${n.nozzleNumber}'),
-                                _buildTableCell(n.productName, isBold: true),
-                                _buildTableCell(n.openingReading.toStringAsFixed(1)),
-                                _buildTableCell(n.closingReading.toStringAsFixed(1)),
-                                _buildTableCell(n.litresSold.toStringAsFixed(1), isBold: true),
-                                _buildTableCell(CurrencyFormatter.formatNaira(n.salesValue), isBold: true),
-                              ],
-                            )),
-                      ],
+                      ),
                     ),
                     const SizedBox(height: 16),
 
@@ -282,44 +304,59 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                         width: double.infinity,
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFF8FAFC),
+                          color: AppColors.lightBackground,
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(color: AppColors.line),
                         ),
                         child: const Text('No attendant shift remittance closures submitted yet today.', textAlign: TextAlign.center, style: TextStyle(color: AppColors.muted)),
                       )
                     else
-                      Table(
-                        border: TableBorder.all(color: AppColors.line, width: 0.8),
-                        children: [
-                          TableRow(
-                            decoration: const BoxDecoration(color: Color(0xFFF1F5F9)),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(minWidth: 700),
+                          child: Table(
+                            border: TableBorder.all(color: AppColors.line, width: 0.8),
+                            columnWidths: const {
+                              0: FlexColumnWidth(1.8),
+                              1: FlexColumnWidth(1.3),
+                              2: FlexColumnWidth(1.3),
+                              3: FlexColumnWidth(1.5),
+                              4: FlexColumnWidth(1.2),
+                              5: FlexColumnWidth(1.3),
+                              6: FlexColumnWidth(1.6),
+                            },
                             children: [
-                              _buildTableHeader('Attendant'),
-                              _buildTableHeader('Expected (₦)'),
-                              _buildTableHeader('Cash (₦)'),
-                              _buildTableHeader('POS / Bank (₦)'),
-                              _buildTableHeader('Credit (₦)'),
-                              _buildTableHeader('Variance (₦)'),
-                              _buildTableHeader('Status'),
+                              TableRow(
+                                decoration: const BoxDecoration(color: AppColors.lightBackground),
+                                children: [
+                                  _buildTableHeader('Attendant'),
+                                  _buildTableHeader('Expected (₦)'),
+                                  _buildTableHeader('Cash (₦)'),
+                                  _buildTableHeader('POS / Bank (₦)'),
+                                  _buildTableHeader('Credit (₦)'),
+                                  _buildTableHeader('Variance (₦)'),
+                                  _buildTableHeader('Status'),
+                                ],
+                              ),
+                              ...state.submissions.map((sub) => TableRow(
+                                    children: [
+                                      _buildTableCell(sub.attendantName, isBold: true),
+                                      _buildTableCell(CurrencyFormatter.formatNaira(sub.expectedSalesValue)),
+                                      _buildTableCell(CurrencyFormatter.formatNaira(sub.cashDeclared)),
+                                      _buildTableCell(CurrencyFormatter.formatNaira(sub.posCardDeclared + sub.posTransferDeclared + sub.bankTransferDeclared)),
+                                      _buildTableCell(CurrencyFormatter.formatNaira(sub.creditSalesDeclared)),
+                                      _buildTableCell(
+                                        CurrencyFormatter.formatVariance(sub.variance),
+                                        textColor: sub.variance < 0 ? AppColors.bad : (sub.variance > 0 ? AppColors.ok : AppColors.ink),
+                                        isBold: true,
+                                      ),
+                                      _buildTableCell(sub.status),
+                                    ],
+                                  )),
                             ],
                           ),
-                          ...state.submissions.map((sub) => TableRow(
-                                children: [
-                                  _buildTableCell(sub.attendantName, isBold: true),
-                                  _buildTableCell(CurrencyFormatter.formatNaira(sub.expectedSalesValue)),
-                                  _buildTableCell(CurrencyFormatter.formatNaira(sub.cashDeclared)),
-                                  _buildTableCell(CurrencyFormatter.formatNaira(sub.posCardDeclared + sub.posTransferDeclared + sub.bankTransferDeclared)),
-                                  _buildTableCell(CurrencyFormatter.formatNaira(sub.creditSalesDeclared)),
-                                  _buildTableCell(
-                                    CurrencyFormatter.formatVariance(sub.variance),
-                                    textColor: sub.variance < 0 ? AppColors.bad : (sub.variance > 0 ? AppColors.ok : AppColors.ink),
-                                    isBold: true,
-                                  ),
-                                  _buildTableCell(sub.status),
-                                ],
-                              )),
-                        ],
+                        ),
                       ),
                     const SizedBox(height: 16),
 
@@ -335,18 +372,19 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                           child: Container(
                             padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
-                              color: Colors.white,
+                              color: AppColors.card,
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(color: AppColors.line),
                             ),
                             child: Column(
                               children: [
                                 _buildSummaryRow('Opening Safe Balance:', CurrencyFormatter.formatNaira(state.openingCash)),
-                                _buildSummaryRow('+ Verified Cash Receipts:', CurrencyFormatter.formatNaira(state.totalCashReceipts), isGreen: true),
+                                _buildSummaryRow('+ Acknowledged Interim Drops:', CurrencyFormatter.formatNaira(state.totalAcknowledgedInterimDrops), isGreen: true),
+                                _buildSummaryRow('+ Verified Cash Receipts:', CurrencyFormatter.formatNaira(state.totalVerifiedCashReceipts), isGreen: true),
                                 _buildSummaryRow('- Approved Cash Expenses:', CurrencyFormatter.formatNaira(state.totalPhysicalCashExpenses), isRed: true),
-                                _buildSummaryRow('- Bank Deposit Handover:', CurrencyFormatter.formatNaira(state.totalDepositsPending), isBlue: true),
+                                _buildSummaryRow('- Bank Deposit Handover:', CurrencyFormatter.formatNaira(state.totalHandedOverDeposits), isBlue: true),
                                 const Divider(color: AppColors.line),
-                                _buildSummaryRow('Expected Closing Safe:', CurrencyFormatter.formatNaira(state.expectedClosingCash), isBold: true),
+                                _buildSummaryRow('Target Expected Closing Safe:', CurrencyFormatter.formatNaira(state.expectedClosingCash), isBold: true),
                                 _buildSummaryRow('Actual Physical Count:', CurrencyFormatter.formatNaira(state.totalCountedCash), isBold: true),
                                 _buildSummaryRow(
                                   'Drawer Variance:',
@@ -363,28 +401,39 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                         // Denomination Table
                         Expanded(
                           flex: 2,
-                          child: Table(
-                            border: TableBorder.all(color: AppColors.line, width: 0.8),
-                            children: [
-                              TableRow(
-                                decoration: const BoxDecoration(color: Color(0xFFF1F5F9)),
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(minWidth: 260),
+                              child: Table(
+                                border: TableBorder.all(color: AppColors.line, width: 0.8),
+                                columnWidths: const {
+                                  0: FlexColumnWidth(1.2),
+                                  1: FlexColumnWidth(1.0),
+                                  2: FlexColumnWidth(1.6),
+                                },
                                 children: [
-                                  _buildTableHeader('Note'),
-                                  _buildTableHeader('Count'),
-                                  _buildTableHeader('Total (₦)'),
+                                  TableRow(
+                                    decoration: const BoxDecoration(color: AppColors.lightBackground),
+                                    children: [
+                                      _buildTableHeader('Note'),
+                                      _buildTableHeader('Count'),
+                                      _buildTableHeader('Total (₦)'),
+                                    ],
+                                  ),
+                                  ...denoms.map((d) {
+                                    final count = state.cashCounts[d] ?? 0;
+                                    return TableRow(
+                                      children: [
+                                        _buildTableCell('₦$d'),
+                                        _buildTableCell('$count'),
+                                        _buildTableCell(CurrencyFormatter.formatNaira(d * count.toDouble())),
+                                      ],
+                                    );
+                                  }),
                                 ],
                               ),
-                              ...denoms.map((d) {
-                                final count = state.cashDenominations[d] ?? 0;
-                                return TableRow(
-                                  children: [
-                                    _buildTableCell('₦$d'),
-                                    _buildTableCell('$count'),
-                                    _buildTableCell(CurrencyFormatter.formatNaira(d * count.toDouble())),
-                                  ],
-                                );
-                              }),
-                            ],
+                            ),
                           ),
                         ),
                       ],
@@ -394,37 +443,52 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                     // Section 4: Underground Storage Tanks
                     _buildSectionHeader('4. Underground Tanks (UST) Physical Dips & Ullage (§3.1)', Icons.propane_tank_outlined),
                     const SizedBox(height: 8),
-                    Table(
-                      border: TableBorder.all(color: AppColors.line, width: 0.8),
-                      children: [
-                        TableRow(
-                          decoration: const BoxDecoration(color: Color(0xFFF1F5F9)),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(minWidth: 720),
+                        child: Table(
+                          border: TableBorder.all(color: AppColors.line, width: 0.8),
+                          columnWidths: const {
+                            0: FlexColumnWidth(1.0),
+                            1: FlexColumnWidth(1.0),
+                            2: FlexColumnWidth(1.3),
+                            3: FlexColumnWidth(1.4),
+                            4: FlexColumnWidth(1.4),
+                            5: FlexColumnWidth(1.3),
+                            6: FlexColumnWidth(1.3),
+                          },
                           children: [
-                            _buildTableHeader('Tank Code'),
-                            _buildTableHeader('Fuel'),
-                            _buildTableHeader('Capacity (L)'),
-                            _buildTableHeader('Physical Dip (L)'),
-                            _buildTableHeader('Calculated (L)'),
-                            _buildTableHeader('Variance (L)'),
-                            _buildTableHeader('Ullage (L)'),
+                            TableRow(
+                              decoration: const BoxDecoration(color: AppColors.lightBackground),
+                              children: [
+                                _buildTableHeader('Tank Code'),
+                                _buildTableHeader('Fuel'),
+                                _buildTableHeader('Capacity (L)'),
+                                _buildTableHeader('Physical Dip (L)'),
+                                _buildTableHeader('Calculated (L)'),
+                                _buildTableHeader('Variance (L)'),
+                                _buildTableHeader('Ullage (L)'),
+                              ],
+                            ),
+                            ...state.tanks.map((t) => TableRow(
+                                  children: [
+                                    _buildTableCell(t.code, isBold: true),
+                                    _buildTableCell(t.product),
+                                    _buildTableCell(CurrencyFormatter.formatLitres(t.capacity)),
+                                    _buildTableCell(CurrencyFormatter.formatLitres(t.physicalDip), isBold: true),
+                                    _buildTableCell(CurrencyFormatter.formatLitres(t.bookStock)),
+                                    _buildTableCell(
+                                      '${t.variance >= 0 ? '+' : '−'}${CurrencyFormatter.formatLitres(t.variance.abs())}',
+                                      textColor: t.hasDeficit ? AppColors.bad : AppColors.ink,
+                                      isBold: true,
+                                    ),
+                                    _buildTableCell(CurrencyFormatter.formatLitres(t.capacity - t.physicalDip)),
+                                  ],
+                                )),
                           ],
                         ),
-                        ...state.tanks.map((t) => TableRow(
-                              children: [
-                                _buildTableCell(t.code, isBold: true),
-                                _buildTableCell(t.product),
-                                _buildTableCell(CurrencyFormatter.formatLitres(t.capacity)),
-                                _buildTableCell(CurrencyFormatter.formatLitres(t.physicalDip), isBold: true),
-                                _buildTableCell(CurrencyFormatter.formatLitres(t.bookStock)),
-                                _buildTableCell(
-                                  '${t.variance >= 0 ? "+" : ""}${t.variance.toStringAsFixed(0)} L',
-                                  textColor: t.hasDeficit ? AppColors.bad : AppColors.ink,
-                                  isBold: true,
-                                ),
-                                _buildTableCell(CurrencyFormatter.formatLitres(t.capacity - t.physicalDip)),
-                              ],
-                            )),
-                      ],
+                      ),
                     ),
                     const SizedBox(height: 20),
 
@@ -432,45 +496,54 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF8FAFC),
+                        color: AppColors.lightBackground,
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: AppColors.line),
                       ),
-                      child: const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('CERTIFICATION & AUDIT SIGN-OFF:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.ink)),
-                          SizedBox(height: 16),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          Widget signField(String role) => Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(role, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+                                  const SizedBox(height: 24),
+                                  const Text('Sign: __________________________', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                ],
+                              );
+                          const roles = [
+                            'Cashier Booth Representative:',
+                            'Branch Station Manager:',
+                            'Central Director / Internal Audit:',
+                          ];
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('Cashier Booth Representative:', style: TextStyle(fontSize: 12, color: AppColors.muted)),
-                                  SizedBox(height: 24),
-                                  Text('Sign: __________________________', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                ],
-                              ),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('Branch Station Manager:', style: TextStyle(fontSize: 12, color: AppColors.muted)),
-                                  SizedBox(height: 24),
-                                  Text('Sign: __________________________', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                ],
-                              ),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('Central Director / Internal Audit:', style: TextStyle(fontSize: 12, color: AppColors.muted)),
-                                  SizedBox(height: 24),
-                                  Text('Sign: __________________________', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                ],
-                              ),
+                              const Text('CERTIFICATION & AUDIT SIGN-OFF:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.ink)),
+                              const SizedBox(height: 16),
+                              if (constraints.maxWidth < 700)
+                                ...roles.map(
+                                  (role) => Padding(
+                                    padding: const EdgeInsets.only(bottom: 16),
+                                    child: signField(role),
+                                  ),
+                                )
+                              else
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: roles
+                                      .map(
+                                        (role) => Expanded(
+                                          child: Padding(
+                                            padding: const EdgeInsets.only(right: 12),
+                                            child: signField(role),
+                                          ),
+                                        ),
+                                      )
+                                      .toList(),
+                                ),
                             ],
-                          ),
-                        ],
+                          );
+                        },
                       ),
                     ),
                   ],
@@ -482,59 +555,60 @@ class ShiftSummaryExportDialog extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
               decoration: const BoxDecoration(
-                color: Colors.white,
-                border: Border(top: BorderSide(color: AppColors.line)),
+                color: AppColors.card,
+                border: Border(top: BorderSide(color: AppColors.border)),
                 borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: Wrap(
+                spacing: 10,
+                runSpacing: 8,
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   OutlinedButton.icon(
                     icon: const Icon(Icons.copy_all, size: 18),
                     label: const Text('Copy Formatted Text'),
+                    style: OutlinedButton.styleFrom(minimumSize: const Size(0, 48)),
                     onPressed: () {
                       final txt = _generateTextSummary(state);
                       Clipboard.setData(ClipboardData(text: txt));
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text('Shift summary text copied! Ready to paste into WhatsApp, Email, or Print.'),
+                          content: Text('Shift summary text copied to clipboard! Paste it wherever it is needed.'),
                           backgroundColor: AppColors.ink,
                           behavior: SnackBarBehavior.floating,
                         ),
                       );
                     },
                   ),
-                  Row(
-                    children: [
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.table_chart, size: 18),
-                        label: const Text('Copy Excel / CSV Data'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF047857), // emerald Excel green
-                          foregroundColor: Colors.white,
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.table_chart, size: 18),
+                    label: const Text('Copy Excel / CSV Data'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.ok,
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(0, 48),
+                    ),
+                    onPressed: () {
+                      final csv = _generateCsv(state);
+                      Clipboard.setData(ClipboardData(text: csv));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Shift Summary CSV copied to clipboard! Paste directly into Microsoft Excel or Google Sheets.'),
+                          backgroundColor: AppColors.ok,
+                          behavior: SnackBarBehavior.floating,
                         ),
-                        onPressed: () {
-                          final csv = _generateCsv(state);
-                          Clipboard.setData(ClipboardData(text: csv));
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Shift Summary CSV copied to clipboard! Paste directly into Microsoft Excel or Google Sheets.'),
-                              backgroundColor: AppColors.ok,
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
-                        },
-                      ),
-                      const SizedBox(width: 10),
-                      ElevatedButton(
-                        onPressed: () => Navigator.pop(context),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.ink,
-                          foregroundColor: Colors.white,
-                        ),
-                        child: const Text('Close'),
-                      ),
-                    ],
+                      );
+                    },
+                  ),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.ink,
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(0, 48),
+                    ),
+                    child: const Text('Close'),
                   ),
                 ],
               ),
@@ -550,7 +624,14 @@ class ShiftSummaryExportDialog extends StatelessWidget {
       children: [
         Icon(icon, size: 18, color: AppColors.primary),
         const SizedBox(width: 8),
-        Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.ink)),
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.ink),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
       ],
     );
   }
@@ -558,7 +639,7 @@ class ShiftSummaryExportDialog extends StatelessWidget {
   Widget _buildTableHeader(String text) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      child: Text(text, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppColors.ink)),
+      child: Text(text, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.ink)),
     );
   }
 
@@ -585,9 +666,16 @@ class ShiftSummaryExportDialog extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: TextStyle(fontSize: 13, fontWeight: isBold ? FontWeight.bold : FontWeight.normal, color: AppColors.ink)),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(fontSize: 13, fontWeight: isBold ? FontWeight.bold : FontWeight.normal, color: AppColors.ink),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
           Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: valColor)),
         ],
       ),

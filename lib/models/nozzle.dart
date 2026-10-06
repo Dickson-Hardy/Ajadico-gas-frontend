@@ -2,7 +2,7 @@ class NozzleItem {
   final int nozzleNumber;
   final String productName; // 'PMS' or 'AGO'
   final String tankCode;    // 'T1', 'T2', 'T3'
-  final double openingReading;
+  double openingReading;
   double? closingReading;
   final double pricePerLitre;
   bool isOpeningConfirmed;

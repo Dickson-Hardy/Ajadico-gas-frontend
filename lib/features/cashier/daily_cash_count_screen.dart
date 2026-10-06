@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/status_chip.dart';
@@ -24,6 +25,7 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
   final state = StationAppState.instance;
 
   final Map<int, TextEditingController> _controllers = {};
+  final Map<int, String> _countErrors = {};
 
   @override
   void initState() {
@@ -48,18 +50,92 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
   }
 
   void _onCountChanged(int denom, String val) {
-    final count = int.tryParse(val.trim()) ?? 0;
+    final text = val.trim();
+
+    if (text.isEmpty) {
+      _countErrors.remove(denom);
+      state.updateCashCount(denom, 0);
+      if (mounted) setState(() {});
+      return;
+    }
+
+    final count = int.tryParse(text);
+    if (count == null || count < 0) {
+      setState(() => _countErrors[denom] = 'Enter a whole number of notes.');
+      return;
+    }
+
+    _countErrors.remove(denom);
     state.updateCashCount(denom, count);
+    if (mounted) setState(() {});
   }
 
   void _saveCount() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: AppColors.ok,
-        behavior: SnackBarBehavior.floating,
-        content: Text(
-          'Physical cash count saved: ${CurrencyFormatter.formatNaira(state.totalCountedCash)}. Variance: ${CurrencyFormatter.formatVariance(state.cashDrawerVariance)}',
+    if (_countErrors.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.bad,
+          behavior: SnackBarBehavior.floating,
+          content: Text('Correct the highlighted denomination counts before saving.'),
         ),
+      );
+      return;
+    }
+
+    final counted = state.totalCountedCash;
+    final expected = state.expectedClosingCash;
+    final diff = state.cashDrawerVariance;
+
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirm physical cash count'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Counted in safe: ${CurrencyFormatter.formatNaira(counted)}'),
+            const SizedBox(height: 6),
+            Text('Target expected closing cash: ${CurrencyFormatter.formatNaira(expected)}'),
+            const SizedBox(height: 6),
+            Text(
+              'Variance: ${CurrencyFormatter.formatVariance(diff)}'
+              '${diff < 0 ? ' (shortage)' : (diff > 0 ? ' (overage)' : ' (balanced)')}',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: diff < 0 ? AppColors.bad : (diff > 0 ? AppColors.warn : AppColors.ok),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Your station-wide count summary will show this count as verified. Denomination rows stay editable until you leave this screen.',
+              style: TextStyle(fontSize: 13, color: AppColors.muted),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+            child: const Text('Keep Counting'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  backgroundColor: AppColors.ok,
+                  behavior: SnackBarBehavior.floating,
+                  content: Text(
+                    'Physical cash count saved: ${CurrencyFormatter.formatNaira(state.totalCountedCash)}. Variance: ${CurrencyFormatter.formatVariance(state.cashDrawerVariance)}',
+                  ),
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(minimumSize: const Size(0, 48)),
+            child: const Text('Save Cash Count'),
+          ),
+        ],
       ),
     );
   }
@@ -87,6 +163,7 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
+          tooltip: 'Back',
           onPressed: widget.onBack,
         ),
         title: Column(
@@ -170,13 +247,16 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
                                           ),
                                           const SizedBox(width: 8),
                                           SizedBox(
-                                            width: 100,
+                                            width: 110,
                                             child: TextField(
                                               controller: _controllers[d],
                                               keyboardType: TextInputType.number,
-                                              decoration: const InputDecoration(
+                                              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                                              decoration: InputDecoration(
                                                 hintText: '0',
-                                                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                                errorText: _countErrors[d],
+                                                errorMaxLines: 2,
+                                                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                               ),
                                               onChanged: (val) => _onCountChanged(d, val),
                                             ),
@@ -240,7 +320,7 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
                                           const SizedBox(width: 4),
                                           Text(
                                             '(${CurrencyFormatter.formatNaira(state.totalPendingCashExpenses)} pending manager approval)',
-                                            style: const TextStyle(fontSize: 11, color: AppColors.warn, fontWeight: FontWeight.w600),
+                                            style: const TextStyle(fontSize: 12, color: AppColors.warn, fontWeight: FontWeight.w600),
                                           ),
                                         ],
                                       ),
@@ -261,19 +341,57 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
                                     ],
                                   ),
                                   const SizedBox(height: 6),
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      const Text('Safe Drawer Variance', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                                      Text(
-                                        CurrencyFormatter.formatVariance(diff),
-                                        style: TextStyle(
-                                          fontSize: 24,
-                                          fontWeight: FontWeight.bold,
-                                          color: diff < 0 ? AppColors.bad : (diff > 0 ? AppColors.ok : AppColors.ink),
-                                        ),
+                                  // Variance banner with icon + word (not colour alone)
+                                  Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: diff < 0 ? AppColors.badSurface : (diff > 0 ? AppColors.warnSurface : AppColors.okSurface),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: diff < 0 ? AppColors.bad : (diff > 0 ? AppColors.warn : AppColors.ok),
                                       ),
-                                    ],
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          diff < 0
+                                              ? Icons.remove_circle_outline
+                                              : (diff > 0 ? Icons.add_circle_outline : Icons.check_circle_outline),
+                                          size: 24,
+                                          color: diff < 0 ? AppColors.bad : (diff > 0 ? AppColors.warn : AppColors.ok),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                diff < 0
+                                                    ? 'Safe Drawer Variance — Shortage'
+                                                    : (diff > 0 ? 'Safe Drawer Variance — Overage' : 'Safe Drawer Variance — Balanced'),
+                                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.ink),
+                                              ),
+                                              Text(
+                                                diff < 0
+                                                    ? 'Counted cash is below the target closing cash.'
+                                                    : (diff > 0 ? 'Counted cash is above the target closing cash.' : 'Counted cash matches the target closing cash.'),
+                                                style: const TextStyle(fontSize: 12, color: AppColors.slate),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Text(
+                                          CurrencyFormatter.formatVariance(diff),
+                                          style: TextStyle(
+                                            fontSize: 20,
+                                            fontWeight: FontWeight.w900,
+                                            color: diff < 0 ? AppColors.bad : (diff > 0 ? AppColors.warn : AppColors.ok),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                   const SizedBox(height: 20),
 
@@ -306,11 +424,21 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
                                       label: const Text('Hand Over Cash for Bank Deposit'),
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: AppColors.bank,
+                                        minimumSize: const Size(0, 48),
                                         padding: const EdgeInsets.symmetric(vertical: 12),
                                       ),
-                                      onPressed: () => _openBankDepositDialog(counted > 0 ? counted : expected),
+                                      onPressed: counted > 0
+                                          ? () => _openBankDepositDialog(counted)
+                                          : null,
                                     ),
                                   ),
+                                  if (counted <= 0) ...[
+                                    const SizedBox(height: 6),
+                                    const Text(
+                                      'Count the physical notes in the safe before handing cash over to the bank.',
+                                      style: TextStyle(fontSize: 12, color: AppColors.muted),
+                                    ),
+                                  ],
                                   if (widget.onOpenExpenseEntry != null) ...[
                                     const SizedBox(height: 10),
                                     SizedBox(
@@ -319,6 +447,7 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
                                         icon: const Icon(Icons.receipt_long, color: AppColors.ink),
                                         label: const Text('Disburse / Record Safe Expense'),
                                         style: OutlinedButton.styleFrom(
+                                          minimumSize: const Size(0, 48),
                                           padding: const EdgeInsets.symmetric(vertical: 12),
                                           side: const BorderSide(color: AppColors.line),
                                         ),
@@ -334,6 +463,7 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
                                       label: const Text('Print / Export Shift Summary'),
                                       style: OutlinedButton.styleFrom(
                                         foregroundColor: AppColors.primary,
+                                        minimumSize: const Size(0, 48),
                                         padding: const EdgeInsets.symmetric(vertical: 12),
                                         side: const BorderSide(color: AppColors.primary),
                                       ),
@@ -358,18 +488,22 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         decoration: const BoxDecoration(
           color: AppColors.background,
-          border: Border(top: BorderSide(color: AppColors.line)),
+          border: Border(top: BorderSide(color: AppColors.border)),
         ),
-        child: Row(
-          children: [
-            Expanded(
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.lock_clock),
-                onPressed: _saveCount,
-                label: const Text('Save verified cash count & lock drawer'),
+        child: SafeArea(
+          top: false,
+          child: Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.lock_clock),
+                  onPressed: _saveCount,
+                  style: ElevatedButton.styleFrom(minimumSize: const Size(0, 48)),
+                  label: const Text('Save cash count'),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -379,15 +513,25 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(title, style: TextStyle(fontWeight: isBold ? FontWeight.bold : FontWeight.normal, color: AppColors.ink)),
-          Text(
-            val,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: isGreen ? AppColors.ok : AppColors.ink,
-              fontSize: isBold ? 16 : 14,
+          Expanded(
+            child: Text(
+              title,
+              style: TextStyle(fontWeight: isBold ? FontWeight.bold : FontWeight.normal, color: AppColors.ink),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              val,
+              textAlign: TextAlign.end,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: isGreen ? AppColors.ok : AppColors.ink,
+                fontSize: isBold ? 16 : 14,
+              ),
             ),
           ),
         ],

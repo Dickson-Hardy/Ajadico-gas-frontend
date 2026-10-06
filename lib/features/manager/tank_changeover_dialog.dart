@@ -158,36 +158,38 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
             children: [
               // Header
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: AppColors.ink,
-                          borderRadius: BorderRadius.circular(8),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.ink,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.alt_route, color: Colors.white, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Manifold Tank Changeover',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        child: const Icon(Icons.alt_route, color: Colors.white, size: 20),
-                      ),
-                      const SizedBox(width: 12),
-                      const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Manifold Tank Changeover',
-                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
-                          ),
-                          Text(
-                            'BRD §3.1 & §7 • Interlocked UST Operation',
-                            style: TextStyle(fontSize: 12, color: AppColors.muted),
-                          ),
-                        ],
-                      ),
-                    ],
+                        Text(
+                          'BRD §3.1 & §7 • Interlocked UST Operation',
+                          style: TextStyle(fontSize: 12, color: AppColors.muted),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
                   ),
                   IconButton(
                     icon: const Icon(Icons.close),
+                    tooltip: 'Close changeover',
                     onPressed: () => Navigator.pop(context),
                   ),
                 ],
@@ -240,12 +242,12 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFFEF3C7),
+                              color: AppColors.warnSurface,
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: const Text(
                               'PMS (Premium Motor Spirit)',
-                              style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF92400E)),
+                              style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.warnInk),
                             ),
                           ),
                           const SizedBox(height: 16),
@@ -261,7 +263,7 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                                       decoration: BoxDecoration(
-                                        color: Colors.white,
+                                        color: AppColors.card,
                                         borderRadius: BorderRadius.circular(8),
                                         border: Border.all(color: AppColors.emerald, width: 2),
                                       ),
@@ -269,9 +271,13 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
                                         children: [
                                           const Icon(Icons.check_circle, color: AppColors.emerald, size: 18),
                                           const SizedBox(width: 8),
-                                          Text(
-                                            'Tank $_fromTank (Active)',
-                                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                          Expanded(
+                                            child: Text(
+                                              'Tank $_fromTank (Active)',
+                                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
                                           ),
                                         ],
                                       ),
@@ -292,7 +298,7 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                                       decoration: BoxDecoration(
-                                        color: Colors.white,
+                                        color: AppColors.card,
                                         borderRadius: BorderRadius.circular(8),
                                         border: Border.all(color: AppColors.amber, width: 2),
                                       ),
@@ -300,9 +306,13 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
                                         children: [
                                           const Icon(Icons.swap_horiz, color: AppColors.amber, size: 18),
                                           const SizedBox(width: 8),
-                                          Text(
-                                            'Tank $_toTank (Standby)',
-                                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                          Expanded(
+                                            child: Text(
+                                              'Tank $_toTank (Standby)',
+                                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
                                           ),
                                         ],
                                       ),
@@ -345,7 +355,7 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
                           margin: const EdgeInsets.only(bottom: 10),
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            color: AppColors.card,
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(color: AppColors.line),
                           ),
@@ -450,7 +460,8 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.ink,
                         padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        minimumSize: const Size(double.infinity, 48),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       ),
                       onPressed: _isSubmitting ? null : _handleConfirm,
                       child: _isSubmitting

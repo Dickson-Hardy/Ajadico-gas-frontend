@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/services/camera_compression_service.dart';
+import '../../core/navigation/shell_back_guard.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/evidence_photo_picker.dart';
 import '../../core/widgets/forecourt_sync_bar.dart';
@@ -20,7 +23,8 @@ class RemittanceScreen extends StatefulWidget {
   State<RemittanceScreen> createState() => _RemittanceScreenState();
 }
 
-class _RemittanceScreenState extends State<RemittanceScreen> {
+class _RemittanceScreenState extends State<RemittanceScreen>
+    with UnsavedWorkAware {
   final state = StationAppState.instance;
 
   final TextEditingController _finalCashController = TextEditingController();
@@ -31,6 +35,9 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
   double get _creditSales => state.totalAttendantCreditSales();
   List<CompressedImageResult> _evidencePhotos = [];
   bool _isSubmitting = false;
+  bool _dirty = false;
+  String? _declarationError;
+  String? _evidenceError;
 
   double get _acknowledgedDrops => state.totalAttendantAcknowledgedDrops();
   double get _finalCash => double.tryParse(_finalCashController.text.replaceAll(',', '')) ?? 0.0;
@@ -47,6 +54,14 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
   double get _moneyDeclared => _totalCash + _posCard + _posTransfer + _bankTransfer;
   double get _variance => (_moneyDeclared + _creditSales) - _expectedSalesValue;
 
+  /// Non-cash channels must be backed by photographed merchant slips (§4.3).
+  bool get _needsEvidence =>
+      _posCard > 0 || _posTransfer > 0 || _bankTransfer > 0;
+  bool get _evidenceAttached => _evidencePhotos.isNotEmpty;
+
+  @override
+  bool get hasUnsavedWork => _dirty && !state.remittanceSubmitted;
+
   @override
   void initState() {
     super.initState();
@@ -59,10 +74,13 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
 
     final bankLogged = state.totalAttendantBankTransfer();
     if (bankLogged > 0) _bankTransferController.text = bankLogged.toStringAsFixed(0);
+
+    ShellBackGuard.register(this);
   }
 
   @override
   void dispose() {
+    ShellBackGuard.unregister(this);
     _finalCashController.dispose();
     _posCardController.dispose();
     _posTransferController.dispose();
@@ -70,15 +88,49 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
     super.dispose();
   }
 
-  void _submit() {
-    if (_moneyDeclared <= 0 && _creditSales <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: AppColors.bad,
-          behavior: SnackBarBehavior.floating,
-          content: Text('Please declare your sales cash and non-cash collections.'),
+  void _handleBack() {
+    if (!hasUnsavedWork) {
+      widget.onBack();
+      return;
+    }
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Discard unsaved changes?'),
+        content: const Text(
+          'This declaration has entries that have not been submitted. Leaving now discards them.',
         ),
-      );
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Keep Editing'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              widget.onBack();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.bad,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Discard'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _submit() {
+    setState(() {
+      _declarationError = (_moneyDeclared <= 0 && _creditSales <= 0)
+          ? 'Please declare your sales cash and non-cash collections.'
+          : null;
+      _evidenceError = _needsEvidence && !_evidenceAttached
+          ? 'Attach at least one photo of the merchant slip or transfer receipt before submitting.'
+          : null;
+    });
+    if (_declarationError != null || _evidenceError != null) {
       return;
     }
 
@@ -97,16 +149,25 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
         evidencePhotos: photoUrls,
         finalCashHandover: _finalCash,
       );
+      state.markRemittanceSubmitted();
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: AppColors.ok,
           behavior: SnackBarBehavior.floating,
-          content: Text('Remittance queued in Offline Engine & sent to Cashier Verification!'),
+          content: Text('Remittance saved and queued locally for cashier verification.'),
         ),
       );
 
       widget.onSubmitSuccess();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.bad,
+          behavior: SnackBarBehavior.floating,
+          content: Text('Could not submit the remittance. Please try again.'),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -118,13 +179,19 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: widget.onBack,
+          tooltip: 'Back',
+          onPressed: _handleBack,
         ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('Shift Remittance Declaration', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('${state.currentUser.displayName} · Forecourt Morning Shift', style: const TextStyle(fontSize: 12, color: Colors.white70)),
+            Text(
+              '${state.currentUser.displayName} · ${DateFormat('EEE dd MMM · h:mm a').format(DateTime.now())}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, color: Colors.white70),
+            ),
           ],
         ),
       ),
@@ -166,13 +233,26 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('Target Expected Sales', style: TextStyle(fontSize: 13, color: AppColors.slate, fontWeight: FontWeight.w600)),
-                                  Text('Derived from meter opening vs closing readings', style: TextStyle(fontSize: 11, color: AppColors.mutedSlate)),
-                                ],
+                              const Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Target Expected Sales',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(fontSize: 13, color: AppColors.slate, fontWeight: FontWeight.w600),
+                                    ),
+                                    Text(
+                                      'Derived from meter opening vs closing readings',
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(fontSize: 12, color: AppColors.mutedSlate),
+                                    ),
+                                  ],
+                                ),
                               ),
+                              const SizedBox(width: 12),
                               Text(
                                 CurrencyFormatter.formatNaira(_expectedSalesValue),
                                 style: const TextStyle(
@@ -201,14 +281,21 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
                                 'Payment Declaration Channels (BRD §4.1–§4.3)',
                                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
                               ),
+                              if (_declarationError != null) ...[
+                                const SizedBox(height: 6),
+                                Text(
+                                  _declarationError!,
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.bad),
+                                ),
+                              ],
                               const SizedBox(height: 14),
                               // 1. Physical Sales Cash Section
                               Container(
                                 padding: const EdgeInsets.all(14),
                                 decoration: BoxDecoration(
-                                  color: AppColors.ok.withOpacity(0.04),
+                                  color: AppColors.ok.withValues(alpha: 0.04),
                                   borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(color: AppColors.ok.withOpacity(0.2)),
+                                  border: Border.all(color: AppColors.ok.withValues(alpha: 0.2)),
                                 ),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -216,10 +303,15 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
                                     Row(
                                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                       children: [
-                                        const Text(
-                                          '1. Physical Sales Cash',
-                                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.ink),
+                                        const Expanded(
+                                          child: Text(
+                                            '1. Physical Sales Cash',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.ink),
+                                          ),
                                         ),
+                                        const SizedBox(width: 8),
                                         Text(
                                           'Total: ${CurrencyFormatter.formatNaira(_totalCash)}',
                                           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.ok),
@@ -231,10 +323,15 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
                                       Row(
                                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                         children: [
-                                          const Text(
-                                            '✓ Acknowledged Intra-Shift Drops:',
-                                            style: TextStyle(fontSize: 12, color: AppColors.slate),
+                                          const Expanded(
+                                            child: Text(
+                                              '✓ Acknowledged Intra-Shift Drops:',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(fontSize: 12, color: AppColors.slate),
+                                            ),
                                           ),
+                                          const SizedBox(width: 8),
                                           Text(
                                             CurrencyFormatter.formatNaira(_acknowledgedDrops),
                                             style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary),
@@ -284,9 +381,31 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
                                 onPhotosChanged: (photos) {
                                   setState(() {
                                     _evidencePhotos = photos;
+                                    _evidenceError = null;
                                   });
                                 },
                               ),
+                              if (_evidenceError != null) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  _evidenceError!,
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.bad),
+                                ),
+                              ],
+                              if (_needsEvidence && !_evidenceAttached && _evidenceError == null) ...[
+                                const SizedBox(height: 8),
+                                const Text(
+                                  'At least one slip photo is required while a non-cash amount is declared — submit stays disabled until it is attached.',
+                                  style: TextStyle(fontSize: 12, color: AppColors.warnInk),
+                                ),
+                              ],
+                              if (_needsEvidence && _evidenceAttached) ...[
+                                const SizedBox(height: 6),
+                                const Text(
+                                  'Evidence photo requirement satisfied.',
+                                  style: TextStyle(fontSize: 12, color: AppColors.okInk),
+                                ),
+                              ],
                             ],
                           ),
                         ),
@@ -311,22 +430,27 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
                                 child: Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text('Attendant Difference', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink)),
-                                        Text(
-                                          _variance < 0
-                                              ? 'Shortfall will feed salary deduction register (§4.6)'
-                                              : (_variance > 0 ? 'Excess recorded for management review' : 'Balanced shift account'),
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600,
-                                            color: _variance < 0 ? AppColors.bad : (_variance > 0 ? AppColors.warn : AppColors.ok),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          const Text('Attendant Difference', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink)),
+                                          Text(
+                                            _variance < 0
+                                                ? 'Shortfall will feed salary deduction register (§4.6)'
+                                                : (_variance > 0 ? 'Excess recorded for management review' : 'Balanced shift account'),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                              color: _variance < 0 ? AppColors.bad : (_variance > 0 ? AppColors.warn : AppColors.ok),
+                                            ),
                                           ),
-                                        ),
-                                      ],
+                                        ],
+                                      ),
                                     ),
+                                    const SizedBox(width: 12),
                                     Text(
                                       CurrencyFormatter.formatVariance(_variance),
                                       style: TextStyle(
@@ -369,7 +493,9 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
                         child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                       )
                     : const Icon(Icons.send_rounded, color: Colors.white, size: 18),
-                onPressed: _isSubmitting ? null : _submit,
+                onPressed: (_isSubmitting || (_needsEvidence && !_evidenceAttached))
+                    ? null
+                    : _submit,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   padding: const EdgeInsets.symmetric(vertical: 14),
@@ -384,7 +510,7 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
             const SizedBox(width: 12),
             Expanded(
               child: OutlinedButton(
-                onPressed: widget.onBack,
+                onPressed: _handleBack,
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -405,17 +531,32 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Expanded(child: Text(label, style: const TextStyle(fontSize: 13, color: AppColors.slate, fontWeight: FontWeight.w600))),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13, color: AppColors.slate, fontWeight: FontWeight.w600),
+              ),
+            ),
             if (subtitle != null) ...[
               const SizedBox(width: 8),
-              Text(subtitle, style: const TextStyle(fontSize: 11, color: AppColors.primary, fontStyle: FontStyle.italic)),
+              Flexible(
+                child: Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12, color: AppColors.primary, fontStyle: FontStyle.italic),
+                ),
+              ),
             ],
           ],
         ),
         const SizedBox(height: 6),
         TextField(
           controller: controller,
-          keyboardType: TextInputType.number,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
           decoration: InputDecoration(
             prefixText: '₦ ',
             hintText: hint,
@@ -425,7 +566,10 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
             enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.border)),
             contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           ),
-          onChanged: (_) => setState(() {}),
+          onChanged: (_) => setState(() {
+            _dirty = true;
+            _declarationError = null;
+          }),
         ),
       ],
     );
@@ -437,7 +581,15 @@ class _RemittanceScreenState extends State<RemittanceScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(fontSize: 13, color: AppColors.slate, fontWeight: FontWeight.w500)),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 13, color: AppColors.slate, fontWeight: FontWeight.w500),
+            ),
+          ),
+          const SizedBox(width: 8),
           Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.ink)),
         ],
       ),

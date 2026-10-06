@@ -24,7 +24,7 @@ class SupabaseRepository {
     try {
       await Supabase.initialize(
         url: SupabaseConfig.url,
-        anonKey: SupabaseConfig.anonKey,
+        publishableKey: SupabaseConfig.anonKey,
       );
       _client = Supabase.instance.client;
       _isConnected = true;

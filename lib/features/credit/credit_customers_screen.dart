@@ -50,6 +50,7 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
+          tooltip: 'Back',
           onPressed: widget.onBack,
         ),
         title: const Column(
@@ -64,31 +65,34 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
         padding: const EdgeInsets.all(20),
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 950),
+            constraints: const BoxConstraints(maxWidth: 1000),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Credit customers ledger',
-                          style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.ink,
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Credit customers ledger',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.ink,
+                            ),
                           ),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          'Authorized commercial accounts who may dispense fuel on credit at any pump.',
-                          style: TextStyle(fontSize: 15, color: AppColors.muted),
-                        ),
-                      ],
+                          SizedBox(height: 4),
+                          Text(
+                            'Authorized commercial accounts who may dispense fuel on credit at any pump.',
+                            style: TextStyle(fontSize: 15, color: AppColors.muted),
+                          ),
+                        ],
+                      ),
                     ),
+                    const SizedBox(width: 16),
                     Card(
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -108,39 +112,18 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // Search & Add Button Bar
+                // Search Bar
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(12),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _searchController,
-                            decoration: const InputDecoration(
-                              hintText: 'Search by customer name...',
-                              prefixIcon: Icon(Icons.search, color: AppColors.muted),
-                              contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                            ),
-                            onChanged: (_) => setState(() {}),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        ElevatedButton.icon(
-                          onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('New credit customer addition requires Director authorization (§4.10).'),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.person_add),
-                          label: const Text('Add customer'),
-                          style: ElevatedButton.styleFrom(
-                            minimumSize: const Size(160, 48),
-                          ),
-                        ),
-                      ],
+                    child: TextField(
+                      controller: _searchController,
+                      decoration: const InputDecoration(
+                        hintText: 'Search by customer name...',
+                        prefixIcon: Icon(Icons.search, color: AppColors.muted),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      ),
+                      onChanged: (_) => setState(() {}),
                     ),
                   ),
                 ),
@@ -182,7 +165,7 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
                           headingTextStyle: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.ink),
                           columns: const [
                             DataColumn(label: Text('Customer Account')),
-                            DataColumn(label: Text('Outstanding Debt', textAlign: TextAlign.right), numeric: true),
+                            DataColumn(label: Align(alignment: Alignment.centerRight, child: Text('Outstanding Debt')), numeric: true),
                             DataColumn(label: Text('Last Repayment')),
                             DataColumn(label: Text('Payment Terms')),
                             DataColumn(label: Text('Status')),
@@ -191,7 +174,15 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
                             return DataRow(
                               cells: [
                                 DataCell(Text(cust.name, style: const TextStyle(fontWeight: FontWeight.bold))),
-                                DataCell(Text(CurrencyFormatter.formatNaira(cust.outstanding), style: const TextStyle(fontWeight: FontWeight.bold))),
+                                DataCell(
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: Text(
+                                      CurrencyFormatter.formatNaira(cust.outstanding),
+                                      style: const TextStyle(fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ),
                                 DataCell(Text(cust.lastRepayment)),
                                 DataCell(Text(cust.dueDate)),
                                 DataCell(

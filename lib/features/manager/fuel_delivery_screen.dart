@@ -31,7 +31,9 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
   final TextEditingController _dipBeforeController = TextEditingController();
   final TextEditingController _dipAfterController = TextEditingController();
   late final TextEditingController _pricePerLitreController;
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   List<CompressedImageResult> _waybillPhotos = [];
+  bool _photoRequiredError = false;
   bool _isSubmitting = false;
 
   double get _statedLitres => double.tryParse(_statedLitresController.text.trim()) ?? 0.0;
@@ -39,7 +41,32 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
   double get _dipAfter => double.tryParse(_dipAfterController.text.trim()) ?? 0.0;
   double get _receivedLitres => (_dipAfter > _dipBefore) ? (_dipAfter - _dipBefore) : 0.0;
   double get _discrepancy => _receivedLitres - _statedLitres;
-  double get _purchasePrice => double.tryParse(_pricePerLitreController.text.trim()) ?? 940.0;
+  double get _purchasePrice => double.tryParse(_pricePerLitreController.text.trim()) ?? 0.0;
+
+  double _retailPriceFor(String product) {
+    if (product == 'AGO') return state.agoPrice;
+    if (product == 'PMS') return state.pmsPrice;
+    return state.pmsPrice;
+  }
+
+  String get _selectedTankProduct {
+    for (final t in state.tanks) {
+      if (t.code == _selectedTank) return t.product;
+    }
+    return 'PMS';
+  }
+
+  double? get _selectedTankDip {
+    for (final t in state.tanks) {
+      if (t.code == _selectedTank) return t.physicalDip;
+    }
+    return null;
+  }
+
+  void _seedPriceForProduct(String product) {
+    final retail = _retailPriceFor(product);
+    _pricePerLitreController.text = retail > 0 ? (retail * 0.90).toStringAsFixed(0) : '';
+  }
 
   @override
   void initState() {
@@ -50,9 +77,8 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
         _dipBeforeController.text = state.tanks.first.physicalDip.toStringAsFixed(0);
       }
     }
-    _pricePerLitreController = TextEditingController(
-      text: state.pmsPrice > 0 ? (state.pmsPrice * 0.90).toStringAsFixed(0) : '940',
-    );
+    _pricePerLitreController = TextEditingController();
+    _seedPriceForProduct(_selectedTankProduct);
   }
 
   @override
@@ -67,50 +93,70 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
   }
 
   void _submit() {
-    if (_supplierController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: AppColors.bad,
-          behavior: SnackBarBehavior.floating,
-          content: Text('Please enter the petroleum supplier name.'),
-        ),
-      );
+    final formValid = _formKey.currentState?.validate() ?? false;
+    final photoMissing = _waybillPhotos.isEmpty;
+    setState(() => _photoRequiredError = photoMissing);
+    if (!formValid || photoMissing) return;
+
+    if (_discrepancy < 0) {
+      _confirmShortage();
       return;
     }
+    _recordDelivery();
+  }
 
-    if (_waybillNumberController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: AppColors.bad,
-          behavior: SnackBarBehavior.floating,
-          content: Text('Please enter the tanker waybill number.'),
+  void _confirmShortage() {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirm transit shortage'),
+        content: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppColors.warnSurface,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.warn),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Received volume is ${CurrencyFormatter.formatLitres(_discrepancy.abs())} below the waybill figure of ${CurrencyFormatter.formatLitres(_statedLitres)}.',
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.ink),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'This shortage will be booked against Tank $_selectedTank and flagged for Manager review with the waybill evidence.',
+                style: const TextStyle(fontSize: 13, color: AppColors.slate),
+              ),
+            ],
+          ),
         ),
-      );
-      return;
-    }
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+            child: const Text('Go Back'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _recordDelivery();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.bad,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(0, 48),
+            ),
+            child: const Text('Record Shortage'),
+          ),
+        ],
+      ),
+    );
+  }
 
-    if (_statedLitres <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: AppColors.bad,
-          behavior: SnackBarBehavior.floating,
-          content: Text('Please enter stated volume in litres from waybill.'),
-        ),
-      );
-      return;
-    }
-
-    if (_receivedLitres <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: AppColors.bad,
-          behavior: SnackBarBehavior.floating,
-          content: Text('Dip after delivery must be greater than dip before.'),
-        ),
-      );
-      return;
-    }
-
+  void _recordDelivery() {
     setState(() => _isSubmitting = true);
     try {
       state.recordFuelDelivery(
@@ -134,9 +180,39 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
       );
 
       widget.onSuccess();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: AppColors.bad,
+            behavior: SnackBarBehavior.floating,
+            content: Text('Could not record this fuel delivery. Please review the entries and retry.'),
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
+  }
+
+  Widget _twoUp(List<Widget> children) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 650) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [children[0], const SizedBox(height: 16), children[1]],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: children[0]),
+            const SizedBox(width: 12),
+            Expanded(child: children[1]),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -145,6 +221,7 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
+          tooltip: 'Back',
           onPressed: widget.onBack,
         ),
         title: Column(
@@ -186,159 +263,167 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
 
                       Card(
                         elevation: 1,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         child: Padding(
                           padding: const EdgeInsets.all(18),
-                          child: Column(
+                          child: Form(
+                            key: _formKey,
+                            autovalidateMode: AutovalidateMode.onUserInteraction,
+                            child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text('Receiving Tank', style: TextStyle(fontSize: 13, color: AppColors.slate, fontWeight: FontWeight.w600)),
-                                        const SizedBox(height: 6),
-                                        DropdownButtonFormField<String>(
-                                          value: _selectedTank,
-                                          items: state.tanks.map((t) {
-                                            return DropdownMenuItem(
-                                              value: t.code,
-                                              child: Text('Tank ${t.code} · ${t.product} (Cap: ${CurrencyFormatter.formatLitres(t.capacity)})'),
-                                            );
-                                          }).toList(),
-                                          onChanged: (v) => setState(() => _selectedTank = v!),
-                                          decoration: InputDecoration(
-                                            filled: true,
-                                            fillColor: AppColors.lightBackground,
-                                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                          ),
-                                        ),
-                                      ],
+                              _twoUp([
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Receiving Tank', style: TextStyle(fontSize: 13, color: AppColors.slate, fontWeight: FontWeight.w600)),
+                                    const SizedBox(height: 6),
+                                    DropdownButtonFormField<String>(
+                                      initialValue: _selectedTank,
+                                      isExpanded: true,
+                                      items: state.tanks.map((t) {
+                                        return DropdownMenuItem(
+                                          value: t.code,
+                                          child: Text('Tank ${t.code} · ${t.product} (Cap: ${CurrencyFormatter.formatLitres(t.capacity)})'),
+                                        );
+                                      }).toList(),
+                                      onChanged: (v) {
+                                        setState(() {
+                                          _selectedTank = v ?? _selectedTank;
+                                          final dip = _selectedTankDip;
+                                          _dipBeforeController.text = (dip != null && dip > 0) ? dip.toStringAsFixed(0) : '';
+                                          _seedPriceForProduct(_selectedTankProduct);
+                                        });
+                                      },
+                                      decoration: InputDecoration(
+                                        filled: true,
+                                        fillColor: AppColors.lightBackground,
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text('Supplier Name', style: TextStyle(fontSize: 13, color: AppColors.slate, fontWeight: FontWeight.w600)),
-                                        const SizedBox(height: 6),
-                                        TextField(
-                                          controller: _supplierController,
-                                          decoration: InputDecoration(
-                                            hintText: 'e.g. Matrix Energy',
-                                            filled: true,
-                                            fillColor: AppColors.lightBackground,
-                                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                          ),
-                                        ),
-                                      ],
+                                  ],
+                                ),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Supplier Name', style: TextStyle(fontSize: 13, color: AppColors.slate, fontWeight: FontWeight.w600)),
+                                    const SizedBox(height: 6),
+                                    TextFormField(
+                                      controller: _supplierController,
+                                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter the petroleum supplier name.' : null,
+                                      decoration: InputDecoration(
+                                        hintText: 'e.g. Matrix Energy',
+                                        filled: true,
+                                        fillColor: AppColors.lightBackground,
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
+                                  ],
+                                ),
+                              ]),
 
                               const SizedBox(height: 16),
 
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text('Waybill Number', style: TextStyle(fontSize: 13, color: AppColors.slate, fontWeight: FontWeight.w600)),
-                                        const SizedBox(height: 6),
-                                        TextField(
-                                          controller: _waybillNumberController,
-                                          decoration: InputDecoration(
-                                            hintText: 'WB-12345',
-                                            filled: true,
-                                            fillColor: AppColors.lightBackground,
-                                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                          ),
-                                        ),
-                                      ],
+                              _twoUp([
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Waybill Number', style: TextStyle(fontSize: 13, color: AppColors.slate, fontWeight: FontWeight.w600)),
+                                    const SizedBox(height: 6),
+                                    TextFormField(
+                                      controller: _waybillNumberController,
+                                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter the tanker waybill number.' : null,
+                                      decoration: InputDecoration(
+                                        hintText: 'WB-12345',
+                                        filled: true,
+                                        fillColor: AppColors.lightBackground,
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text('Stated Litres on Waybill', style: TextStyle(fontSize: 13, color: AppColors.slate, fontWeight: FontWeight.w600)),
-                                        const SizedBox(height: 6),
-                                        TextField(
-                                          controller: _statedLitresController,
-                                          keyboardType: TextInputType.number,
-                                          decoration: InputDecoration(
-                                            suffixText: 'L',
-                                            filled: true,
-                                            fillColor: AppColors.lightBackground,
-                                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                          ),
-                                          onChanged: (_) => setState(() {}),
-                                        ),
-                                      ],
+                                  ],
+                                ),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Stated Litres on Waybill', style: TextStyle(fontSize: 13, color: AppColors.slate, fontWeight: FontWeight.w600)),
+                                    const SizedBox(height: 6),
+                                    TextFormField(
+                                      controller: _statedLitresController,
+                                      keyboardType: TextInputType.number,
+                                      validator: (v) {
+                                        final val = double.tryParse((v ?? '').trim()) ?? 0.0;
+                                        if (val <= 0) return 'Enter stated volume in litres from waybill.';
+                                        return null;
+                                      },
+                                      decoration: InputDecoration(
+                                        suffixText: 'L',
+                                        filled: true,
+                                        fillColor: AppColors.lightBackground,
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                      ),
+                                      onChanged: (_) => setState(() {}),
                                     ),
-                                  ),
-                                ],
-                              ),
+                                  ],
+                                ),
+                              ]),
 
                               const SizedBox(height: 16),
 
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text('Dip BEFORE Discharge (L)', style: TextStyle(fontSize: 13, color: AppColors.slate, fontWeight: FontWeight.w600)),
-                                        const SizedBox(height: 6),
-                                        TextField(
-                                          controller: _dipBeforeController,
-                                          keyboardType: TextInputType.number,
-                                          decoration: InputDecoration(
-                                            suffixText: 'L',
-                                            filled: true,
-                                            fillColor: AppColors.lightBackground,
-                                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                          ),
-                                          onChanged: (_) => setState(() {}),
-                                        ),
-                                      ],
+                              _twoUp([
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Dip BEFORE Discharge (L)', style: TextStyle(fontSize: 13, color: AppColors.slate, fontWeight: FontWeight.w600)),
+                                    const SizedBox(height: 6),
+                                    TextFormField(
+                                      controller: _dipBeforeController,
+                                      keyboardType: TextInputType.number,
+                                      validator: (v) {
+                                        final val = double.tryParse((v ?? '').trim());
+                                        if (val == null || val < 0) return 'Enter the measured dip before discharge.';
+                                        return null;
+                                      },
+                                      decoration: InputDecoration(
+                                        suffixText: 'L',
+                                        filled: true,
+                                        fillColor: AppColors.lightBackground,
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                      ),
+                                      onChanged: (_) => setState(() {}),
                                     ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text('Dip AFTER Discharge (L)', style: TextStyle(fontSize: 13, color: AppColors.slate, fontWeight: FontWeight.w600)),
-                                        const SizedBox(height: 6),
-                                        TextField(
-                                          controller: _dipAfterController,
-                                          keyboardType: TextInputType.number,
-                                          decoration: InputDecoration(
-                                            suffixText: 'L',
-                                            filled: true,
-                                            fillColor: AppColors.lightBackground,
-                                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                          ),
-                                          onChanged: (_) => setState(() {}),
-                                        ),
-                                      ],
+                                  ],
+                                ),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Dip AFTER Discharge (L)', style: TextStyle(fontSize: 13, color: AppColors.slate, fontWeight: FontWeight.w600)),
+                                    const SizedBox(height: 6),
+                                    TextFormField(
+                                      controller: _dipAfterController,
+                                      keyboardType: TextInputType.number,
+                                      validator: (v) {
+                                        final val = double.tryParse((v ?? '').trim());
+                                        if (val == null) return 'Enter the measured dip after discharge.';
+                                        if (val <= _dipBefore) return 'Dip after must be greater than dip before.';
+                                        return null;
+                                      },
+                                      decoration: InputDecoration(
+                                        suffixText: 'L',
+                                        filled: true,
+                                        fillColor: AppColors.lightBackground,
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                      ),
+                                      onChanged: (_) => setState(() {}),
                                     ),
-                                  ),
-                                ],
-                              ),
+                                  ],
+                                ),
+                              ]),
 
                               const SizedBox(height: 16),
 
@@ -347,9 +432,14 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
                                 children: [
                                   const Text('Purchase Price per Litre (₦/L)', style: TextStyle(fontSize: 13, color: AppColors.slate, fontWeight: FontWeight.w600)),
                                   const SizedBox(height: 6),
-                                  TextField(
+                                  TextFormField(
                                     controller: _pricePerLitreController,
                                     keyboardType: TextInputType.number,
+                                    validator: (v) {
+                                      final val = double.tryParse((v ?? '').trim());
+                                      if (val == null || val <= 0) return 'Enter a purchase price per litre greater than ₦0.';
+                                      return null;
+                                    },
                                     decoration: InputDecoration(
                                       prefixText: '₦ ',
                                       filled: true,
@@ -374,10 +464,19 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
                                 onPhotosChanged: (photos) {
                                   setState(() {
                                     _waybillPhotos = photos;
+                                    if (photos.isNotEmpty) _photoRequiredError = false;
                                   });
                                 },
                               ),
+                              if (_photoRequiredError) ...[
+                                const SizedBox(height: 6),
+                                const Text(
+                                  'Attach the waybill photo before confirming this discharge.',
+                                  style: TextStyle(fontSize: 12, color: AppColors.bad),
+                                ),
+                              ],
                             ],
+                            ),
                           ),
                         ),
                       ),
@@ -387,7 +486,7 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
                       // Delivery Audit Summary Card
                       Card(
                         elevation: 1,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         child: Padding(
                           padding: const EdgeInsets.all(18),
                           child: Column(
@@ -402,25 +501,36 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
                               Padding(
                                 padding: const EdgeInsets.symmetric(vertical: 6),
                                 child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text('Transit Discrepancy', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.ink)),
-                                        Text(
-                                          _discrepancy < 0
-                                              ? 'Discharge shortage recorded against depot waybill'
-                                              : (_discrepancy > 0 ? 'Surplus volume logged' : 'Exact match with waybill'),
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: _discrepancy < 0 ? AppColors.bad : (_discrepancy > 0 ? AppColors.warn : AppColors.ok),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          const Text('Transit Discrepancy', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.ink)),
+                                          const SizedBox(height: 6),
+                                          StatusChip(
+                                            label: _discrepancy < 0
+                                                ? 'Shortage'
+                                                : (_discrepancy > 0 ? 'Surplus' : 'Matched'),
+                                            type: _discrepancy < 0
+                                                ? ChipType.bad
+                                                : (_discrepancy > 0 ? ChipType.warn : ChipType.ok),
                                           ),
-                                        ),
-                                      ],
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            _discrepancy < 0
+                                                ? 'Discharge shortage recorded against depot waybill'
+                                                : (_discrepancy > 0 ? 'Surplus volume logged' : 'Exact match with waybill'),
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: _discrepancy < 0 ? AppColors.bad : (_discrepancy > 0 ? AppColors.warn : AppColors.ok),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                     Text(
-                                      '${_discrepancy >= 0 ? "+" : ""}${_discrepancy.toStringAsFixed(1)} L',
+                                      '${_discrepancy >= 0 ? '+' : '−'}${CurrencyFormatter.formatLitres(_discrepancy.abs())}',
                                       style: TextStyle(
                                         fontSize: 20,
                                         fontWeight: FontWeight.w900,
@@ -451,45 +561,50 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
       bottomNavigationBar: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         decoration: const BoxDecoration(
-          color: AppColors.cardSurface,
+          color: AppColors.background,
           border: Border(top: BorderSide(color: AppColors.border)),
         ),
-        child: Row(
-          children: [
-            Expanded(
-              flex: 2,
-              child: ElevatedButton.icon(
-                icon: _isSubmitting
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.check_circle_outline, color: Colors.white, size: 18),
-                onPressed: _isSubmitting ? null : _submit,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                label: Text(
-                  _isSubmitting ? 'Confirming Discharge...' : 'Confirm Tanker Discharge',
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+        child: SafeArea(
+          top: false,
+          child: Row(
+            children: [
+              Expanded(
+                flex: 2,
+                child: ElevatedButton.icon(
+                  icon: _isSubmitting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.check_circle_outline, color: Colors.white, size: 18),
+                  onPressed: _isSubmitting ? null : _submit,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    minimumSize: const Size(0, 48),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  label: Text(
+                    _isSubmitting ? 'Confirming Discharge...' : 'Confirm Tanker Discharge',
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: OutlinedButton(
-                onPressed: widget.onBack,
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: widget.onBack,
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 48),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: const Text('Back to Dashboard', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.ink)),
                 ),
-                child: const Text('Back to Dashboard', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.ink)),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -499,10 +614,20 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(fontSize: 13, color: AppColors.slate, fontWeight: FontWeight.w500)),
-          Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.ink)),
+          Expanded(
+            child: Text(label, style: const TextStyle(fontSize: 13, color: AppColors.slate, fontWeight: FontWeight.w500)),
+          ),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.ink),
+            ),
+          ),
         ],
       ),
     );

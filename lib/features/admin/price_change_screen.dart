@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/navigation/shell_back_guard.dart';
 import '../../core/utils/currency_formatter.dart';
-import '../../models/nozzle.dart';
+import '../../models/user_profile.dart';
 import '../../state/station_app_state.dart';
 
 class PriceChangeScreen extends StatefulWidget {
@@ -18,20 +19,28 @@ class PriceChangeScreen extends StatefulWidget {
   State<PriceChangeScreen> createState() => _PriceChangeScreenState();
 }
 
-class _PriceChangeScreenState extends State<PriceChangeScreen> {
+class _PriceChangeScreenState extends State<PriceChangeScreen> with UnsavedWorkAware {
   final state = StationAppState.instance;
 
   String _selectedProduct = 'PMS';
   late TextEditingController _newPriceController;
-  final TextEditingController _authorizedReasonController = TextEditingController(text: 'Depot wholesale price adjustment authorized by Director');
+  final TextEditingController _authorizedReasonController = TextEditingController();
   late Map<int, TextEditingController> _meterControllers;
+
+  @override
+  bool get hasUnsavedWork =>
+      _authorizedReasonController.text.trim().isNotEmpty ||
+      _newPriceController.text.trim() != _currentPriceText(_selectedProduct);
+
+  String _currentPriceText(String product) =>
+      (product == 'PMS' ? state.pmsPrice : state.agoPrice).toStringAsFixed(0);
 
   @override
   void initState() {
     super.initState();
-    _newPriceController = TextEditingController(
-      text: (_selectedProduct == 'PMS' ? state.pmsPrice : state.agoPrice).toStringAsFixed(0),
-    );
+    ShellBackGuard.register(this);
+    _newPriceController = TextEditingController(text: _currentPriceText(_selectedProduct));
+    _authorizedReasonController.addListener(_onReasonChanged);
     _meterControllers = {
       for (var n in state.nozzles)
         n.nozzleNumber: TextEditingController(
@@ -40,8 +49,14 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
     };
   }
 
+  void _onReasonChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    ShellBackGuard.unregister(this);
+    _authorizedReasonController.removeListener(_onReasonChanged);
     _newPriceController.dispose();
     _authorizedReasonController.dispose();
     for (var c in _meterControllers.values) {
@@ -54,11 +69,46 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
     if (prod == null) return;
     setState(() {
       _selectedProduct = prod;
-      _newPriceController.text = (prod == 'PMS' ? state.pmsPrice : state.agoPrice).toStringAsFixed(0);
+      _newPriceController.text = _currentPriceText(prod);
     });
   }
 
-  void _submit() {
+  Future<void> _handleBack() async {
+    if (!hasUnsavedWork) {
+      widget.onBack();
+      return;
+    }
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Discard price change?'),
+        content: const Text('This screen has unsaved price authorization input. Leaving now discards it.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep Editing')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.bad, foregroundColor: Colors.white),
+            child: const Text('Discard'),
+          ),
+        ],
+      ),
+    );
+    if (discard == true) widget.onBack();
+  }
+
+  Future<void> _submit() async {
+    final reason = _authorizedReasonController.text.trim();
+    if (reason.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.bad,
+          behavior: SnackBarBehavior.floating,
+          content: Text('Enter a custom authorization directive before applying the price change.'),
+        ),
+      );
+      return;
+    }
+
     final newPrice = double.tryParse(_newPriceController.text.trim()) ?? 0.0;
     if (newPrice <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -71,6 +121,47 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
       return;
     }
 
+    final oldPrice = _selectedProduct == 'PMS' ? state.pmsPrice : state.agoPrice;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Apply station-wide price change?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '$_selectedProduct: ${CurrencyFormatter.formatNaira(oldPrice)}/L  →  ${CurrencyFormatter.formatNaira(newPrice)}/L',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.ink),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'This applies immediately at every nozzle of all 5 branches. Transition meter readings are captured for each $_selectedProduct nozzle and prior sales stay locked at the old price (§2.9).',
+              style: const TextStyle(fontSize: 13, color: AppColors.slate),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Directive: $reason',
+              style: const TextStyle(fontSize: 12, color: AppColors.muted),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(48, 48),
+            ),
+            child: const Text('Apply New Price', style: TextStyle(fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
     // Collect meter snapshots
     final Map<int, double> snapshots = {};
     for (var n in state.nozzles.where((n) => n.productName == _selectedProduct)) {
@@ -78,13 +169,41 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
       snapshots[n.nozzleNumber] = dial;
     }
 
-    state.authorizePriceChange(
-      product: _selectedProduct,
-      newPrice: newPrice,
-      reason: _authorizedReasonController.text.trim(),
-      meterSnapshots: snapshots,
-    );
+    try {
+      state.authorizePriceChange(
+        product: _selectedProduct,
+        newPrice: newPrice,
+        reason: reason,
+        meterSnapshots: snapshots,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.bad,
+            behavior: SnackBarBehavior.floating,
+            content: Text('Price change was not applied: $e'),
+          ),
+        );
+      }
+      return;
+    }
 
+    final appliedPrice = _selectedProduct == 'PMS' ? state.pmsPrice : state.agoPrice;
+    if (appliedPrice != newPrice) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: AppColors.bad,
+            behavior: SnackBarBehavior.floating,
+            content: Text('Price change did not take effect. Please retry.'),
+          ),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         backgroundColor: AppColors.ok,
@@ -100,13 +219,18 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final currentPrice = _selectedProduct == 'PMS' ? state.pmsPrice : state.agoPrice;
+    if (state.currentUser.role != UserRole.director) {
+      return _buildRestrictedAccess();
+    }
+
+    final reasonReady = _authorizedReasonController.text.trim().isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: widget.onBack,
+          tooltip: 'Back',
+          onPressed: _handleBack,
         ),
         title: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -120,7 +244,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
         padding: const EdgeInsets.all(20),
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 800),
+            constraints: const BoxConstraints(maxWidth: 1000),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -154,7 +278,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
                                   const Text('Product', style: TextStyle(fontSize: 13, color: AppColors.muted)),
                                   const SizedBox(height: 6),
                                   DropdownButtonFormField<String>(
-                                    value: _selectedProduct,
+                                    initialValue: _selectedProduct,
                                     items: [
                                       DropdownMenuItem(value: 'PMS', child: Text('PMS (Current: ${CurrencyFormatter.formatNaira(state.pmsPrice)})')),
                                       DropdownMenuItem(value: 'AGO', child: Text('AGO (Current: ${CurrencyFormatter.formatNaira(state.agoPrice)})')),
@@ -183,12 +307,24 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
                         ),
                         const SizedBox(height: 16),
 
-                        const Text('Authorization Directive / Commercial Justification', style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                        const Text('Authorization Directive / Commercial Justification *', style: TextStyle(fontSize: 13, color: AppColors.ink, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 6),
                         TextField(
                           controller: _authorizedReasonController,
-                          decoration: const InputDecoration(hintText: 'e.g. NNPC depot rate revision approved by Director'),
+                          decoration: const InputDecoration(
+                            hintText: 'e.g. NNPC depot rate revision approved by Director',
+                          ),
                           maxLines: 2,
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          reasonReady
+                              ? 'Recorded verbatim in the price authorization audit trail (§2.8).'
+                              : 'Required — type a custom directive. Pre-filled directives are not accepted.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: reasonReady ? AppColors.muted : AppColors.bad,
+                          ),
                         ),
                       ],
                     ),
@@ -265,18 +401,61 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> {
               flex: 2,
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.security_update_good),
-                onPressed: _submit,
+                onPressed: reasonReady ? _submit : null,
                 label: const Text('Authorize & apply new price'),
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: OutlinedButton(
-                onPressed: widget.onBack,
+                onPressed: _handleBack,
                 child: const Text('Cancel'),
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRestrictedAccess() {
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          tooltip: 'Back',
+          onPressed: widget.onBack,
+        ),
+        title: const Text('Fuel Price Authorization', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.lock_outline, size: 64, color: AppColors.muted),
+              const SizedBox(height: 16),
+              const Text(
+                'Restricted — director access required',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Central retail price governance is limited to the Director role (§2.8, §2.9).',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: AppColors.muted),
+              ),
+              const SizedBox(height: 20),
+              OutlinedButton.icon(
+                onPressed: widget.onBack,
+                icon: const Icon(Icons.arrow_back),
+                label: const Text('Back'),
+                style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
+              ),
+            ],
+          ),
         ),
       ),
     );

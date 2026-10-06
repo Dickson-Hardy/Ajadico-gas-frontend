@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
+import '../../models/user_profile.dart';
 import '../../state/station_app_state.dart';
 import '../manager/tank_changeover_dialog.dart';
 
@@ -38,7 +39,45 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
     if (mounted) setState(() {});
   }
 
+  Future<bool> _confirmSafetyChange({
+    required String title,
+    required String message,
+    required String confirmLabel,
+    required Color confirmColor,
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(message, style: const TextStyle(fontSize: 14, color: AppColors.ink)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: confirmColor,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(48, 48),
+            ),
+            child: Text(confirmLabel, style: const TextStyle(fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
+  }
+
   Future<void> _toggleStationInterlock(bool value) async {
+    final confirmed = await _confirmSafetyChange(
+      title: value ? 'Enable interlocked manifold piping?' : 'Disable interlocked manifold piping?',
+      message: value
+          ? 'Enabling the station manifold equips the Branch Manager and Director with the changeover workflow to record valve shifts and split meter sales between twin tanks (§3.1).'
+          : 'Disabling the station manifold reverts this branch to fixed one-to-one pipe routing and removes the changeover workflow (§3.1).',
+      confirmLabel: value ? 'Enable Interlock' : 'Disable Interlock',
+      confirmColor: value ? AppColors.primary : AppColors.bad,
+    );
+    if (!confirmed || !mounted) return;
+
     setState(() => _isSaving = true);
     final success = await state.updateStationInterlockConfig(value);
     if (mounted) {
@@ -57,6 +96,16 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
   }
 
   Future<void> _toggleTankInterlock(String tankCode, bool isInterlocked) async {
+    final confirmed = await _confirmSafetyChange(
+      title: isInterlocked ? 'Interlock this tank?' : 'Release tank interlock?',
+      message: isInterlocked
+          ? 'Tank $tankCode will join its twin as a manifold-interlocked pair, allowing nozzles to be switched between the two tanks during changeover.'
+          : 'Tank $tankCode will revert to independent, dedicated pipe routing. Nozzles will no longer be switchable to or from this tank during changeover.',
+      confirmLabel: isInterlocked ? 'Interlock Tank' : 'Release Interlock',
+      confirmColor: isInterlocked ? AppColors.primary : AppColors.bad,
+    );
+    if (!confirmed || !mounted) return;
+
     setState(() => _isSaving = true);
     final success = await state.updateTankInterlockConfig(tankCode, isInterlocked);
     if (mounted) {
@@ -74,7 +123,17 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
     }
   }
 
-  Future<void> _reassignNozzle(int nozzleNumber, String targetTankCode) async {
+  Future<void> _reassignNozzle(int nozzleNumber, String targetTankCode, {String? fromTankCode}) async {
+    final confirmed = await _confirmSafetyChange(
+      title: 'Re-pipe nozzle $nozzleNumber?',
+      message: fromTankCode == null
+          ? 'Nozzle $nozzleNumber will be re-piped to supply from Tank $targetTankCode.'
+          : 'Nozzle $nozzleNumber will be re-piped from Tank $fromTankCode to Tank $targetTankCode. Forecourt deliveries from this nozzle follow the new routing immediately.',
+      confirmLabel: 'Re-pipe Nozzle',
+      confirmColor: AppColors.primary,
+    );
+    if (!confirmed || !mounted) return;
+
     setState(() => _isSaving = true);
     final success = await state.assignNozzleSupplyingTank(nozzleNumber, targetTankCode);
     if (mounted) {
@@ -94,6 +153,10 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (state.currentUser.role != UserRole.director) {
+      return _buildRestrictedAccess();
+    }
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -101,18 +164,22 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('Station & Forecourt Setup', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            Text('${state.currentStationName} (${state.currentStationCode})', style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+            Text(
+              '${state.currentStationName} (${state.currentStationCode})',
+              style: const TextStyle(fontSize: 12, color: Colors.white70),
+            ),
           ],
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
+          tooltip: 'Back',
           onPressed: widget.onBack,
         ),
         actions: [
           if (state.hasInterlockedTanks)
             TextButton.icon(
               icon: const Icon(Icons.alt_route, color: AppColors.amber),
-              label: const Text('Execute Manifold Switch', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.bold)),
+              label: const Text('Execute Manifold Switch', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               onPressed: () => TankChangeoverDialog.show(context, state),
             ),
           const SizedBox(width: 8),
@@ -122,7 +189,7 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
         padding: const EdgeInsets.all(20),
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 900),
+            constraints: const BoxConstraints(maxWidth: 1000),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -133,10 +200,14 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 8,
+                          alignment: WrapAlignment.spaceBetween,
+                          crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
                             const Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(Icons.business, color: AppColors.ink),
                                 SizedBox(width: 10),
@@ -149,7 +220,7 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                               decoration: BoxDecoration(
-                                color: state.hasInterlockedTanks ? const Color(0xFFFEF3C7) : AppColors.lightEmerald,
+                                color: state.hasInterlockedTanks ? AppColors.warnSurface : AppColors.lightEmerald,
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
@@ -157,7 +228,7 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
-                                  color: state.hasInterlockedTanks ? const Color(0xFF92400E) : AppColors.emerald,
+                                  color: state.hasInterlockedTanks ? AppColors.warnInk : AppColors.okInk,
                                 ),
                               ),
                             ),
@@ -181,7 +252,7 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
                             style: TextStyle(fontSize: 12, color: AppColors.muted),
                           ),
                           value: state.hasInterlockedTanks,
-                          activeColor: AppColors.primary,
+                          activeThumbColor: AppColors.primary,
                           onChanged: _isSaving ? null : _toggleStationInterlock,
                         ),
                       ],
@@ -192,8 +263,11 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
                 const SizedBox(height: 20),
 
                 // 2. Underground Storage Tanks (UST) Configuration
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 6,
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     const Text(
                       'Underground Storage Tanks (UST)',
@@ -215,15 +289,19 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 8,
+                            alignment: WrapAlignment.spaceBetween,
+                            crossAxisAlignment: WrapCrossAlignment.center,
                             children: [
                               Row(
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                     decoration: BoxDecoration(
-                                      color: tank.product == 'PMS' ? const Color(0xFFFEF3C7) : const Color(0xFFD1FAE5),
+                                      color: tank.product == 'PMS' ? AppColors.warnSurface : AppColors.lightEmerald,
                                       borderRadius: BorderRadius.circular(6),
                                     ),
                                     child: Text(
@@ -231,7 +309,7 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
                                       style: TextStyle(
                                         fontWeight: FontWeight.bold,
                                         fontSize: 13,
-                                        color: tank.product == 'PMS' ? const Color(0xFF92400E) : const Color(0xFF065F46),
+                                        color: tank.product == 'PMS' ? AppColors.warnInk : AppColors.okInk,
                                       ),
                                     ),
                                   ),
@@ -246,7 +324,7 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                   decoration: BoxDecoration(
-                                    color: tank.isActiveSupply ? AppColors.lightEmerald : const Color(0xFFFEF3C7),
+                                    color: tank.isActiveSupply ? AppColors.lightEmerald : AppColors.warnSurface,
                                     borderRadius: BorderRadius.circular(6),
                                     border: Border.all(
                                       color: tank.isActiveSupply ? AppColors.emerald : AppColors.amber,
@@ -258,15 +336,15 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
                                       Icon(
                                         tank.isActiveSupply ? Icons.check_circle : Icons.pause_circle_outline,
                                         size: 14,
-                                        color: tank.isActiveSupply ? AppColors.emerald : const Color(0xFF92400E),
+                                        color: tank.isActiveSupply ? AppColors.okInk : AppColors.warnInk,
                                       ),
                                       const SizedBox(width: 4),
                                       Text(
                                         tank.isActiveSupply ? 'ACTIVE SUPPLY' : 'STANDBY TWIN',
                                         style: TextStyle(
-                                          fontSize: 11,
+                                          fontSize: 12,
                                           fontWeight: FontWeight.bold,
-                                          color: tank.isActiveSupply ? AppColors.emerald : const Color(0xFF92400E),
+                                          color: tank.isActiveSupply ? AppColors.okInk : AppColors.warnInk,
                                         ),
                                       ),
                                     ],
@@ -275,10 +353,11 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
                             ],
                           ),
                           const SizedBox(height: 10),
-                          Row(
+                          Wrap(
+                            spacing: 16,
+                            runSpacing: 4,
                             children: [
                               Text('Physical Dip: ${CurrencyFormatter.formatLitres(tank.physicalDip)}', style: const TextStyle(fontSize: 12, color: AppColors.muted)),
-                              const SizedBox(width: 16),
                               Text('Calculated Book: ${CurrencyFormatter.formatLitres(tank.bookStock)}', style: const TextStyle(fontSize: 12, color: AppColors.muted)),
                             ],
                           ),
@@ -290,7 +369,7 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
                               title: const Text('Mark as Manifold Interlocked Twin', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                               subtitle: const Text('Allows nozzles to be dynamically toggled between this tank and its twin during changeover.', style: TextStyle(fontSize: 11, color: AppColors.muted)),
                               value: tank.isInterlocked,
-                              activeColor: AppColors.primary,
+                              activeThumbColor: AppColors.primary,
                               onChanged: _isSaving ? null : (val) => _toggleTankInterlock(tank.code, val),
                             ),
                           ],
@@ -303,8 +382,11 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
                 const SizedBox(height: 20),
 
                 // 3. Pump Island Dispensers & Nozzle Pipe Routing
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 6,
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     const Text(
                       'Dispenser Nozzle Plumbing Routing',
@@ -355,28 +437,30 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
                               ],
                             ),
                           ),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              const Text('Supplying Tank:', style: TextStyle(fontSize: 11, color: AppColors.muted)),
-                              const SizedBox(height: 4),
-                              DropdownButton<String>(
-                                value: nozzle.tankCode,
-                                isDense: true,
-                                underline: Container(height: 1, color: AppColors.primary),
-                                items: eligibleTanks.map((t) {
-                                  return DropdownMenuItem<String>(
-                                    value: t.code,
-                                    child: Text('Tank ${t.code} (${t.product})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                                  );
-                                }).toList(),
-                                onChanged: _isSaving ? null : (newTank) {
-                                  if (newTank != null && newTank != nozzle.tankCode) {
-                                    _reassignNozzle(nozzle.nozzleNumber, newTank);
-                                  }
-                                },
-                              ),
-                            ],
+                          Flexible(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                const Text('Supplying Tank:', style: TextStyle(fontSize: 12, color: AppColors.muted)),
+                                const SizedBox(height: 4),
+                                DropdownButton<String>(
+                                  value: nozzle.tankCode,
+                                  isDense: true,
+                                  underline: Container(height: 1, color: AppColors.primary),
+                                  items: eligibleTanks.map((t) {
+                                    return DropdownMenuItem<String>(
+                                      value: t.code,
+                                      child: Text('Tank ${t.code} (${t.product})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                    );
+                                  }).toList(),
+                                  onChanged: _isSaving ? null : (newTank) {
+                                    if (newTank != null && newTank != nozzle.tankCode) {
+                                      _reassignNozzle(nozzle.nozzleNumber, newTank, fromTankCode: nozzle.tankCode);
+                                    }
+                                  },
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
@@ -386,6 +470,40 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRestrictedAccess() {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: const Text('Station & Forecourt Setup', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          tooltip: 'Back',
+          onPressed: widget.onBack,
+        ),
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.lock_outline, size: 56, color: AppColors.muted),
+            const SizedBox(height: 16),
+            const Text(
+              'Restricted — director access required',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: widget.onBack,
+              icon: const Icon(Icons.arrow_back, size: 18),
+              label: const Text('Back'),
+              style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
+            ),
+          ],
         ),
       ),
     );

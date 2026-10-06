@@ -3,6 +3,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/forecourt_tank_gauge.dart';
 import '../../core/widgets/status_chip.dart';
+import '../../models/user_profile.dart';
 import '../../state/station_app_state.dart';
 import '../manager/tank_changeover_dialog.dart';
 
@@ -45,10 +46,9 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
   }
 
   String _formatTime(DateTime dt) {
-    final hour = dt.hour == 0 ? 12 : (dt.hour > 12 ? dt.hour - 12 : dt.hour);
+    final hour = dt.hour.toString().padLeft(2, '0');
     final minute = dt.minute.toString().padLeft(2, '0');
-    final period = dt.hour >= 12 ? 'PM' : 'AM';
-    return '$hour:$minute $period';
+    return '$hour:$minute';
   }
 
   void _showReceiptPreview(BranchExpense expense) {
@@ -69,23 +69,53 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
             Container(
               height: 180,
               width: double.infinity,
+              clipBehavior: Clip.antiAlias,
               decoration: BoxDecoration(
                 color: Colors.grey.shade100,
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: AppColors.line),
               ),
-              child: const Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.photo_outlined, size: 48, color: AppColors.muted),
-                    SizedBox(height: 8),
-                    Text('Receipt Photo Attached', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
-                    SizedBox(height: 4),
-                    Text('Stored in Supabase expense-receipts bucket', style: TextStyle(color: AppColors.muted, fontSize: 12)),
-                  ],
-                ),
-              ),
+              child: expense.receiptUrl != null && expense.receiptUrl!.isNotEmpty
+                  ? Image.network(
+                      expense.receiptUrl!,
+                      fit: BoxFit.contain,
+                      loadingBuilder: (ctx, child, progress) {
+                        if (progress == null) return child;
+                        return const Center(
+                          child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                        );
+                      },
+                      errorBuilder: (ctx, err, stack) => const Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.broken_image_outlined, size: 48, color: AppColors.muted),
+                            SizedBox(height: 8),
+                            Text(
+                              'Receipt image could not be loaded',
+                              style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600),
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              'Stored in Supabase expense-receipts bucket',
+                              style: TextStyle(color: AppColors.muted, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.photo_outlined, size: 48, color: AppColors.muted),
+                          SizedBox(height: 8),
+                          Text('Receipt Photo Attached', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+                          SizedBox(height: 4),
+                          Text('Stored in Supabase expense-receipts bucket', style: TextStyle(color: AppColors.muted, fontSize: 12)),
+                        ],
+                      ),
+                    ),
             ),
           ],
         ),
@@ -96,8 +126,194 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
     );
   }
 
+  Future<void> _approveExpenseDialog(BranchExpense exp) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Approve Expense?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${exp.category} · ${CurrencyFormatter.formatNaira(exp.amount)}',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.ink),
+            ),
+            const SizedBox(height: 8),
+            Text(exp.description, style: const TextStyle(fontSize: 13, color: AppColors.slate)),
+            const SizedBox(height: 12),
+            const Text(
+              'Approving locks this expense into the consolidated company ledger as Director-authorized (§6.1).',
+              style: TextStyle(fontSize: 12, color: AppColors.muted),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.ok,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(48, 48),
+            ),
+            child: const Text('Approve', style: TextStyle(fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+    try {
+      state.approveExpense(expenseId: exp.id, approverNotes: 'Director approval');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Approved ${CurrencyFormatter.formatNaira(exp.amount)} (${exp.category})'),
+            backgroundColor: AppColors.ok,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to approve expense: $e'), backgroundColor: AppColors.bad),
+        );
+      }
+    }
+  }
+
+  Future<void> _rejectExpenseDialog(BranchExpense exp) async {
+    final reasonCtrl = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final canSubmit = reasonCtrl.text.trim().isNotEmpty;
+          return AlertDialog(
+            title: const Text('Reject Expense?'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${exp.category} · ${CurrencyFormatter.formatNaira(exp.amount)}',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.ink),
+                ),
+                const SizedBox(height: 8),
+                Text(exp.description, style: const TextStyle(fontSize: 13, color: AppColors.slate)),
+                const SizedBox(height: 12),
+                const Text(
+                  'Rejection Reason *',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.ink),
+                ),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: reasonCtrl,
+                  maxLines: 3,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    hintText: 'e.g. Missing original vendor receipt; resubmit with proof of purchase.',
+                  ),
+                  onChanged: (_) => setDialogState(() {}),
+                ),
+                if (!canSubmit)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 6),
+                    child: Text(
+                      'A reason is required before rejecting.',
+                      style: TextStyle(fontSize: 12, color: AppColors.bad),
+                    ),
+                  ),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              ElevatedButton(
+                onPressed: canSubmit ? () => Navigator.pop(ctx, reasonCtrl.text.trim()) : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.bad,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(48, 48),
+                ),
+                child: const Text('Reject', style: TextStyle(fontSize: 13)),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    reasonCtrl.dispose();
+
+    if (reason == null || reason.isEmpty || !mounted) return;
+    try {
+      state.rejectExpense(expenseId: exp.id, reason: reason);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Rejected ${CurrencyFormatter.formatNaira(exp.amount)} — reason recorded.'),
+            backgroundColor: AppColors.ink,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to reject expense: $e'), backgroundColor: AppColors.bad),
+        );
+      }
+    }
+  }
+
+  Widget _buildRestrictedAccess() {
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          tooltip: 'Back',
+          onPressed: widget.onBack,
+        ),
+        title: const Text('Company Consolidated Executive View', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.lock_outline, size: 64, color: AppColors.muted),
+              const SizedBox(height: 16),
+              const Text(
+                'Restricted — director access required',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Consolidated financials, expense approvals and storage oversight are limited to the Director role (§6.1).',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: AppColors.muted),
+              ),
+              const SizedBox(height: 20),
+              OutlinedButton.icon(
+                onPressed: widget.onBack,
+                icon: const Icon(Icons.arrow_back),
+                label: const Text('Back'),
+                style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (state.currentUser.role != UserRole.director) {
+      return _buildRestrictedAccess();
+    }
+
     // 1. Calculate Real Financial Metrics purely from live state
     double totalPmsLitres = 0.0;
     double totalAgoLitres = 0.0;
@@ -130,6 +346,7 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
+          tooltip: 'Back',
           onPressed: widget.onBack,
         ),
         title: const Column(
@@ -170,52 +387,70 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1050),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Top Header & Mode Toggle
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _selectedView == 0
-                              ? 'Consolidated Financial Performance'
-                              : 'Underground Fuel Storage Tanks (UST)',
-                          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.ink),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _selectedView == 0
-                              ? 'Real-time revenue, audited shift remittances, and verified expenses (§6.1).'
-                              : 'Real-time physical dip levels, book stock, and available discharge ullage (§3.1).',
-                          style: const TextStyle(fontSize: 15, color: AppColors.muted),
-                        ),
-                      ],
-                    ),
-                    SegmentedButton<int>(
-                      segments: const [
-                        ButtonSegment(
-                          value: 0,
-                          icon: Icon(Icons.assessment_outlined),
-                          label: Text('P&L Ledger'),
-                        ),
-                        ButtonSegment(
-                          value: 1,
-                          icon: Icon(Icons.propane_tank_outlined),
-                          label: Text('Tank Gauges'),
-                        ),
-                      ],
-                      selected: {_selectedView},
-                      onSelectionChanged: (set) => setState(() => _selectedView = set.first),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1000),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Top Header & Mode Toggle
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final titleBlock = Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _selectedView == 0
+                                ? 'Consolidated Financial Performance'
+                                : 'Underground Fuel Storage Tanks (UST)',
+                            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.ink),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _selectedView == 0
+                                ? 'Real-time revenue, audited shift remittances, and verified expenses (§6.1).'
+                                : 'Real-time physical dip levels, book stock, and available discharge ullage (§3.1).',
+                            style: const TextStyle(fontSize: 15, color: AppColors.muted),
+                          ),
+                        ],
+                      );
+                      final viewToggle = SegmentedButton<int>(
+                        segments: const [
+                          ButtonSegment(
+                            value: 0,
+                            icon: Icon(Icons.assessment_outlined),
+                            label: Text('P&L Ledger'),
+                          ),
+                          ButtonSegment(
+                            value: 1,
+                            icon: Icon(Icons.propane_tank_outlined),
+                            label: Text('Tank Gauges'),
+                          ),
+                        ],
+                        selected: {_selectedView},
+                        onSelectionChanged: (set) => setState(() => _selectedView = set.first),
+                      );
+
+                      if (constraints.maxWidth < 700) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            titleBlock,
+                            const SizedBox(height: 12),
+                            Align(alignment: Alignment.centerLeft, child: viewToggle),
+                          ],
+                        );
+                      }
+
+                      return Row(
+                        children: [
+                          Expanded(child: titleBlock),
+                          const SizedBox(width: 16),
+                          viewToggle,
+                        ],
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 20),
 
                 // =============================================================
                 // VIEW 0: REAL FINANCIAL LEDGER (ZERO DEMO DATA)
@@ -246,8 +481,11 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          Wrap(
+                            spacing: 16,
+                            runSpacing: 6,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            alignment: WrapAlignment.spaceBetween,
                             children: [
                               const Text(
                                 'Station Performance (Live Verified Shifts)',
@@ -290,23 +528,23 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
                                 headingTextStyle: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.ink),
                                 columns: const [
                                   DataColumn(label: Text('Branch')),
-                                  DataColumn(label: Text('PMS Litres'), numeric: true),
-                                  DataColumn(label: Text('AGO Litres'), numeric: true),
-                                  DataColumn(label: Text('Gross Revenue (₦)'), numeric: true),
-                                  DataColumn(label: Text('Est. Gross Profit'), numeric: true),
-                                  DataColumn(label: Text('Expenses'), numeric: true),
-                                  DataColumn(label: Text('Net Profit'), numeric: true),
+                                  DataColumn(label: Text('PMS Litres', textAlign: TextAlign.end), numeric: true),
+                                  DataColumn(label: Text('AGO Litres', textAlign: TextAlign.end), numeric: true),
+                                  DataColumn(label: Text('Gross Revenue (₦)', textAlign: TextAlign.end), numeric: true),
+                                  DataColumn(label: Text('Est. Gross Profit', textAlign: TextAlign.end), numeric: true),
+                                  DataColumn(label: Text('Expenses', textAlign: TextAlign.end), numeric: true),
+                                  DataColumn(label: Text('Net Profit', textAlign: TextAlign.end), numeric: true),
                                 ],
                                 rows: [
                                   DataRow(
                                     cells: [
                                       const DataCell(Text('Lekki Road Station', style: TextStyle(fontWeight: FontWeight.bold))),
-                                      DataCell(Text(CurrencyFormatter.formatLitres(totalPmsLitres))),
-                                      DataCell(Text(CurrencyFormatter.formatLitres(totalAgoLitres))),
-                                      DataCell(Text(CurrencyFormatter.formatNaira(totalRevenue))),
-                                      DataCell(Text(CurrencyFormatter.formatNaira(totalGrossProfit))),
-                                      DataCell(Text(CurrencyFormatter.formatNaira(totalExpenses))),
-                                      DataCell(
+                                      _numericCell(Text(CurrencyFormatter.formatLitres(totalPmsLitres))),
+                                      _numericCell(Text(CurrencyFormatter.formatLitres(totalAgoLitres))),
+                                      _numericCell(Text(CurrencyFormatter.formatNaira(totalRevenue))),
+                                      _numericCell(Text(CurrencyFormatter.formatNaira(totalGrossProfit))),
+                                      _numericCell(Text(CurrencyFormatter.formatNaira(totalExpenses))),
+                                      _numericCell(
                                         Text(
                                           CurrencyFormatter.formatNaira(totalNetProfit),
                                           style: TextStyle(fontWeight: FontWeight.bold, color: totalNetProfit >= 0 ? AppColors.ok : AppColors.bad),
@@ -332,26 +570,34 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Row(
-                                children: [
-                                  const Icon(Icons.receipt_long, color: AppColors.ink, size: 22),
-                                  const SizedBox(width: 8),
-                                  const Text(
-                                    'Expense Ledger & Executive Approvals (§6.1)',
-                                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
-                                  ),
-                                  if (state.pendingExpenses.isNotEmpty) ...[
-                                    const SizedBox(width: 10),
-                                    StatusChip(
-                                      label: '${state.pendingExpenses.length} Pending Approval',
-                                      type: ChipType.warn,
+                              Expanded(
+                                child: Wrap(
+                                  spacing: 10,
+                                  runSpacing: 8,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.receipt_long, color: AppColors.ink, size: 22),
+                                        const SizedBox(width: 8),
+                                        const Text(
+                                          'Expense Ledger & Executive Approvals (§6.1)',
+                                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
+                                        ),
+                                      ],
                                     ),
+                                    if (state.pendingExpenses.isNotEmpty)
+                                      StatusChip(
+                                        label: '${state.pendingExpenses.length} Pending Approval',
+                                        type: ChipType.warn,
+                                      ),
                                   ],
-                                ],
+                                ),
                               ),
-                              if (widget.onOpenExpenseEntry != null)
+                              if (widget.onOpenExpenseEntry != null) ...[
+                                const SizedBox(width: 12),
                                 ElevatedButton.icon(
                                   onPressed: widget.onOpenExpenseEntry,
                                   icon: const Icon(Icons.add, size: 16),
@@ -359,9 +605,11 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: AppColors.primary,
                                     foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                    minimumSize: const Size(48, 48),
+                                    padding: const EdgeInsets.symmetric(horizontal: 12),
                                   ),
                                 ),
+                              ],
                             ],
                           ),
                           const SizedBox(height: 6),
@@ -389,7 +637,7 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
                                   DataColumn(label: Text('Description')),
                                   DataColumn(label: Text('Source')),
                                   DataColumn(label: Text('Role')),
-                                  DataColumn(label: Text('Amount (₦)'), numeric: true),
+                                  DataColumn(label: Text('Amount (₦)', textAlign: TextAlign.end), numeric: true),
                                   DataColumn(label: Text('Status')),
                                   DataColumn(label: Text('Receipt')),
                                   DataColumn(label: Text('Executive Action')),
@@ -402,7 +650,7 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
                                       DataCell(Text(exp.description)),
                                       DataCell(Text(exp.paymentSource == 'sales_cash' ? 'Cash Safe' : exp.paymentSource)),
                                       DataCell(Text(exp.recordedByRole.toUpperCase())),
-                                      DataCell(Text(
+                                      _numericCell(Text(
                                         CurrencyFormatter.formatNaira(exp.amount),
                                         style: const TextStyle(fontWeight: FontWeight.bold),
                                       )),
@@ -427,45 +675,31 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
                                                 mainAxisSize: MainAxisSize.min,
                                                 children: [
                                                   OutlinedButton(
-                                                    onPressed: () {
-                                                      state.rejectExpense(exp.id, 'Director');
-                                                      ScaffoldMessenger.of(context).showSnackBar(
-                                                        SnackBar(
-                                                          content: Text('Rejected ${CurrencyFormatter.formatNaira(exp.amount)}'),
-                                                          backgroundColor: AppColors.bad,
-                                                        ),
-                                                      );
-                                                    },
+                                                    onPressed: () => _rejectExpenseDialog(exp),
                                                     style: OutlinedButton.styleFrom(
                                                       side: const BorderSide(color: AppColors.bad),
-                                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                                      visualDensity: VisualDensity.compact,
+                                                      minimumSize: const Size(48, 48),
+                                                      padding: const EdgeInsets.symmetric(horizontal: 12),
                                                     ),
-                                                    child: const Text('Reject', style: TextStyle(color: AppColors.bad, fontSize: 11)),
+                                                    child: const Text('Reject', style: TextStyle(color: AppColors.bad, fontSize: 13)),
                                                   ),
                                                   const SizedBox(width: 6),
                                                   ElevatedButton(
-                                                    onPressed: () {
-                                                      state.approveExpense(exp.id, 'Director');
-                                                      ScaffoldMessenger.of(context).showSnackBar(
-                                                        SnackBar(
-                                                          content: Text('Approved ${CurrencyFormatter.formatNaira(exp.amount)} (${exp.category})'),
-                                                          backgroundColor: AppColors.ok,
-                                                        ),
-                                                      );
-                                                    },
+                                                    onPressed: () => _approveExpenseDialog(exp),
                                                     style: ElevatedButton.styleFrom(
                                                       backgroundColor: AppColors.ok,
                                                       foregroundColor: Colors.white,
-                                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                                      visualDensity: VisualDensity.compact,
+                                                      minimumSize: const Size(48, 48),
+                                                      padding: const EdgeInsets.symmetric(horizontal: 12),
                                                     ),
-                                                    child: const Text('Approve', style: TextStyle(fontSize: 11)),
+                                                    child: const Text('Approve', style: TextStyle(fontSize: 13)),
                                                   ),
                                                 ],
                                               )
                                             : Text(
-                                                exp.approvedBy.isNotEmpty ? 'By ${exp.approvedBy}' : 'Completed',
+                                                exp.approvedBy != null && exp.approvedBy!.isNotEmpty
+                                                    ? 'By ${exp.approvedBy}'
+                                                    : 'Completed',
                                                 style: const TextStyle(fontSize: 12, color: AppColors.slate),
                                               ),
                                       ),
@@ -493,7 +727,7 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
                         runSpacing: 12,
                         children: [
                           _buildSummaryKpi('Total PMS in Storage', CurrencyFormatter.formatLitres(totalPmsInStock), width, color: const Color(0xFFC2410C)),
-                          _buildSummaryKpi('Total AGO in Storage', CurrencyFormatter.formatLitres(totalAgoInStock), width, color: const Color(0xFF047857)),
+                          _buildSummaryKpi('Total AGO in Storage', CurrencyFormatter.formatLitres(totalAgoInStock), width, color: AppColors.ok),
                           _buildSummaryKpi('Total Discharge Ullage', CurrencyFormatter.formatLitres(totalCompanyUllage), width, color: AppColors.ink),
                           _buildSummaryKpi('Attention Required', '$lowStockTanksCount Tank(s)', width, color: lowStockTanksCount > 0 ? AppColors.warn : AppColors.ok),
                         ],
@@ -503,8 +737,11 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
                   const SizedBox(height: 20),
 
                   // Header with Tank Count
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  Wrap(
+                    spacing: 16,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    alignment: WrapAlignment.spaceBetween,
                     children: [
                       Text(
                         'Active Station Tanks (${liveTanks.length} Tanks in Database)',
@@ -566,6 +803,10 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
         ),
       ),
     );
+  }
+
+  DataCell _numericCell(Widget child) {
+    return DataCell(Align(alignment: Alignment.centerRight, child: child));
   }
 
   Widget _buildSummaryKpi(String label, String value, double width, {Color color = AppColors.ink}) {

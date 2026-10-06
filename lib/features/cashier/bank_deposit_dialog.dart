@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/services/camera_compression_service.dart';
 import '../../core/utils/currency_formatter.dart';
+import '../../core/widgets/evidence_photo_picker.dart';
 import '../../models/user_profile.dart';
 import '../../state/station_app_state.dart';
 
@@ -27,7 +30,9 @@ class _BankDepositDialogState extends State<BankDepositDialog> {
 
   String _selectedBank = 'Zenith Bank — 1012984920 (Ajadico Ops)';
   String _selectedBearer = '';
-  String _slipPhotoName = '';
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  List<CompressedImageResult> _slipPhotos = [];
+  String _formError = '';
   bool _isSubmitting = false;
 
   final List<String> _bankAccounts = [
@@ -37,6 +42,11 @@ class _BankDepositDialogState extends State<BankDepositDialog> {
     'Access Bank — 0029481928 (Ajadico Operations)',
   ];
 
+  double? get _lastDepositAmount {
+    if (state.deposits.isEmpty) return null;
+    return state.deposits.first.amount;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -45,7 +55,6 @@ class _BankDepositDialogState extends State<BankDepositDialog> {
         : (state.currentUser.role == UserRole.director ? 'Director' : 'Station Cashier');
     _selectedBearer = '${state.currentUser.displayName} ($roleName)';
     _tellerController.text = 'TEL-${DateTime.now().year}${DateTime.now().month.toString().padLeft(2, '0')}${DateTime.now().day.toString().padLeft(2, '0')}-${DateTime.now().millisecond}';
-    _slipPhotoName = 'teller_slip_${DateTime.now().millisecondsSinceEpoch}.jpg';
   }
 
   @override
@@ -59,32 +68,22 @@ class _BankDepositDialogState extends State<BankDepositDialog> {
   void _setAmount(double amt) {
     setState(() {
       _amountController.text = amt.toStringAsFixed(0);
+      _formError = '';
     });
   }
 
   Future<void> _submitDeposit() async {
-    final amt = double.tryParse(_amountController.text.trim()) ?? 0.0;
-    if (amt <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: AppColors.bad,
-          behavior: SnackBarBehavior.floating,
-          content: Text('Please enter a valid deposit amount greater than ₦0.'),
-        ),
-      );
+    final formValid = _formKey.currentState?.validate() ?? false;
+    final photoMissing = _slipPhotos.isEmpty;
+    if (!formValid || photoMissing) {
+      setState(() {
+        _formError = photoMissing ? 'Attach the stamped bank teller photo before handing over cash.' : '';
+      });
       return;
     }
+    setState(() => _formError = '');
 
-    if (_tellerController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: AppColors.bad,
-          behavior: SnackBarBehavior.floating,
-          content: Text('Please enter the stamped bank teller or reference number.'),
-        ),
-      );
-      return;
-    }
+    final amt = double.tryParse(_amountController.text.trim()) ?? 0.0;
 
     if (amt > widget.availableCash && widget.availableCash > 0) {
       final confirm = await showDialog<bool>(
@@ -103,10 +102,16 @@ class _BankDepositDialogState extends State<BankDepositDialog> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
+              style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
               child: const Text('Review Amount'),
             ),
             ElevatedButton(
               onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.bad,
+                foregroundColor: Colors.white,
+                minimumSize: const Size(0, 48),
+              ),
               child: const Text('Proceed Anyway'),
             ),
           ],
@@ -123,45 +128,39 @@ class _BankDepositDialogState extends State<BankDepositDialog> {
         bankName: _selectedBank,
         bearerName: _selectedBearer,
         tellerNumber: _tellerController.text.trim(),
-        slipUrl: _slipPhotoName,
+        slipUrl: _slipPhotos.isNotEmpty ? _slipPhotos.first.fileName : '',
         notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
       );
 
-      if (mounted) {
+      if (!mounted) return;
+
+      if (dep != null) {
         Navigator.pop(context);
-        if (dep != null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              backgroundColor: AppColors.ok,
-              behavior: SnackBarBehavior.floating,
-              content: Text(
-                'Remitted ${CurrencyFormatter.formatNaira(amt)} to $_selectedBank! Awaiting Director credit alert confirmation.',
-              ),
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.ok,
+            behavior: SnackBarBehavior.floating,
+            content: Text(
+              'Remitted ${CurrencyFormatter.formatNaira(amt)} to $_selectedBank! Awaiting Director credit alert confirmation.',
             ),
-          );
-          widget.onDepositRecorded();
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              backgroundColor: AppColors.bad,
-              behavior: SnackBarBehavior.floating,
-              content: Text('Failed to record bank deposit. Please retry.'),
-            ),
-          );
-        }
+          ),
+        );
+        widget.onDepositRecorded();
+      } else {
+        setState(() {
+          _isSubmitting = false;
+          _formError = 'Could not record this deposit. Please review the entries and retry.';
+        });
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: AppColors.bad,
-            behavior: SnackBarBehavior.floating,
-            content: Text('Error: $e'),
-          ),
-        );
+        setState(() {
+          _isSubmitting = false;
+          _formError = 'Could not record this deposit. Please review the entries and retry.';
+        });
       }
     } finally {
-      if (mounted) setState(() => _isSubmitting = false);
+      if (mounted && _formError.isEmpty) setState(() => _isSubmitting = false);
     }
   }
 
@@ -175,12 +174,15 @@ class _BankDepositDialogState extends State<BankDepositDialog> {
     ].toSet().toList();
 
     return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 550),
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
-          child: Column(
+          child: Form(
+            key: _formKey,
+            autovalidateMode: AutovalidateMode.onUserInteraction,
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -213,11 +215,38 @@ class _BankDepositDialogState extends State<BankDepositDialog> {
                   ),
                   IconButton(
                     icon: const Icon(Icons.close),
+                    tooltip: 'Close',
                     onPressed: () => Navigator.pop(context),
                   ),
                 ],
               ),
               const Divider(height: 24, color: AppColors.line),
+
+              if (_formError.isNotEmpty) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: AppColors.badSurface,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.bad),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.error_outline, color: AppColors.bad, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _formError,
+                          style: const TextStyle(fontSize: 13, color: AppColors.bad),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
 
               // Safe Balance Context Card
               Container(
@@ -228,9 +257,11 @@ class _BankDepositDialogState extends State<BankDepositDialog> {
                   border: Border.all(color: AppColors.line),
                 ),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Available Cash in Safe:', style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                    const Expanded(
+                      child: Text('Available Cash in Safe:', style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                    ),
+                    const SizedBox(width: 12),
                     Text(
                       CurrencyFormatter.formatNaira(widget.availableCash),
                       style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ok),
@@ -247,27 +278,28 @@ class _BankDepositDialogState extends State<BankDepositDialog> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  ActionChip(
-                    avatar: const Icon(Icons.done_all, size: 16, color: AppColors.ok),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.done_all, size: 18, color: AppColors.ok),
                     label: const Text('All Safe Cash'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(0, 48),
+                      backgroundColor: AppColors.okSurface,
+                      foregroundColor: AppColors.ink,
+                      side: const BorderSide(color: AppColors.ok),
+                    ),
                     onPressed: widget.availableCash > 0 ? () => _setAmount(widget.availableCash) : null,
                   ),
-                  ActionChip(
-                    label: const Text('₦500k'),
-                    onPressed: () => _setAmount(500000),
-                  ),
-                  ActionChip(
-                    label: const Text('₦1.0M'),
-                    onPressed: () => _setAmount(1000000),
-                  ),
-                  ActionChip(
-                    label: const Text('₦2.0M'),
-                    onPressed: () => _setAmount(2000000),
-                  ),
-                  ActionChip(
-                    label: const Text('₦3.5M'),
-                    onPressed: () => _setAmount(3500000),
-                  ),
+                  if (_lastDepositAmount != null)
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.history, size: 18, color: AppColors.bank),
+                      label: Text('Last deposit (${CurrencyFormatter.formatNaira(_lastDepositAmount!)})'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(0, 48),
+                        backgroundColor: AppColors.lightBackground,
+                        foregroundColor: AppColors.ink,
+                      ),
+                      onPressed: () => _setAmount(_lastDepositAmount!),
+                    ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -275,10 +307,16 @@ class _BankDepositDialogState extends State<BankDepositDialog> {
               // Amount Input
               const Text('Amount to Deposit (₦) *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
-              TextField(
+              TextFormField(
                 controller: _amountController,
                 keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.ink),
+                validator: (v) {
+                  final amt = double.tryParse((v ?? '').trim()) ?? 0.0;
+                  if (amt <= 0) return 'Enter a valid deposit amount greater than ₦0.';
+                  return null;
+                },
                 decoration: const InputDecoration(
                   prefixText: '₦ ',
                   hintText: '0',
@@ -290,7 +328,7 @@ class _BankDepositDialogState extends State<BankDepositDialog> {
               const Text('Target Company Bank Account *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
               DropdownButtonFormField<String>(
-                value: _selectedBank,
+                initialValue: _selectedBank,
                 isExpanded: true,
                 items: _bankAccounts.map((b) => DropdownMenuItem(value: b, child: Text(b, style: const TextStyle(fontSize: 13)))).toList(),
                 onChanged: (val) {
@@ -304,7 +342,7 @@ class _BankDepositDialogState extends State<BankDepositDialog> {
               const Text('Custody Bearer / Depositor *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
               DropdownButtonFormField<String>(
-                value: _selectedBearer,
+                initialValue: _selectedBearer,
                 isExpanded: true,
                 items: bearerOptions.map((b) => DropdownMenuItem(value: b, child: Text(b, style: const TextStyle(fontSize: 13)))).toList(),
                 onChanged: (val) {
@@ -317,8 +355,9 @@ class _BankDepositDialogState extends State<BankDepositDialog> {
               // Stamped Teller Reference Number
               const Text('Bank Teller / Transaction Ref No. *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
-              TextField(
+              TextFormField(
                 controller: _tellerController,
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter the stamped bank teller or reference number.' : null,
                 decoration: const InputDecoration(
                   hintText: 'e.g. TEL-20261005-0914',
                 ),
@@ -326,40 +365,21 @@ class _BankDepositDialogState extends State<BankDepositDialog> {
               const SizedBox(height: 16),
 
               // Stamped Teller Slip Photo Attachment
-              const Text('Stamped Bank Teller Photo / Proof', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+              const Text('Stamped Bank Teller Photo / Proof *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                decoration: BoxDecoration(
-                  color: AppColors.background,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.line),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.receipt, color: AppColors.bank, size: 22),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        _slipPhotoName,
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.ink),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    TextButton.icon(
-                      icon: const Icon(Icons.camera_alt, size: 16),
-                      label: const Text('Attached'),
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Stamped bank teller slip photo attached.'),
-                            duration: Duration(seconds: 1),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ),
+              EvidencePhotoPicker(
+                title: 'Stamped Bank Teller Slip (<150KB)',
+                photoType: 'bank_teller_slip',
+                stationName: state.currentStationName,
+                staffName: state.currentUser.displayName,
+                bucketName: 'bank-teller-slips',
+                maxPhotos: 1,
+                onPhotosChanged: (photos) {
+                  setState(() {
+                    _slipPhotos = photos;
+                    if (photos.isNotEmpty) _formError = '';
+                  });
+                },
               ),
               const SizedBox(height: 16),
 
@@ -395,6 +415,7 @@ class _BankDepositDialogState extends State<BankDepositDialog> {
                 ),
               ),
             ],
+            ),
           ),
         ),
       ),

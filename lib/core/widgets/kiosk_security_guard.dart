@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../offline/offline_sync_service.dart';
 import '../security/kiosk_security_manager.dart';
+import '../../state/station_app_state.dart';
 
 /// Wraps the application with forecourt security watchdog and 15-minute lockout overlay
 class KioskSecurityGuard extends StatefulWidget {
@@ -66,7 +67,7 @@ class _KioskSecurityGuardState extends State<KioskSecurityGuard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Enter Authorized Station Manager PIN (Default: 998811 or 5555) to unlock this tablet immediately.',
+                'Enter an Authorized Station Manager PIN to unlock this tablet immediately.',
                 style: TextStyle(fontSize: 13, color: AppColors.slate),
               ),
               const SizedBox(height: 16),
@@ -96,10 +97,11 @@ class _KioskSecurityGuardState extends State<KioskSecurityGuard> {
             ),
             ElevatedButton(
               onPressed: () {
+                final stationState = StationAppState.instance;
                 final success = _securityManager.managerOverrideUnlock(
                   managerPin: pinController.text.trim(),
-                  managerId: 'MGR-LEKKI-01',
-                  stationId: 'lekki-01',
+                  managerId: stationState.currentUser.id,
+                  stationId: stationState.currentStationCode,
                 );
 
                 if (success) {
@@ -139,10 +141,11 @@ class _KioskSecurityGuardState extends State<KioskSecurityGuard> {
           // Main Application Content
           widget.child,
 
-          // 1. Inactivity Warning Banner (Appears at 50s idle time)
+          // 1. Inactivity Warning Banner (Appears at 50s idle time; offset
+          // below the heads-up alert toast so the two never overlap)
           if (_securityManager.isWarningActive && !_securityManager.isLockedOut)
             Positioned(
-              top: 16,
+              top: 104,
               left: 20,
               right: 20,
               child: Material(
@@ -193,10 +196,10 @@ class _KioskSecurityGuardState extends State<KioskSecurityGuard> {
           if (_securityManager.isLockedOut)
             Positioned.fill(
               child: Material(
-                color: Colors.black.withOpacity(0.92),
+                color: Colors.black.withValues(alpha: 0.92),
                 child: Center(
                   child: Container(
-                    maxWidth: 480,
+                    constraints: const BoxConstraints(maxWidth: 480),
                     margin: const EdgeInsets.symmetric(horizontal: 24),
                     padding: const EdgeInsets.all(32),
                     decoration: BoxDecoration(
@@ -204,7 +207,7 @@ class _KioskSecurityGuardState extends State<KioskSecurityGuard> {
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.redAccent.withOpacity(0.3),
+                          color: Colors.redAccent.withValues(alpha: 0.3),
                           blurRadius: 30,
                           spreadRadius: 5,
                         ),
@@ -237,7 +240,7 @@ class _KioskSecurityGuardState extends State<KioskSecurityGuard> {
                           decoration: BoxDecoration(
                             color: AppColors.lightBackground,
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.redAccent.withOpacity(0.4)),
+                            border: Border.all(color: Colors.redAccent.withValues(alpha: 0.4)),
                           ),
                           child: Column(
                             children: [
