@@ -8,6 +8,7 @@ import '../core/utils/currency_formatter.dart';
 import '../models/bank_deposit.dart';
 import '../models/credit_customer.dart';
 import '../models/interim_cash_drop.dart';
+import '../models/monthly_payroll_settlement.dart';
 import '../models/nozzle.dart';
 import '../models/pos_transaction.dart';
 import '../models/station.dart';
@@ -266,6 +267,10 @@ class StationAppState extends ChangeNotifier {
   // 9. Attendant Salary Ledger
   final List<SalaryAdjustment> _salaryAdjustments = [];
   List<SalaryAdjustment> get salaryAdjustments => List.unmodifiable(_salaryAdjustments);
+
+  // 9b. Monthly Payroll Settlements (§4.7)
+  final List<MonthlyPayrollSettlement> _payrollSettlements = [];
+  List<MonthlyPayrollSettlement> get payrollSettlements => List.unmodifiable(_payrollSettlements);
 
   // 10. Bank Deposits
   final List<BankDepositRecord> _deposits = [];
@@ -1177,6 +1182,116 @@ class StationAppState extends ChangeNotifier {
     );
 
     notifyListeners();
+  }
+
+  /// Process Monthly Payroll Settlement for an Attendant (§4.6, §4.7)
+  MonthlyPayrollSettlement processMonthlyPayrollSettlement({
+    required String attendantId,
+    required String attendantName,
+    required String stationName,
+    required String monthYear,
+    required double baseSalary,
+    required String settledBy,
+  }) {
+    // Find all adjustments for this attendant that are approved ('Salary Deduction Approved')
+    final approvedAdjustments = _salaryAdjustments.where((adj) {
+      final nameMatches = adj.attendantName.trim().toLowerCase() == attendantName.trim().toLowerCase();
+      final isApprovedShortage = adj.status == 'Salary Deduction Approved';
+      return nameMatches && isApprovedShortage;
+    }).toList();
+
+    double totalShortages = 0.0;
+    double totalExcesses = 0.0;
+    for (var adj in approvedAdjustments) {
+      if (adj.amount < 0) {
+        totalShortages += adj.amount.abs();
+      } else {
+        totalExcesses += adj.amount;
+      }
+      adj.status = 'Settled in Payroll ($monthYear)';
+    }
+
+    final netCalculated = (baseSalary - totalShortages + totalExcesses);
+    final netPayable = netCalculated > 0 ? netCalculated : 0.0;
+    final carriedDeficit = netCalculated < 0 ? netCalculated.abs() : 0.0;
+
+    final settlement = MonthlyPayrollSettlement(
+      id: 'settlement-${DateTime.now().millisecondsSinceEpoch}-${attendantName.hashCode.abs()}',
+      attendantId: attendantId,
+      attendantName: attendantName,
+      stationName: stationName,
+      monthYear: monthYear,
+      baseSalary: baseSalary,
+      totalShortagesDeducted: totalShortages,
+      totalExcessesCredited: totalExcesses,
+      netPayable: netPayable,
+      carriedDeficit: carriedDeficit,
+      shortfallShiftCount: approvedAdjustments.length,
+      settledBy: settledBy,
+      settledAt: DateTime.now(),
+    );
+
+    _payrollSettlements.insert(0, settlement);
+
+    _syncService.enqueue(
+      actionType: SyncActionType.salaryAdjustment,
+      payload: settlement.toJson(),
+    );
+
+    _notifService.postNotification(
+      title: 'Monthly Payroll Settled ($monthYear)',
+      message: 'Attendant $attendantName settled. Base: ${CurrencyFormatter.formatNaira(baseSalary)} | Shortages: -${CurrencyFormatter.formatNaira(totalShortages)} | Net: ${CurrencyFormatter.formatNaira(netPayable)}',
+      type: NotificationType.approval,
+      targetRole: UserRole.director,
+      actionRouteName: '19 Salary Ledger',
+    );
+
+    notifyListeners();
+    return settlement;
+  }
+
+  /// Bulk Process Monthly Payroll Settlement for all Attendants (§4.7)
+  List<MonthlyPayrollSettlement> processAllAttendantsPayroll({
+    required String monthYear,
+    required String settledBy,
+  }) {
+    final attendantStaff = _staff.where((s) => s.role == UserRole.attendant).toList();
+    final List<MonthlyPayrollSettlement> results = [];
+
+    // Process all enrolled attendants
+    for (var att in attendantStaff) {
+      final settlement = processMonthlyPayrollSettlement(
+        attendantId: att.id,
+        attendantName: att.displayName,
+        stationName: att.stationName.isNotEmpty ? att.stationName : _currentStationName,
+        monthYear: monthYear,
+        baseSalary: att.baseSalary > 0 ? att.baseSalary : 75000.0,
+        settledBy: settledBy,
+      );
+      results.add(settlement);
+    }
+
+    // Process any attendants who have adjustments but are not yet in staff table
+    final otherAttendantNames = _salaryAdjustments
+        .where((adj) => adj.status == 'Salary Deduction Approved')
+        .map((adj) => adj.attendantName.trim())
+        .toSet()
+        .difference(attendantStaff.map((s) => s.displayName.trim()).toSet());
+
+    for (var name in otherAttendantNames) {
+      final settlement = processMonthlyPayrollSettlement(
+        attendantId: 'att-${name.hashCode.abs()}',
+        attendantName: name,
+        stationName: _currentStationName,
+        monthYear: monthYear,
+        baseSalary: 75000.0,
+        settledBy: settledBy,
+      );
+      results.add(settlement);
+    }
+
+    notifyListeners();
+    return results;
   }
 
   /// Record handover of cash for commercial bank deposit (§4.3, §5.4, §5.5)

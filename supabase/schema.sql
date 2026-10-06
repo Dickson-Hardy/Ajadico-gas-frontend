@@ -260,6 +260,26 @@ CREATE TABLE IF NOT EXISTS public.attendant_salary_adjustments (
 );
 
 -- -----------------------------------------------------------------------------
+-- 8b. MONTHLY ATTENDANT PAYROLL SETTLEMENTS (§4.7)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.monthly_payroll_settlements (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    attendant_id UUID REFERENCES public.profiles(id) ON DELETE RESTRICT,
+    station_id UUID REFERENCES public.stations(id) ON DELETE SET NULL,
+    month_year VARCHAR(30) NOT NULL,
+    base_salary NUMERIC(14, 2) NOT NULL DEFAULT 0.00,
+    total_shortages_deducted NUMERIC(14, 2) NOT NULL DEFAULT 0.00,
+    total_excesses_credited NUMERIC(14, 2) NOT NULL DEFAULT 0.00,
+    net_payable NUMERIC(14, 2) NOT NULL DEFAULT 0.00,
+    carried_deficit NUMERIC(14, 2) NOT NULL DEFAULT 0.00,
+    shortfall_shift_count INT DEFAULT 0,
+    settled_by UUID REFERENCES public.profiles(id),
+    settled_at TIMESTAMPTZ DEFAULT NOW(),
+    status VARCHAR(30) DEFAULT 'settled',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- -----------------------------------------------------------------------------
 -- 9. REGISTERED CREDIT CUSTOMERS & LEDGER (§4.8–§4.10)
 -- -----------------------------------------------------------------------------
 CREATE TYPE public.credit_status AS ENUM ('current', 'overdue', 'settled');

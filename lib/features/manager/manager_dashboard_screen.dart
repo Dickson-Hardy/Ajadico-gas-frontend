@@ -5,6 +5,7 @@ import '../../core/widgets/forecourt_tank_gauge.dart';
 import '../../core/widgets/status_chip.dart';
 import '../../state/station_app_state.dart';
 import '../cashier/bank_deposit_dialog.dart';
+import '../reports/shift_summary_export_dialog.dart';
 import 'tank_changeover_dialog.dart';
 
 class ManagerDashboardScreen extends StatefulWidget {
@@ -227,6 +228,11 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
               tooltip: 'Station Expenses',
               onPressed: widget.onOpenExpenseEntry,
             ),
+          IconButton(
+            icon: const Icon(Icons.print_outlined),
+            tooltip: 'Print / Export Shift Summary',
+            onPressed: () => ShiftSummaryExportDialog.show(context),
+          ),
           IconButton(
             icon: const Icon(Icons.people_outline),
             tooltip: 'Credit Customers',
@@ -586,6 +592,12 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                 onPressed: () => _openBankDepositDialog(state.totalCountedCash > 0 ? state.totalCountedCash : state.expectedClosingCash),
                 label: const Text('Bank deposit'),
               ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: const Icon(Icons.print_outlined, color: AppColors.primary),
+              tooltip: 'Print / Export Shift Summary',
+              onPressed: () => ShiftSummaryExportDialog.show(context),
             ),
           ],
         ),

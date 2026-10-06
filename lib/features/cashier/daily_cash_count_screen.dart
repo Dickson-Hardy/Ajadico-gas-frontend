@@ -3,6 +3,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/status_chip.dart';
 import '../../state/station_app_state.dart';
+import '../reports/shift_summary_export_dialog.dart';
 import 'bank_deposit_dialog.dart';
 
 class DailyCashCountScreen extends StatefulWidget {
@@ -96,6 +97,11 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.print_outlined),
+            tooltip: 'Print / Export Shift Summary',
+            onPressed: () => ShiftSummaryExportDialog.show(context),
+          ),
           if (widget.onOpenExpenseEntry != null)
             IconButton(
               icon: const Icon(Icons.receipt_long),
@@ -320,6 +326,20 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
                                       ),
                                     ),
                                   ],
+                                  const SizedBox(height: 10),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: OutlinedButton.icon(
+                                      icon: const Icon(Icons.print_outlined, color: AppColors.primary),
+                                      label: const Text('Print / Export Shift Summary'),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: AppColors.primary,
+                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                        side: const BorderSide(color: AppColors.primary),
+                                      ),
+                                      onPressed: () => ShiftSummaryExportDialog.show(context),
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
