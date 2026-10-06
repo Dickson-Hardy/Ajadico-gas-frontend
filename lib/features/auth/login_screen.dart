@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/network/supabase_repository.dart';
 import '../../core/security/kiosk_security_manager.dart';
+import '../../core/widgets/ajadico_logo.dart';
 import '../../core/widgets/forecourt_sync_bar.dart';
 import '../../models/user_profile.dart';
 import '../../state/station_app_state.dart';
@@ -251,6 +252,12 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      const Center(
+                        child: Padding(
+                          padding: EdgeInsets.only(top: 8, bottom: 20),
+                          child: AjadicoLogo.stacked(size: 64, showSubtitle: true),
+                        ),
+                      ),
                       const Text(
                         'Select Active Staff Member',
                         style: TextStyle(

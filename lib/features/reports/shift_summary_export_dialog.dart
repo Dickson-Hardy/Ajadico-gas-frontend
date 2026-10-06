@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
+import '../../core/widgets/ajadico_logo.dart';
 import '../../state/station_app_state.dart';
 
 /// Shift Summary Export & Print Modal Dialog (BRD v3 §5.3, §5.5, §6.1)
@@ -221,8 +222,8 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('AJADICO ENERGY LIMITED', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.ink)),
-                                const SizedBox(height: 2),
+                                const AjadicoLogo.horizontal(size: 28, showSubtitle: true),
+                                const SizedBox(height: 6),
                                 Text(
                                   'Station Code: ${state.currentStationCode} · Forecourt Multi-Tank Branch',
                                   style: const TextStyle(fontSize: 12, color: AppColors.muted),
