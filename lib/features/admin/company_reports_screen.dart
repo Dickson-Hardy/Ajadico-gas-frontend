@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/forecourt_tank_gauge.dart';
+import '../../core/widgets/status_chip.dart';
 import '../../state/station_app_state.dart';
 import '../manager/tank_changeover_dialog.dart';
 
@@ -9,12 +10,14 @@ class CompanyReportsScreen extends StatefulWidget {
   final VoidCallback onBack;
   final VoidCallback? onOpenStationSetup;
   final VoidCallback? onOpenStaffManagement;
+  final VoidCallback? onOpenExpenseEntry;
 
   const CompanyReportsScreen({
     super.key,
     required this.onBack,
     this.onOpenStationSetup,
     this.onOpenStaffManagement,
+    this.onOpenExpenseEntry,
   });
 
   @override
@@ -39,6 +42,58 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
 
   void _onStateChanged() {
     if (mounted) setState(() {});
+  }
+
+  String _formatTime(DateTime dt) {
+    final hour = dt.hour == 0 ? 12 : (dt.hour > 12 ? dt.hour - 12 : dt.hour);
+    final minute = dt.minute.toString().padLeft(2, '0');
+    final period = dt.hour >= 12 ? 'PM' : 'AM';
+    return '$hour:$minute $period';
+  }
+
+  void _showReceiptPreview(BranchExpense expense) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('${expense.category} Receipt Proof'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Amount: ${CurrencyFormatter.formatNaira(expense.amount)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            Text('Description: ${expense.description}'),
+            const SizedBox(height: 4),
+            Text('Recorded By: ${expense.recordedByRole.toUpperCase()} · Status: ${expense.status}'),
+            const SizedBox(height: 12),
+            Container(
+              height: 180,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.line),
+              ),
+              child: const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.photo_outlined, size: 48, color: AppColors.muted),
+                    SizedBox(height: 8),
+                    Text('Receipt Photo Attached', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+                    SizedBox(height: 4),
+                    Text('Stored in Supabase expense-receipts bucket', style: TextStyle(color: AppColors.muted, fontSize: 12)),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+        ],
+      ),
+    );
   }
 
   @override
@@ -90,6 +145,12 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
               icon: const Icon(Icons.alt_route, color: AppColors.amber),
               label: const Text('Manifold Switch', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               onPressed: () => TankChangeoverDialog.show(context, state),
+            ),
+          if (widget.onOpenExpenseEntry != null)
+            IconButton(
+              icon: const Icon(Icons.receipt_long),
+              tooltip: 'Record Corporate / Station Expense',
+              onPressed: widget.onOpenExpenseEntry,
             ),
           if (widget.onOpenStaffManagement != null)
             IconButton(
@@ -254,6 +315,163 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
                                     ],
                                   ),
                                 ],
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Executive Expense Approvals & Audit Ledger Card (§6.1)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.receipt_long, color: AppColors.ink, size: 22),
+                                  const SizedBox(width: 8),
+                                  const Text(
+                                    'Expense Ledger & Executive Approvals (§6.1)',
+                                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
+                                  ),
+                                  if (state.pendingExpenses.isNotEmpty) ...[
+                                    const SizedBox(width: 10),
+                                    StatusChip(
+                                      label: '${state.pendingExpenses.length} Pending Approval',
+                                      type: ChipType.warn,
+                                    ),
+                                  ],
+                                ],
+                              ),
+                              if (widget.onOpenExpenseEntry != null)
+                                ElevatedButton.icon(
+                                  onPressed: widget.onOpenExpenseEntry,
+                                  icon: const Icon(Icons.add, size: 16),
+                                  label: const Text('Record Expense'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppColors.primary,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'All operational and petty cash safe disbursals recorded across branches. Director has absolute authorization authority.',
+                            style: TextStyle(fontSize: 13, color: AppColors.muted),
+                          ),
+                          const SizedBox(height: 16),
+
+                          if (state.expenses.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 24),
+                              child: Center(
+                                child: Text('No station expenses recorded yet today.', style: TextStyle(color: AppColors.muted)),
+                              ),
+                            )
+                          else
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: DataTable(
+                                headingTextStyle: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.ink),
+                                columns: const [
+                                  DataColumn(label: Text('Time')),
+                                  DataColumn(label: Text('Category')),
+                                  DataColumn(label: Text('Description')),
+                                  DataColumn(label: Text('Source')),
+                                  DataColumn(label: Text('Role')),
+                                  DataColumn(label: Text('Amount (₦)'), numeric: true),
+                                  DataColumn(label: Text('Status')),
+                                  DataColumn(label: Text('Receipt')),
+                                  DataColumn(label: Text('Executive Action')),
+                                ],
+                                rows: state.expenses.map((exp) {
+                                  return DataRow(
+                                    cells: [
+                                      DataCell(Text(_formatTime(exp.recordedAt))),
+                                      DataCell(Text(exp.category, style: const TextStyle(fontWeight: FontWeight.w600))),
+                                      DataCell(Text(exp.description)),
+                                      DataCell(Text(exp.paymentSource == 'sales_cash' ? 'Cash Safe' : exp.paymentSource)),
+                                      DataCell(Text(exp.recordedByRole.toUpperCase())),
+                                      DataCell(Text(
+                                        CurrencyFormatter.formatNaira(exp.amount),
+                                        style: const TextStyle(fontWeight: FontWeight.bold),
+                                      )),
+                                      DataCell(StatusChip(
+                                        label: exp.status,
+                                        type: exp.isApproved
+                                            ? ChipType.ok
+                                            : (exp.isRejected ? ChipType.bad : ChipType.warn),
+                                      )),
+                                      DataCell(
+                                        exp.receiptUrl != null && exp.receiptUrl!.isNotEmpty
+                                            ? IconButton(
+                                                icon: const Icon(Icons.receipt, color: AppColors.primary, size: 18),
+                                                tooltip: 'View Receipt',
+                                                onPressed: () => _showReceiptPreview(exp),
+                                              )
+                                            : const Text('-', style: TextStyle(color: AppColors.muted)),
+                                      ),
+                                      DataCell(
+                                        exp.isPending
+                                            ? Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  OutlinedButton(
+                                                    onPressed: () {
+                                                      state.rejectExpense(exp.id, 'Director');
+                                                      ScaffoldMessenger.of(context).showSnackBar(
+                                                        SnackBar(
+                                                          content: Text('Rejected ${CurrencyFormatter.formatNaira(exp.amount)}'),
+                                                          backgroundColor: AppColors.bad,
+                                                        ),
+                                                      );
+                                                    },
+                                                    style: OutlinedButton.styleFrom(
+                                                      side: const BorderSide(color: AppColors.bad),
+                                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                      visualDensity: VisualDensity.compact,
+                                                    ),
+                                                    child: const Text('Reject', style: TextStyle(color: AppColors.bad, fontSize: 11)),
+                                                  ),
+                                                  const SizedBox(width: 6),
+                                                  ElevatedButton(
+                                                    onPressed: () {
+                                                      state.approveExpense(exp.id, 'Director');
+                                                      ScaffoldMessenger.of(context).showSnackBar(
+                                                        SnackBar(
+                                                          content: Text('Approved ${CurrencyFormatter.formatNaira(exp.amount)} (${exp.category})'),
+                                                          backgroundColor: AppColors.ok,
+                                                        ),
+                                                      );
+                                                    },
+                                                    style: ElevatedButton.styleFrom(
+                                                      backgroundColor: AppColors.ok,
+                                                      foregroundColor: Colors.white,
+                                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                                      visualDensity: VisualDensity.compact,
+                                                    ),
+                                                    child: const Text('Approve', style: TextStyle(fontSize: 11)),
+                                                  ),
+                                                ],
+                                              )
+                                            : Text(
+                                                exp.approvedBy.isNotEmpty ? 'By ${exp.approvedBy}' : 'Completed',
+                                                style: const TextStyle(fontSize: 12, color: AppColors.slate),
+                                              ),
+                                      ),
+                                    ],
+                                  );
+                                }).toList(),
                               ),
                             ),
                         ],

@@ -382,6 +382,8 @@ CREATE TABLE IF NOT EXISTS public.expenses (
     payment_source public.payment_source NOT NULL DEFAULT 'sales_cash',
     description TEXT NOT NULL,
     receipt_url TEXT,
+    status VARCHAR(30) DEFAULT 'approved', -- 'approved', 'pending_approval', 'rejected'
+    recorded_by_role VARCHAR(20) DEFAULT 'manager', -- 'cashier', 'manager', 'director'
     recorded_by UUID NOT NULL REFERENCES public.profiles(id),
     approved_by UUID REFERENCES public.profiles(id),
     created_at TIMESTAMPTZ DEFAULT NOW()

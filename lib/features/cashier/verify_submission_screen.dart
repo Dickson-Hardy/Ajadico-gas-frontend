@@ -9,11 +9,13 @@ import '../../state/station_app_state.dart';
 class VerifySubmissionScreen extends StatefulWidget {
   final VoidCallback onBack;
   final VoidCallback onVerified;
+  final VoidCallback? onOpenExpenseEntry;
 
   const VerifySubmissionScreen({
     super.key,
     required this.onBack,
     required this.onVerified,
+    this.onOpenExpenseEntry,
   });
 
   @override
@@ -173,6 +175,14 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
               Text('${state.currentUser.displayName} · Station Cashier Booth', style: const TextStyle(fontSize: 13, color: Colors.white70)),
             ],
           ),
+          actions: [
+            if (widget.onOpenExpenseEntry != null)
+              IconButton(
+                icon: const Icon(Icons.receipt_long),
+                tooltip: 'Disburse / Record Safe Expense',
+                onPressed: widget.onOpenExpenseEntry,
+              ),
+          ],
         ),
         body: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
@@ -266,6 +276,12 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> {
           ],
         ),
         actions: [
+          if (widget.onOpenExpenseEntry != null)
+            IconButton(
+              icon: const Icon(Icons.receipt_long),
+              tooltip: 'Disburse / Record Safe Expense',
+              onPressed: widget.onOpenExpenseEntry,
+            ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             alignment: Alignment.center,

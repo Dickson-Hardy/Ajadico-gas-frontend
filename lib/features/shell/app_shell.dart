@@ -298,19 +298,41 @@ class _AppShellState extends State<AppShell> {
 
       case AppView.verifySubmission:
         return VerifySubmissionScreen(
-          onBack: () => setState(() => _currentView = AppView.managerDashboard),
+          onBack: () => setState(() {
+            _currentView = state.currentUser.role == UserRole.cashier
+                ? AppView.dailyCashCount
+                : AppView.managerDashboard;
+          }),
           onVerified: () => setState(() => _currentView = AppView.dailyCashCount),
+          onOpenExpenseEntry: () => setState(() => _currentView = AppView.expenseEntry),
         );
 
       case AppView.dailyCashCount:
         return DailyCashCountScreen(
-          onBack: () => setState(() => _currentView = AppView.managerDashboard),
+          onBack: () => setState(() {
+            _currentView = state.currentUser.role == UserRole.cashier
+                ? AppView.verifySubmission
+                : AppView.managerDashboard;
+          }),
+          onOpenExpenseEntry: () => setState(() => _currentView = AppView.expenseEntry),
         );
 
       case AppView.expenseEntry:
         return ExpenseEntryScreen(
-          onBack: () => setState(() => _currentView = AppView.managerDashboard),
-          onSuccess: () => setState(() => _currentView = AppView.managerDashboard),
+          onBack: () => setState(() {
+            _currentView = state.currentUser.role == UserRole.cashier
+                ? AppView.dailyCashCount
+                : (state.currentUser.role == UserRole.director
+                    ? AppView.companyReports
+                    : AppView.managerDashboard);
+          }),
+          onSuccess: () => setState(() {
+            _currentView = state.currentUser.role == UserRole.cashier
+                ? AppView.dailyCashCount
+                : (state.currentUser.role == UserRole.director
+                    ? AppView.companyReports
+                    : AppView.managerDashboard);
+          }),
         );
 
       case AppView.tankDip:
@@ -333,6 +355,7 @@ class _AppShellState extends State<AppShell> {
           onOpenTankDip: () => setState(() => _currentView = AppView.tankDip),
           onOpenFuelDelivery: () => setState(() => _currentView = AppView.fuelDelivery),
           onOpenStaffManagement: () => setState(() => _currentView = AppView.staffManagement),
+          onOpenExpenseEntry: () => setState(() => _currentView = AppView.expenseEntry),
           onLogout: _logout,
         );
 
@@ -362,6 +385,7 @@ class _AppShellState extends State<AppShell> {
           onBack: () => setState(() => _currentView = AppView.managerDashboard),
           onOpenStationSetup: () => setState(() => _currentView = AppView.stationSetup),
           onOpenStaffManagement: () => setState(() => _currentView = AppView.staffManagement),
+          onOpenExpenseEntry: () => setState(() => _currentView = AppView.expenseEntry),
         );
 
       case AppView.stationSetup:

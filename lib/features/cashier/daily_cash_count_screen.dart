@@ -7,8 +7,13 @@ import 'bank_deposit_dialog.dart';
 
 class DailyCashCountScreen extends StatefulWidget {
   final VoidCallback onBack;
+  final VoidCallback? onOpenExpenseEntry;
 
-  const DailyCashCountScreen({super.key, required this.onBack});
+  const DailyCashCountScreen({
+    super.key,
+    required this.onBack,
+    this.onOpenExpenseEntry,
+  });
 
   @override
   State<DailyCashCountScreen> createState() => _DailyCashCountScreenState();
@@ -90,6 +95,14 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
             Text('${state.currentUser.displayName} · Station Safe Cash Count (§5.3)', style: const TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
+        actions: [
+          if (widget.onOpenExpenseEntry != null)
+            IconButton(
+              icon: const Icon(Icons.receipt_long),
+              tooltip: 'Disburse / Record Safe Expense',
+              onPressed: widget.onOpenExpenseEntry,
+            ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
@@ -212,6 +225,20 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
                                   _buildEqRow('+ Acknowledged interim cash drops', CurrencyFormatter.formatNaira(state.totalAcknowledgedInterimDrops), isGreen: true),
                                   _buildEqRow('+ Verified closing cash receipts', CurrencyFormatter.formatNaira(state.totalVerifiedCashReceipts), isGreen: true),
                                   _buildEqRow('− Cash expenses paid from drawer', CurrencyFormatter.formatNaira(state.totalPhysicalCashExpenses)),
+                                  if (state.totalPendingCashExpenses > 0)
+                                    Padding(
+                                      padding: const EdgeInsets.only(left: 8, bottom: 4),
+                                      child: Row(
+                                        children: [
+                                          const Icon(Icons.info_outline, size: 14, color: AppColors.warn),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            '(${CurrencyFormatter.formatNaira(state.totalPendingCashExpenses)} pending manager approval)',
+                                            style: const TextStyle(fontSize: 11, color: AppColors.warn, fontWeight: FontWeight.w600),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
                                   _buildEqRow('− Handed over for bank deposit', CurrencyFormatter.formatNaira(state.totalHandedOverDeposits)),
                                   const Divider(color: AppColors.line),
                                   _buildEqRow('Target Expected Closing Cash', CurrencyFormatter.formatNaira(expected), isBold: true),
@@ -278,6 +305,21 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
                                       onPressed: () => _openBankDepositDialog(counted > 0 ? counted : expected),
                                     ),
                                   ),
+                                  if (widget.onOpenExpenseEntry != null) ...[
+                                    const SizedBox(height: 10),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: OutlinedButton.icon(
+                                        icon: const Icon(Icons.receipt_long, color: AppColors.ink),
+                                        label: const Text('Disburse / Record Safe Expense'),
+                                        style: OutlinedButton.styleFrom(
+                                          padding: const EdgeInsets.symmetric(vertical: 12),
+                                          side: const BorderSide(color: AppColors.line),
+                                        ),
+                                        onPressed: widget.onOpenExpenseEntry,
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),

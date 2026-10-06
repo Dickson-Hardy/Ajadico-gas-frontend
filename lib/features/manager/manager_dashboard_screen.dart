@@ -14,6 +14,7 @@ class ManagerDashboardScreen extends StatefulWidget {
   final VoidCallback? onOpenTankDip;
   final VoidCallback? onOpenFuelDelivery;
   final VoidCallback? onOpenStaffManagement;
+  final VoidCallback? onOpenExpenseEntry;
   final VoidCallback onLogout;
 
   const ManagerDashboardScreen({
@@ -24,6 +25,7 @@ class ManagerDashboardScreen extends StatefulWidget {
     this.onOpenTankDip,
     this.onOpenFuelDelivery,
     this.onOpenStaffManagement,
+    this.onOpenExpenseEntry,
     required this.onLogout,
   });
 
@@ -56,6 +58,131 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
       builder: (context) => BankDepositDialog(
         availableCash: availableCash,
         onDepositRecorded: () => setState(() {}),
+      ),
+    );
+  }
+
+  String _formatTime(DateTime dt) {
+    final hour = dt.hour == 0 ? 12 : (dt.hour > 12 ? dt.hour - 12 : dt.hour);
+    final minute = dt.minute.toString().padLeft(2, '0');
+    final period = dt.hour >= 12 ? 'PM' : 'AM';
+    return '$hour:$minute $period';
+  }
+
+  void _showReceiptPreview(BranchExpense expense) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('${expense.category} Receipt Proof'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Amount: ${CurrencyFormatter.formatNaira(expense.amount)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            Text('Description: ${expense.description}'),
+            const SizedBox(height: 4),
+            Text('Recorded By: ${expense.recordedByRole.toUpperCase()} (${expense.approvedBy.isNotEmpty ? expense.approvedBy : "Pending Approval"})'),
+            const SizedBox(height: 12),
+            Container(
+              height: 180,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.line),
+              ),
+              child: const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.photo_outlined, size: 48, color: AppColors.muted),
+                    SizedBox(height: 8),
+                    Text('Receipt Photo Attached', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+                    SizedBox(height: 4),
+                    Text('Stored in Supabase expense-receipts bucket', style: TextStyle(color: AppColors.muted, fontSize: 12)),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+        ],
+      ),
+    );
+  }
+
+  void _confirmApproveExpense(BranchExpense expense) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Approve Expense Disbursal?'),
+        content: Text(
+          'Confirm approval of ${CurrencyFormatter.formatNaira(expense.amount)} for "${expense.description}". This will formalize the deduction from the safe cash drawer.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              state.approveExpense(expense.id, state.currentUser.displayName);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Approved ${CurrencyFormatter.formatNaira(expense.amount)} (${expense.category})'),
+                  backgroundColor: AppColors.ok,
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.ok, foregroundColor: Colors.white),
+            child: const Text('Confirm Approval'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmRejectExpense(BranchExpense expense) {
+    final reasonController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reject Expense Disbursal?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Rejecting ${CurrencyFormatter.formatNaira(expense.amount)} for "${expense.description}". The physical safe balance will not deduct this amount and the disbursing cashier must reconcile the difference.',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              decoration: const InputDecoration(
+                labelText: 'Rejection Reason',
+                hintText: 'e.g. Unapproved petty purchase, invalid receipt',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              state.rejectExpense(expense.id, state.currentUser.displayName);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Rejected ${CurrencyFormatter.formatNaira(expense.amount)} (${expense.category})'),
+                  backgroundColor: AppColors.bad,
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.bad, foregroundColor: Colors.white),
+            child: const Text('Reject Expense'),
+          ),
+        ],
       ),
     );
   }
@@ -93,6 +220,12 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
               icon: const Icon(Icons.badge_outlined),
               tooltip: 'Staff & Attendants',
               onPressed: widget.onOpenStaffManagement,
+            ),
+          if (widget.onOpenExpenseEntry != null)
+            IconButton(
+              icon: const Icon(Icons.receipt_long),
+              tooltip: 'Station Expenses',
+              onPressed: widget.onOpenExpenseEntry,
             ),
           IconButton(
             icon: const Icon(Icons.people_outline),
@@ -262,6 +395,50 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                 ),
                 const SizedBox(height: 20),
 
+                // Pending Safe & Station Expense Approvals Card
+                if (state.pendingExpenses.isNotEmpty) ...[
+                  Card(
+                    color: const Color(0xFFFFFBEB),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: const BorderSide(color: Color(0xFFFDE68A)),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.pending_actions, color: Color(0xFFD97706), size: 22),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Pending Expense Approvals (${state.pendingExpenses.length})',
+                                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF92400E)),
+                                  ),
+                                ],
+                              ),
+                              if (widget.onOpenExpenseEntry != null)
+                                TextButton.icon(
+                                  onPressed: widget.onOpenExpenseEntry,
+                                  icon: const Icon(Icons.add, size: 16),
+                                  label: const Text('Record Safe Expense'),
+                                  style: TextButton.styleFrom(foregroundColor: const Color(0xFF92400E)),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          ...state.pendingExpenses.map((expense) => _buildPendingExpenseTile(expense)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+
                 // Operational Summary Cards
                 LayoutBuilder(
                   builder: (context, constraints) {
@@ -284,6 +461,14 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
                                   ),
                                   const SizedBox(height: 12),
+                                  if (state.pendingExpenses.isNotEmpty)
+                                    _buildActionRow(
+                                      'Pending expense approvals',
+                                      StatusChip(
+                                        label: '${state.pendingExpenses.length}',
+                                        type: ChipType.warn,
+                                      ),
+                                    ),
                                   _buildActionRow(
                                     'Submissions to verify',
                                     StatusChip(label: '$pendingVerifications', type: pendingVerifications > 0 ? ChipType.warn : ChipType.ok),
@@ -442,6 +627,134 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
         children: [
           Text(label, style: const TextStyle(fontSize: 14, color: AppColors.ink)),
           chip,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPendingExpenseTile(BranchExpense expense) {
+    final requiresDirector = expense.amount > 50000;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFFDE68A)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          expense.category,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.ink),
+                        ),
+                        const SizedBox(width: 8),
+                        StatusChip(
+                          label: expense.recordedByRole.toUpperCase(),
+                          type: ChipType.draft,
+                        ),
+                        if (expense.paymentSource == 'sales_cash' || expense.paymentSource == 'Cash Drawer') ...[
+                          const SizedBox(width: 6),
+                          const StatusChip(
+                            label: 'CASH SAFE',
+                            type: ChipType.warn,
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      expense.description,
+                      style: const TextStyle(fontSize: 13, color: AppColors.slate),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Recorded: ${_formatTime(expense.recordedAt)} · Source: ${expense.paymentSource}',
+                      style: const TextStyle(fontSize: 11, color: AppColors.muted),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                CurrencyFormatter.formatNaira(expense.amount),
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.ink),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              if (expense.receiptUrl != null && expense.receiptUrl!.isNotEmpty)
+                TextButton.icon(
+                  onPressed: () => _showReceiptPreview(expense),
+                  icon: const Icon(Icons.receipt, size: 16, color: AppColors.primary),
+                  label: const Text('View Receipt Proof', style: TextStyle(fontSize: 12)),
+                )
+              else
+                const Text('No receipt attached', style: TextStyle(fontSize: 11, color: AppColors.muted, fontStyle: FontStyle.italic)),
+              if (requiresDirector)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF2F2),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0xFFFCA5A5)),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.shield_outlined, size: 14, color: AppColors.bad),
+                      SizedBox(width: 4),
+                      Text(
+                        'Requires Director Approval (>₦50k)',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.bad),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () => _confirmRejectExpense(expense),
+                      icon: const Icon(Icons.close, size: 14, color: AppColors.bad),
+                      label: const Text('Reject', style: TextStyle(fontSize: 12, color: AppColors.bad)),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: AppColors.bad),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      onPressed: () => _confirmApproveExpense(expense),
+                      icon: const Icon(Icons.check, size: 14),
+                      label: const Text('Approve', style: TextStyle(fontSize: 12)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.ok,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
         ],
       ),
     );

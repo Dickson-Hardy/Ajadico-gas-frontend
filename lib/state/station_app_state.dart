@@ -98,9 +98,14 @@ class BranchExpense {
   final String id;
   final String category;
   final double amount;
-  final String paymentSource; // 'sales_cash' or 'bank_transfer'
+  final String paymentSource; // 'Cash Drawer' or 'Direct Bank Transfer'
   final String description;
   final String recordedBy;
+  final String recordedByRole; // 'cashier', 'manager', 'director'
+  String status; // 'Approved', 'Pending Approval', 'Rejected'
+  String? approvedBy;
+  DateTime? approvedAt;
+  final String? receiptUrl;
   final DateTime recordedAt;
 
   BranchExpense({
@@ -110,8 +115,17 @@ class BranchExpense {
     required this.paymentSource,
     required this.description,
     required this.recordedBy,
+    this.recordedByRole = 'manager',
+    this.status = 'Approved',
+    this.approvedBy,
+    this.approvedAt,
+    this.receiptUrl,
     required this.recordedAt,
   });
+
+  bool get isApproved => status == 'Approved';
+  bool get isPending => status == 'Pending Approval';
+  bool get isRejected => status == 'Rejected';
 }
 
 class FuelDeliveryRecord {
@@ -523,7 +537,12 @@ class StationAppState extends ChangeNotifier {
             amount: (e['amount'] as num).toDouble(),
             paymentSource: e['payment_source'] ?? 'Cash Drawer',
             description: e['description'] ?? '',
-            recordedBy: 'Branch Manager',
+            recordedBy: e['recorded_by_name'] ?? 'Branch Staff',
+            recordedByRole: e['recorded_by_role'] ?? 'manager',
+            status: e['status'] ?? 'Approved',
+            approvedBy: e['approved_by_name'],
+            approvedAt: e['approved_at'] != null ? DateTime.tryParse(e['approved_at']) : null,
+            receiptUrl: e['receipt_url'],
             recordedAt: DateTime.tryParse(e['created_at'] ?? '') ?? DateTime.now(),
           ),
         );
@@ -824,27 +843,61 @@ class StationAppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Record Branch Expense (§5.1, §5.2)
+  /// Record Branch Expense with Cashier/Manager Approval Workflow (§5.1, §5.2)
   void recordExpense({
     required String category,
     required double amount,
     required String paymentSource,
     required String description,
+    String? receiptUrl,
+    bool requiresApproval = false,
   }) {
     final expId = 'EXP-${DateTime.now().millisecondsSinceEpoch}';
+    final isCashier = _currentUser.role == UserRole.cashier;
+    final isDirector = _currentUser.role == UserRole.director;
 
-    _expenses.insert(
-      0,
-      BranchExpense(
-        id: expId,
-        category: category,
-        amount: amount,
-        paymentSource: paymentSource,
-        description: description,
-        recordedBy: _currentUser.displayName,
-        recordedAt: DateTime.now(),
-      ),
+    String initialStatus;
+    String? approver;
+    DateTime? approvedTime;
+
+    if (isDirector) {
+      initialStatus = 'Approved';
+      approver = _currentUser.displayName;
+      approvedTime = DateTime.now();
+    } else if (isCashier) {
+      if (requiresApproval || amount > 10000) {
+        initialStatus = 'Pending Approval';
+      } else {
+        initialStatus = 'Approved';
+        approver = 'Pre-Approved by Manager';
+        approvedTime = DateTime.now();
+      }
+    } else { // Manager
+      if (amount > 50000) {
+        initialStatus = 'Pending Approval'; // High-value branch expense requires Admin/Director sign-off
+      } else {
+        initialStatus = 'Approved';
+        approver = _currentUser.displayName;
+        approvedTime = DateTime.now();
+      }
+    }
+
+    final newExpense = BranchExpense(
+      id: expId,
+      category: category,
+      amount: amount,
+      paymentSource: paymentSource,
+      description: description,
+      recordedBy: _currentUser.displayName,
+      recordedByRole: _currentUser.role.name,
+      status: initialStatus,
+      approvedBy: approver,
+      approvedAt: approvedTime,
+      receiptUrl: receiptUrl,
+      recordedAt: DateTime.now(),
     );
+
+    _expenses.insert(0, newExpense);
 
     // Queue in Offline Sync Engine
     _syncService.enqueue(
@@ -853,13 +906,77 @@ class StationAppState extends ChangeNotifier {
         'id': expId,
         'category': category,
         'amount': amount,
-        'payment_source': paymentSource,
+        'payment_source': (paymentSource == 'Cash Drawer' || paymentSource == 'sales_cash') ? 'sales_cash' : 'bank_transfer',
         'description': description,
-        'station_id': 'lekki-01',
+        'status': initialStatus,
+        'recorded_by': _currentUser.displayName,
+        'approved_by': approver,
+        'receipt_url': receiptUrl,
+        'station_id': _currentStationCode,
       },
     );
 
+    if (initialStatus == 'Pending Approval') {
+      _notifService.postNotification(
+        title: 'EXPENSE APPROVAL REQUIRED',
+        message: '${_currentUser.displayName} recorded ${CurrencyFormatter.formatNaira(amount)} for $category requiring approval.',
+        type: NotificationType.warning,
+        actionRouteName: '17 Manager Dashboard',
+      );
+    }
+
     notifyListeners();
+  }
+
+  void approveExpense({
+    required String expenseId,
+    String? approverNotes,
+  }) {
+    final idx = _expenses.indexWhere((e) => e.id == expenseId);
+    if (idx != -1) {
+      _expenses[idx].status = 'Approved';
+      _expenses[idx].approvedBy = _currentUser.displayName;
+      _expenses[idx].approvedAt = DateTime.now();
+
+      _syncService.enqueue(
+        actionType: SyncActionType.branchExpense,
+        payload: {
+          'id': expenseId,
+          'status': 'Approved',
+          'approved_by': _currentUser.displayName,
+          'approved_at': DateTime.now().toIso8601String(),
+          'notes': approverNotes,
+        },
+      );
+
+      _notifService.postNotification(
+        title: 'EXPENSE APPROVED',
+        message: 'Expense of ${CurrencyFormatter.formatNaira(_expenses[idx].amount)} approved by ${_currentUser.displayName}.',
+        type: NotificationType.info,
+      );
+
+      notifyListeners();
+    }
+  }
+
+  void rejectExpense({
+    required String expenseId,
+    required String reason,
+  }) {
+    final idx = _expenses.indexWhere((e) => e.id == expenseId);
+    if (idx != -1) {
+      _expenses[idx].status = 'Rejected';
+      _expenses[idx].approvedBy = 'Rejected by ${_currentUser.displayName}: $reason';
+      _expenses[idx].approvedAt = DateTime.now();
+
+      _notifService.postNotification(
+        title: 'EXPENSE REJECTED',
+        message: 'Expense of ${CurrencyFormatter.formatNaira(_expenses[idx].amount)} rejected: $reason.',
+        type: NotificationType.critical,
+      );
+
+      notifyListeners();
+    }
   }
 
   /// Record Fuel Delivery (§3.7)
@@ -1201,7 +1318,20 @@ class StationAppState extends ChangeNotifier {
 
   double get totalPhysicalCashExpenses {
     return _expenses
-        .where((e) => e.paymentSource == 'sales_cash')
+        .where((e) =>
+            (e.paymentSource == 'sales_cash' || e.paymentSource == 'Cash Drawer') &&
+            e.status != 'Rejected')
+        .fold(0.0, (sum, e) => sum + e.amount);
+  }
+
+  /// All expenses awaiting Manager or Admin/Director approval
+  List<BranchExpense> get pendingExpenses =>
+      _expenses.where((e) => e.status == 'Pending Approval').toList();
+
+  /// Total cash drawer expenses that are pending approval
+  double get totalPendingCashExpenses {
+    return pendingExpenses
+        .where((e) => e.paymentSource == 'sales_cash' || e.paymentSource == 'Cash Drawer')
         .fold(0.0, (sum, e) => sum + e.amount);
   }
 

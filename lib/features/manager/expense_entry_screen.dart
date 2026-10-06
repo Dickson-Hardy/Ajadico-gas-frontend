@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/services/camera_compression_service.dart';
 import '../../core/utils/currency_formatter.dart';
+import '../../core/widgets/evidence_photo_picker.dart';
+import '../../models/user_profile.dart';
 import '../../state/station_app_state.dart';
 
 enum ExpensePaymentSource { salesCash, bankTransfer }
@@ -27,6 +30,8 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> {
   final TextEditingController _descriptionController = TextEditingController();
   bool _receiptAttached = false;
   bool _isSubmitting = false;
+  bool _isPreApproved = false;
+  List<CompressedImageResult> _receiptPhotos = [];
 
   final List<String> _categories = [
     'Generator Maintenance & Servicing',
@@ -66,6 +71,9 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> {
       return;
     }
 
+    final isCashier = state.currentUser.role == UserRole.cashier;
+    final needsApproval = isCashier ? !_isPreApproved : (amount > 50000);
+
     setState(() => _isSubmitting = true);
     try {
       state.recordExpense(
@@ -73,15 +81,19 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> {
         amount: amount,
         paymentSource: _paymentSource == ExpensePaymentSource.salesCash ? 'Cash Drawer' : 'Direct Bank Transfer',
         description: _descriptionController.text.trim(),
+        receiptUrl: _receiptPhotos.isNotEmpty ? _receiptPhotos.first.fileName : null,
+        requiresApproval: needsApproval,
       );
+
+      final statusMsg = needsApproval
+          ? 'Expense of ${CurrencyFormatter.formatNaira(amount)} queued for Manager / Admin approval.'
+          : 'Expense of ${CurrencyFormatter.formatNaira(amount)} recorded and approved.';
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          backgroundColor: AppColors.ok,
+          backgroundColor: needsApproval ? AppColors.warn : AppColors.ok,
           behavior: SnackBarBehavior.floating,
-          content: Text(
-            'Expense of ${CurrencyFormatter.formatNaira(amount)} recorded under $_category (${_paymentSource == ExpensePaymentSource.salesCash ? "Cash Drawer" : "Bank Transfer"}).',
-          ),
+          content: Text(statusMsg),
         ),
       );
       widget.onSuccess();
@@ -98,11 +110,21 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> {
           icon: const Icon(Icons.arrow_back),
           onPressed: widget.onBack,
         ),
-        title: const Column(
+        title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Record Branch Expense', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('Cashier / Manager Entry (§5.1, §5.2)', style: TextStyle(fontSize: 13, color: Colors.white70)),
+            Text(
+              state.currentUser.role == UserRole.cashier
+                  ? 'Record Safe Expense Disbursal'
+                  : 'Record Branch Expense',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            Text(
+              state.currentUser.role == UserRole.cashier
+                  ? '${state.currentUser.displayName} · Station Cash Safe (§5.1, §5.2)'
+                  : '${state.currentUser.displayName} · Manager / Admin Entry (§5.1, §5.2)',
+              style: const TextStyle(fontSize: 13, color: Colors.white70),
+            ),
           ],
         ),
       ),
@@ -128,6 +150,49 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> {
                   style: TextStyle(fontSize: 15, color: AppColors.muted),
                 ),
                 const SizedBox(height: 16),
+
+                if (state.currentUser.role == UserRole.cashier) ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: _isPreApproved ? AppColors.ok.withOpacity(0.08) : AppColors.warn.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: _isPreApproved ? AppColors.ok : AppColors.warn),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _isPreApproved ? Icons.verified_user : Icons.pending_actions,
+                          color: _isPreApproved ? AppColors.ok : AppColors.warn,
+                          size: 26,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _isPreApproved ? 'Pre-Approved by Station Manager' : 'Requires Manager / Admin Approval',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.ink),
+                              ),
+                              Text(
+                                _isPreApproved
+                                    ? 'Cashier disburses funds based on verbal or written manager instruction.'
+                                    : 'Expense will appear in Manager Dashboard queue for formal review & sign-off.',
+                                style: const TextStyle(fontSize: 12, color: AppColors.slate),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch(
+                          value: _isPreApproved,
+                          onChanged: (val) => setState(() => _isPreApproved = val),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                ],
 
                 Card(
                   child: Padding(
@@ -189,37 +254,19 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> {
                         ),
                         const SizedBox(height: 16),
 
-                        InkWell(
-                          onTap: () => setState(() => _receiptAttached = !_receiptAttached),
-                          child: Container(
-                            height: 90,
-                            decoration: BoxDecoration(
-                              color: AppColors.background,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: AppColors.line),
-                            ),
-                            child: Center(
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    _receiptAttached ? Icons.check_circle : Icons.camera_alt,
-                                    color: _receiptAttached ? AppColors.ok : AppColors.muted,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Text(
-                                    _receiptAttached
-                                        ? 'Receipt / Invoice Photo Attached'
-                                        : 'Tap to photograph physical receipt or invoice',
-                                    style: TextStyle(
-                                      color: _receiptAttached ? AppColors.ok : AppColors.muted,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
+                        EvidencePhotoPicker(
+                          title: 'Receipt / Invoice Photo (<150KB)',
+                          photoType: 'expense_receipt',
+                          stationName: state.currentStationName,
+                          staffName: state.currentUser.displayName,
+                          bucketName: 'expense-receipts',
+                          maxPhotos: 1,
+                          onPhotosChanged: (photos) {
+                            setState(() {
+                              _receiptPhotos = photos;
+                              _receiptAttached = photos.isNotEmpty;
+                            });
+                          },
                         ),
                       ],
                     ),
