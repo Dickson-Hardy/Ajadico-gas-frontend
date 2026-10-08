@@ -13,6 +13,8 @@ dependencies:
   google_fonts: ^6.2.1
   supabase_flutter: ^2.8.0
   crypto: ^3.0.3
+  image_picker: ^1.2.4
+  shared_preferences: ^2.3.2
 
 dev_dependencies:
   flutter_test:
@@ -21,5 +23,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  assets:
-    - assets/branding/
