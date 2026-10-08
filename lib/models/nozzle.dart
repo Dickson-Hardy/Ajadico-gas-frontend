@@ -27,33 +27,4 @@ class NozzleItem {
   double get salesValue {
     return litresSold * pricePerLitre;
   }
-
-  static List<NozzleItem> getDemoNozzles() {
-    return [
-      NozzleItem(
-        nozzleNumber: 1,
-        productName: 'PMS',
-        tankCode: 'T1',
-        openingReading: 412380.5,
-        pricePerLitre: 1050.0,
-        isOpeningConfirmed: true,
-      ),
-      NozzleItem(
-        nozzleNumber: 2,
-        productName: 'PMS',
-        tankCode: 'T1',
-        openingReading: 388102.0,
-        pricePerLitre: 1050.0,
-        isOpeningConfirmed: false,
-      ),
-      NozzleItem(
-        nozzleNumber: 3,
-        productName: 'AGO',
-        tankCode: 'T3',
-        openingReading: 201775.5,
-        pricePerLitre: 1320.0,
-        isOpeningConfirmed: true,
-      ),
-    ];
-  }
 }

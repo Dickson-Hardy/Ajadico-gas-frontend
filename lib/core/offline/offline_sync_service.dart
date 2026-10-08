@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../network/supabase_repository.dart';
 import 'sync_queue_item.dart';
 
@@ -32,6 +34,51 @@ class OfflineSyncService extends ChangeNotifier {
   static final OfflineSyncService instance = OfflineSyncService._internal();
   OfflineSyncService._internal() {
     _startPeriodicConnectivityCheck();
+    _initPrefs();
+  }
+
+  static const String _prefsKey = 'offline_sync_queue';
+  SharedPreferences? _prefs;
+
+  Future<void> _initPrefs() async {
+    _prefs = await SharedPreferences.getInstance();
+    _loadFromDisk();
+  }
+
+  void _loadFromDisk() {
+    if (_prefs == null) return;
+    final jsonString = _prefs!.getString(_prefsKey);
+    if (jsonString != null) {
+      try {
+        final List<dynamic> decoded = json.decode(jsonString);
+        final diskItems = decoded
+            .map((e) => SyncQueueItem.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList();
+        // Preserve any in-memory items enqueued before async prefs resolution
+        for (final item in _queue) {
+          if (!diskItems.any((d) => d.id == item.id)) {
+            diskItems.add(item);
+          }
+        }
+        _queue.clear();
+        _queue.addAll(diskItems);
+        _saveToDisk();
+        notifyListeners();
+        if (_isOnline && pendingCount > 0) {
+          triggerSync();
+        }
+      } catch (e) {
+        debugPrint('Error loading sync queue: $e');
+      }
+    } else if (_queue.isNotEmpty) {
+      _saveToDisk();
+    }
+  }
+
+  void _saveToDisk() {
+    if (_prefs == null) return;
+    final jsonString = json.encode(_queue.map((e) => e.toJson()).toList());
+    _prefs!.setString(_prefsKey, jsonString);
   }
 
   final List<SyncQueueItem> _queue = [];
@@ -88,6 +135,7 @@ class OfflineSyncService extends ChangeNotifier {
     );
 
     _queue.add(item);
+    _saveToDisk();
     notifyListeners();
 
     // If online, immediately attempt synchronization
@@ -147,6 +195,7 @@ class OfflineSyncService extends ChangeNotifier {
         }
       }
 
+      _saveToDisk();
       notifyListeners();
       // Brief debounce between queue items
       await Future.delayed(const Duration(milliseconds: 300));
@@ -196,11 +245,47 @@ class OfflineSyncService extends ChangeNotifier {
       case SyncActionType.bankDepositConfirmation:
         return await repo.syncBankDepositPayload(p);
 
+      case SyncActionType.bankDepositRecord:
+        return await repo.syncBankDepositRecordPayload(p);
+
+      case SyncActionType.interimCashDrop:
+        return await repo.syncInterimCashDropPayload(p);
+
+      case SyncActionType.posTransaction:
+        return await repo.syncPosTransactionPayload(p);
+
       case SyncActionType.evidencePhotoUpload:
         return await repo.syncEvidencePhotoPayload(p);
 
       case SyncActionType.evidencePhoto:
         return await repo.syncEvidencePhotoPayload(p);
+
+      case SyncActionType.remittanceVerification:
+        return await repo.syncRemittanceVerificationPayload(p);
+
+      case SyncActionType.shortageAdjustment:
+        return await repo.syncShortageAdjustmentPayload(p);
+
+      case SyncActionType.creditRepayment:
+        return await repo.syncCreditRepaymentPayload(p);
+
+      case SyncActionType.tankStock:
+        return await repo.syncTankStockPayload(p);
+
+      case SyncActionType.notification:
+        return await repo.syncNotificationPayload(p);
+
+      case SyncActionType.shiftSession:
+        return await repo.syncShiftSessionPayload(p);
+
+      case SyncActionType.tankCreate:
+        return await repo.syncTankCreatePayload(p);
+
+      case SyncActionType.nozzleCreate:
+        return await repo.syncNozzleCreatePayload(p);
+
+      case SyncActionType.creditCustomerCreate:
+        return await repo.syncCreditCustomerCreatePayload(p);
     }
   }
 
@@ -211,6 +296,7 @@ class OfflineSyncService extends ChangeNotifier {
         item.status = SyncItemStatus.pending;
       }
     }
+    _saveToDisk();
     notifyListeners();
     triggerSync();
   }
@@ -218,6 +304,7 @@ class OfflineSyncService extends ChangeNotifier {
   /// Clear completed items
   void clearCompleted() {
     _queue.removeWhere((e) => e.status == SyncItemStatus.completed);
+    _saveToDisk();
     notifyListeners();
   }
 

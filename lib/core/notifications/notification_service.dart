@@ -12,6 +12,10 @@ class NotificationService extends ChangeNotifier {
   final List<ForecourtNotification> _notifications = [];
   ForecourtNotification? _latestHeadsUp;
 
+  /// Optional persistence hook (wired once by StationAppState) so every
+  /// posted notification is queued for the app_notifications table.
+  void Function(ForecourtNotification notification)? onPosted;
+
   List<ForecourtNotification> get notifications => List.unmodifiable(_notifications);
   ForecourtNotification? get latestHeadsUp => _latestHeadsUp;
 
@@ -49,6 +53,16 @@ class NotificationService extends ChangeNotifier {
 
     _notifications.insert(0, notification);
     _latestHeadsUp = notification;
+    onPosted?.call(notification);
+    notifyListeners();
+  }
+
+  /// Replace the local feed with records read back from Supabase
+  void replaceAll(List<ForecourtNotification> items) {
+    _notifications
+      ..clear()
+      ..addAll(items);
+    _latestHeadsUp = _notifications.isEmpty ? null : _notifications.first;
     notifyListeners();
   }
 

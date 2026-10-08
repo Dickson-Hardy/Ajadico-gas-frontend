@@ -19,8 +19,20 @@ enum SyncActionType {
   priceChange,
   salaryAdjustment,
   bankDepositConfirmation,
+  bankDepositRecord,
+  interimCashDrop,
+  posTransaction,
   evidencePhotoUpload,
   evidencePhoto,
+  remittanceVerification,
+  shortageAdjustment,
+  creditRepayment,
+  tankStock,
+  notification,
+  shiftSession,
+  tankCreate,
+  nozzleCreate,
+  creditCustomerCreate,
 }
 
 /// Represents an idempotent forecourt transaction queued for database synchronization
@@ -100,9 +112,33 @@ class SyncQueueItem {
       case SyncActionType.priceChange:
         return 'Forecourt Retail Price Change';
       case SyncActionType.salaryAdjustment:
-        return 'Attendant Shortage Deduction';
+        return 'Monthly Payroll Settlement';
+      case SyncActionType.remittanceVerification:
+        return 'Cashier Remittance Verification';
+      case SyncActionType.shortageAdjustment:
+        return 'Salary Ledger Shortage Adjustment';
+      case SyncActionType.creditRepayment:
+        return 'Credit Customer Repayment';
+      case SyncActionType.tankStock:
+        return 'Tank Book Stock Update';
+      case SyncActionType.notification:
+        return 'Operational Notification';
+      case SyncActionType.shiftSession:
+        return 'Attendant Shift Session';
+      case SyncActionType.tankCreate:
+        return 'Station Tank Setup';
+      case SyncActionType.nozzleCreate:
+        return 'Station Nozzle Setup';
+      case SyncActionType.creditCustomerCreate:
+        return 'Credit Customer Onboard';
       case SyncActionType.bankDepositConfirmation:
         return 'Commercial Bank Deposit Verification';
+      case SyncActionType.bankDepositRecord:
+        return 'Bank Deposit Cash Handover';
+      case SyncActionType.interimCashDrop:
+        return 'Interim Cash Drop to Cashier';
+      case SyncActionType.posTransaction:
+        return 'POS / Bank Transfer Sale';
       case SyncActionType.evidencePhotoUpload:
         return 'Forecourt Receipt / Waybill Photo';
       case SyncActionType.evidencePhoto:

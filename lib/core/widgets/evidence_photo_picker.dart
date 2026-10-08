@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../constants/app_colors.dart';
 import '../services/camera_compression_service.dart';
 import '../../state/station_app_state.dart';
@@ -47,12 +48,24 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
     setState(() => _isProcessing = true);
 
     try {
+      // Real camera capture — user cancels return null (no fabricated photos)
+      final XFile? shot = await ImagePicker().pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1920,
+        imageQuality: 85,
+      );
+      if (shot == null) {
+        if (mounted) setState(() => _isProcessing = false);
+        return;
+      }
+      final rawBytes = await shot.readAsBytes();
+
       final service = CameraCompressionService.instance;
-      // Process and compress photo
       final compressed = await service.processAndCompressPhoto(
         photoType: widget.photoType,
         stationName: widget.stationName,
         staffName: widget.staffName,
+        rawBytes: rawBytes,
       );
 
       // Upload to Supabase Storage or queue offline
@@ -308,26 +321,28 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
                                     color: Colors.white,
                                   ),
                                 ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Was ${photo.originalSizeFormatted} (-${photo.compressionRatioPercent.toStringAsFixed(0)}%)',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: AppColors.emerald,
-                                    fontWeight: FontWeight.w600,
+                                if (photo.compressionRatioPercent > 0) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Was ${photo.originalSizeFormatted} (-${photo.compressionRatioPercent.toStringAsFixed(0)}%)',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: AppColors.emerald,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
-                                ),
+                                ],
                                 const SizedBox(height: 4),
                                 Text(
                                   photo.watermarkStamp ?? 'Watermarked',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: AppColors.mutedSlate,
-                                  ),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: AppColors.slate,
+                                    ),
                                 ),
                               ],
                             ),

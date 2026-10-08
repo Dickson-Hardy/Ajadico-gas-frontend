@@ -17,6 +17,7 @@ import '../models/user_profile.dart';
 /// Models for real-time forecourt operations
 class ShiftSubmission {
   final String id;
+  final String shiftId;
   final String attendantName;
   final String attendantId;
   final String shiftType; // 'Morning' or 'Evening'
@@ -37,7 +38,8 @@ class ShiftSubmission {
   DateTime? verifiedAt;
 
   ShiftSubmission({
-    required this.id,
+    required String id,
+    String? shiftId,
     required this.attendantName,
     required this.attendantId,
     required this.shiftType,
@@ -56,7 +58,7 @@ class ShiftSubmission {
     this.status = 'Pending Verification',
     this.cashierComment,
     this.verifiedAt,
-  });
+  }) : id = id, shiftId = shiftId ?? id;
 
   double get totalMoneyDeclared =>
       cashDeclared + posCardDeclared + posTransferDeclared + bankTransferDeclared;
@@ -209,6 +211,7 @@ class StationAppState extends ChangeNotifier {
   static final StationAppState instance = StationAppState._internal();
   StationAppState._internal() {
     _initDefaultState();
+    _wireNotificationPersistence();
   }
 
   final _syncService = OfflineSyncService.instance;
@@ -220,6 +223,74 @@ class StationAppState extends ChangeNotifier {
 
   void setCurrentUser(UserProfile user) {
     _currentUser = user;
+    if (user.role == UserRole.attendant) {
+      openShiftSession();
+    }
+    notifyListeners();
+  }
+
+  // 1d. Shift Session (one shared id per attendant session — closing
+  // readings, remittance, drops and POS all reference it)
+  String? _currentShiftId;
+  bool _shiftSessionRowCreated = false;
+
+  String get currentShiftId =>
+      _currentShiftId ??= SupabaseRepository.instance.generateUuid();
+
+  String _shiftTypeNow() => DateTime.now().hour < 14 ? 'Morning' : 'Evening';
+
+  /// Queue the shift_sessions row once per opened session
+  void openShiftSession() {
+    if (_shiftSessionRowCreated) return;
+    _shiftSessionRowCreated = true;
+    _syncService.enqueue(
+      actionType: SyncActionType.shiftSession,
+      payload: {
+        'id': currentShiftId,
+        'station_id': _currentStationCode,
+        'attendant_id': _currentUser.id,
+        'shift_type': _shiftTypeNow(),
+        'status': 'open',
+        'opened_at': DateTime.now().toIso8601String(),
+      },
+    );
+  }
+
+  bool _notifPersistenceWired = false;
+
+  /// Persist every posted notification through the offline outbox (A4)
+  void _wireNotificationPersistence() {
+    if (_notifPersistenceWired) return;
+    _notifPersistenceWired = true;
+    _notifService.onPosted = (n) {
+      _syncService.enqueue(
+        actionType: SyncActionType.notification,
+        payload: {
+          'id': n.id,
+          'title': n.title,
+          'message': n.message,
+          'type': n.type.name,
+          'target_role': n.targetRole?.name,
+          'action_route': n.actionRouteName,
+          'is_read': n.isRead,
+          'created_at': n.timestamp.toIso8601String(),
+        },
+      );
+    };
+  }
+
+  // 1c. Forecourt Theme Mode (Night Shift / Sunlight Mode)
+  ThemeMode _themeMode = ThemeMode.dark;
+  ThemeMode get themeMode => _themeMode;
+  bool get isDarkMode => _themeMode == ThemeMode.dark;
+
+  void toggleTheme() {
+    _themeMode = _themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
+    notifyListeners();
+  }
+
+  void setThemeMode(ThemeMode mode) {
+    _themeMode = mode;
     notifyListeners();
   }
 
@@ -255,6 +326,8 @@ class StationAppState extends ChangeNotifier {
   List<Station> _stations = [];
   List<Station> get stations => List.unmodifiable(_stations);
 
+  String _currentStationId = '4c960eed-2f2e-461a-a27e-00a41f5f7bd1';
+  String get currentStationId => _currentStationId;
   String _currentStationCode = 'LEKKI-01';
   String get currentStationCode => _currentStationCode;
   String _currentStationName = 'Lekki Road Station';
@@ -394,70 +467,13 @@ class StationAppState extends ChangeNotifier {
   Map<int, int> get cashCounts => Map.unmodifiable(_cashCounts);
 
   void _initDefaultState() {
-    _nozzles = [
-      NozzleItem(
-        nozzleNumber: 1,
-        productName: 'PMS',
-        tankCode: 'T1',
-        openingReading: 412380.5,
-        pricePerLitre: _pmsPrice,
-        isOpeningConfirmed: true,
-      ),
-      NozzleItem(
-        nozzleNumber: 2,
-        productName: 'PMS',
-        tankCode: 'T1',
-        openingReading: 388102.0,
-        pricePerLitre: _pmsPrice,
-        isOpeningConfirmed: false,
-      ),
-      NozzleItem(
-        nozzleNumber: 3,
-        productName: 'AGO',
-        tankCode: 'T3',
-        openingReading: 201775.5,
-        pricePerLitre: _agoPrice,
-        isOpeningConfirmed: true,
-      ),
-    ];
-
-    _tanks = [
-      LiveTankStock(
-        code: 'T1',
-        product: 'PMS',
-        capacity: 45000,
-        bookStock: 32100,
-        physicalDip: 32100,
-        lastDipTime: DateTime.now().subtract(const Duration(hours: 4)),
-        isInterlocked: true,
-        isActiveSupply: true,
-      ),
-      LiveTankStock(
-        code: 'T2',
-        product: 'PMS',
-        capacity: 45000,
-        bookStock: 28520,
-        physicalDip: 28400, // -120L deficit
-        lastDipTime: DateTime.now().subtract(const Duration(hours: 4)),
-        isInterlocked: true,
-        isActiveSupply: false,
-      ),
-      LiveTankStock(
-        code: 'T3',
-        product: 'AGO',
-        capacity: 33000,
-        bookStock: 14200,
-        physicalDip: 14200,
-        lastDipTime: DateTime.now().subtract(const Duration(hours: 4)),
-        isInterlocked: false,
-        isActiveSupply: true,
-      ),
-    ];
-
-    _creditCustomers = List.from(CreditCustomer.getDefaultCustomers());
+    // Zero demo data: every live collection starts empty and is populated
+    // exclusively from Supabase (see syncWithSupabase). Offline, the app
+    // shows honest empty states instead of fabricated stations/meters/staff.
+    _nozzles = [];
+    _tanks = [];
+    _creditCustomers = [];
     _staff = [];
-    // Submissions, deposits, salary adjustments, expenses, and staff start empty (0 mock transactions).
-    // They populate dynamically via live Supabase queries or actual forecourt operations.
   }
 
   bool _isSyncingWithRemote = false;
@@ -476,20 +492,21 @@ class StationAppState extends ChangeNotifier {
       final remoteStations = await repo.fetchAllStations();
       if (remoteStations.isNotEmpty) {
         _stations = remoteStations;
+        final match = _stations.firstWhere(
+          (s) => s.code.toUpperCase() == _currentStationCode.toUpperCase(),
+          orElse: () => _stations.first,
+        );
+        _currentStationId = match.id;
+        _currentStationCode = match.code;
+        _currentStationName = match.name;
+        _hasInterlockedTanks = match.hasInterlockedTanks;
       }
 
       final stationInfo = await repo.fetchStationInfo(_currentStationCode);
       if (stationInfo != null) {
+        if (stationInfo['id'] != null) _currentStationId = stationInfo['id'];
         _hasInterlockedTanks = stationInfo['has_interlocked_tanks'] ?? false;
         _currentStationName = stationInfo['name'] ?? _currentStationName;
-      } else if (_stations.isNotEmpty) {
-        final match = _stations.firstWhere(
-          (s) => s.code == _currentStationCode,
-          orElse: () => _stations.first,
-        );
-        _currentStationCode = match.code;
-        _currentStationName = match.name;
-        _hasInterlockedTanks = match.hasInterlockedTanks;
       }
 
       // 1. Fetch live fuel prices
@@ -548,13 +565,13 @@ class StationAppState extends ChangeNotifier {
       }
 
       // 4. Fetch live credit customers
-      final remoteCustomers = await repo.fetchCreditLedger('LEKKI-01');
+      final remoteCustomers = await repo.fetchCreditLedger(_currentStationCode);
       if (remoteCustomers.isNotEmpty) {
         _creditCustomers = remoteCustomers;
       }
 
       // 5. Fetch live expenses
-      final remoteExpenses = await repo.fetchLiveExpenses('LEKKI-01');
+      final remoteExpenses = await repo.fetchLiveExpenses(_currentStationCode);
       _expenses.clear();
       for (final e in remoteExpenses) {
         _expenses.add(
@@ -576,14 +593,14 @@ class StationAppState extends ChangeNotifier {
       }
 
       // 6. Fetch live salary adjustments
-      final remoteSalary = await repo.fetchLiveSalaryAdjustments('LEKKI-01');
+      final remoteSalary = await repo.fetchLiveSalaryAdjustments(_currentStationCode);
       _salaryAdjustments.clear();
       for (final s in remoteSalary) {
         _salaryAdjustments.add(
           SalaryAdjustment(
             id: s['id'] as String,
             attendantName: s['attendant_name'] ?? 'Attendant',
-            station: 'Lekki Road Station',
+            station: s['station_name'] ?? _currentStationName,
             shiftRef: s['shift_ref'] ?? 'Shift',
             amount: (s['amount'] as num).toDouble(),
             status: s['status'] ?? 'Pending Review',
@@ -612,6 +629,93 @@ class StationAppState extends ChangeNotifier {
       final remoteDeposits = await repo.fetchBankDeposits(_currentStationCode);
       _deposits.clear();
       _deposits.addAll(remoteDeposits);
+
+      // 11. Fetch remittances read back for the cashier verification queue
+      final remoteRemittances = await repo.fetchRemittanceRecords();
+      final mergedRemittances = <ShiftSubmission>[];
+      for (final row in remoteRemittances) {
+        final id = row['id']?.toString();
+        if (id == null || id.isEmpty) continue;
+        if (_submissions.any((s) => s.id == id)) continue;
+
+        final profile = row['profiles'] is Map
+            ? Map<String, dynamic>.from(row['profiles'] as Map)
+            : null;
+        final createdAt =
+            DateTime.tryParse(row['created_at']?.toString() ?? '') ??
+                DateTime.now();
+        final shiftId = row['shift_id']?.toString() ?? id;
+
+        final photos = <String>[];
+        final evidence = row['remittance_evidence'];
+        if (evidence is List) {
+          for (final e in evidence) {
+            final ev = e is Map ? Map<String, dynamic>.from(e) : null;
+            final channel = ev?['payment_channel']?.toString();
+            if (channel == 'credit_requisition' ||
+                channel == 'fuel_return_evidence') {
+              continue;
+            }
+            final path = ev?['storage_path']?.toString();
+            if (path != null && path.isNotEmpty) photos.add(path);
+          }
+        }
+
+        mergedRemittances.add(
+          ShiftSubmission(
+            id: id,
+            shiftId: shiftId,
+            attendantId: row['attendant_id']?.toString() ?? '',
+            attendantName: (profile?['display_name'] ??
+                    profile?['full_name'] ??
+                    'Attendant')
+                .toString(),
+            shiftType:
+                createdAt.toLocal().hour < 14 ? 'Morning' : 'Evening',
+            submittedAt: createdAt,
+            nozzles: const [],
+            expectedSalesValue:
+                (row['expected_sales_value'] as num?)?.toDouble() ?? 0,
+            cashDeclared: (row['cash_declared'] as num?)?.toDouble() ?? 0,
+            posCardDeclared:
+                (row['pos_card_declared'] as num?)?.toDouble() ?? 0,
+            posTransferDeclared:
+                (row['pos_transfer_declared'] as num?)?.toDouble() ?? 0,
+            bankTransferDeclared:
+                (row['bank_transfer_declared'] as num?)?.toDouble() ?? 0,
+            creditSalesDeclared:
+                (row['credit_sales_declared'] as num?)?.toDouble() ?? 0,
+            evidencePhotos: photos,
+            cashDrops: _cashDrops.where((d) => d.shiftId == shiftId).toList(),
+            posTransactions:
+                _posTransactions.where((p) => p.shiftId == shiftId).toList(),
+            finalCashHandover:
+                (row['cash_declared'] as num?)?.toDouble() ?? 0,
+            status: _remittanceStatusFromRemote(row['status']?.toString()),
+            cashierComment: row['cashier_notes']?.toString() ?? '',
+            verifiedAt: row['verified_at'] != null
+                ? DateTime.tryParse(row['verified_at'].toString())
+                : null,
+          ),
+        );
+      }
+      if (mergedRemittances.isNotEmpty) {
+        _submissions.insertAll(0, mergedRemittances);
+      }
+
+      // 12. Fetch monthly payroll settlements (§4.7)
+      final remoteSets = await repo.fetchPayrollSettlements();
+      for (final s in remoteSets) {
+        if (!_payrollSettlements.any((e) => e.id == s.id)) {
+          _payrollSettlements.add(s);
+        }
+      }
+
+      // 13. Fetch operational notifications
+      final remoteNotifications = await repo.fetchNotifications();
+      if (remoteNotifications.isNotEmpty) {
+        _notifService.replaceAll(remoteNotifications);
+      }
     } catch (e) {
       debugPrint('[Supabase Sync Error]: $e');
     } finally {
@@ -620,9 +724,43 @@ class StationAppState extends ChangeNotifier {
     }
   }
 
+  String _remittanceStatusFromRemote(String? raw) {
+    switch (raw) {
+      case 'submitted':
+        return 'Pending Verification';
+      case 'verified':
+        return 'Verified';
+      case 'flagged_unresolved':
+        return 'Flagged Unresolved';
+      default:
+        return raw ?? 'Pending Verification';
+    }
+  }
+
+  /// '08 Oct 2026' — mirrors SupabaseRepository date formatting
+  String _formatRepaymentDate(DateTime d) {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    return '${d.day.toString().padLeft(2, '0')} ${months[d.month - 1]} ${d.year}';
+  }
+
   // ---------------------------------------------------------------------------
   // REAL-TIME ACTIONS & RECONCILIATION LOGIC (PHASE 1 & PHASE 2 QUEUING)
   // ---------------------------------------------------------------------------
+
+  /// Persist absolute tank stock after every local mutation (C9)
+  void _enqueueTankStock(LiveTankStock t) {
+    _syncService.enqueue(
+      actionType: SyncActionType.tankStock,
+      payload: {
+        'tankCode': t.code,
+        'bookStock': t.bookStock,
+        'physicalDip': t.physicalDip,
+      },
+    );
+  }
 
   /// Attendant confirms opening reading on nozzle
   void confirmOpeningReading(int nozzleNumber) {
@@ -654,7 +792,8 @@ class StationAppState extends ChangeNotifier {
     _syncService.enqueue(
       actionType: SyncActionType.closingReadings,
       payload: {
-        'shiftId': 'SHIFT-${DateTime.now().millisecondsSinceEpoch}',
+        'shiftId': currentShiftId,
+        'stationCode': _currentStationCode,
         'readings': readingsPayload,
         'attendantId': _currentUser.id,
       },
@@ -677,13 +816,15 @@ class StationAppState extends ChangeNotifier {
   }) {
     final expectedSales = _nozzles.fold(0.0, (s, n) => s + n.salesValue);
     final totalExpected = expectedSales;
-    final shiftId = 'SHIFT-${DateTime.now().millisecondsSinceEpoch}';
+    final submissionId = SupabaseRepository.instance.generateUuid();
+    final shiftId = currentShiftId;
 
     final attendantDrops = drops ?? _cashDrops.where((d) => d.attendantId == _currentUser.id).toList();
     final attendantPos = posTransactions ?? _posTransactions.where((p) => p.attendantId == _currentUser.id).toList();
 
     final sub = ShiftSubmission(
-      id: shiftId,
+      id: submissionId,
+      shiftId: shiftId,
       attendantName: _currentUser.displayName,
       attendantId: _currentUser.id,
       shiftType: 'Morning',
@@ -712,6 +853,7 @@ class StationAppState extends ChangeNotifier {
           orElse: () => _tanks.first,
         );
         tank.bookStock -= n.litresSold;
+        _enqueueTankStock(tank);
       }
     }
 
@@ -719,7 +861,9 @@ class StationAppState extends ChangeNotifier {
     _syncService.enqueue(
       actionType: SyncActionType.remittanceSubmission,
       payload: {
+        'id': submissionId,
         'shiftId': shiftId,
+        'stationCode': _currentStationCode,
         'attendantId': _currentUser.id,
         'expectedSalesValue': totalExpected,
         'cashDeclared': cash,
@@ -753,19 +897,41 @@ class StationAppState extends ChangeNotifier {
     sub.cashierComment = cashierComment;
     sub.verifiedAt = DateTime.now();
 
+    _syncService.enqueue(
+      actionType: SyncActionType.remittanceVerification,
+      payload: {
+        'id': submissionId,
+        'status': 'verified',
+        'cashierNotes': cashierComment,
+        'verifiedBy': _currentUser.id,
+        'verifiedAt': DateTime.now().toIso8601String(),
+      },
+    );
+
     // If there is any shortage or excess, immediately log to Attendant Salary Ledger (§4.6)
     if (!sub.isBalanced) {
-      _salaryAdjustments.insert(
-        0,
-        SalaryAdjustment(
-          id: 'DISC-${DateTime.now().millisecondsSinceEpoch}',
-          attendantName: sub.attendantName,
-          station: 'Lekki Road',
-          shiftRef: '${sub.shiftType} Shift (${sub.id})',
-          amount: sub.variance,
-          status: 'Pending Review',
-          recordedAt: DateTime.now(),
-        ),
+      final adj = SalaryAdjustment(
+        id: SupabaseRepository.instance.generateUuid(),
+        attendantName: sub.attendantName,
+        station: 'Lekki Road',
+        shiftRef: '${sub.shiftType} Shift (${sub.id})',
+        amount: sub.variance,
+        status: 'Pending Review',
+        recordedAt: DateTime.now(),
+      );
+      _salaryAdjustments.insert(0, adj);
+
+      _syncService.enqueue(
+        actionType: SyncActionType.shortageAdjustment,
+        payload: {
+          'id': adj.id,
+          'attendant_name': adj.attendantName,
+          'station': adj.station,
+          'shift_ref': adj.shiftRef,
+          'amount': adj.amount,
+          'status': adj.status,
+          'recorded_at': DateTime.now().toIso8601String(),
+        },
       );
     }
 
@@ -789,17 +955,39 @@ class StationAppState extends ChangeNotifier {
     sub.status = 'Flagged Unresolved';
     sub.cashierComment = cashierComment;
 
-    _salaryAdjustments.insert(
-      0,
-      SalaryAdjustment(
-        id: 'DISC-${DateTime.now().millisecondsSinceEpoch}',
-        attendantName: sub.attendantName,
-        station: 'Lekki Road',
-        shiftRef: '${sub.shiftType} Shift (${sub.id})',
-        amount: sub.variance,
-        status: 'Pending Review',
-        recordedAt: DateTime.now(),
-      ),
+    _syncService.enqueue(
+      actionType: SyncActionType.remittanceVerification,
+      payload: {
+        'id': submissionId,
+        'status': 'flagged_unresolved',
+        'cashierNotes': cashierComment,
+        'verifiedBy': _currentUser.id,
+        'verifiedAt': DateTime.now().toIso8601String(),
+      },
+    );
+
+    final flaggedAdj = SalaryAdjustment(
+      id: SupabaseRepository.instance.generateUuid(),
+      attendantName: sub.attendantName,
+      station: 'Lekki Road',
+      shiftRef: '${sub.shiftType} Shift (${sub.id})',
+      amount: sub.variance,
+      status: 'Pending Review',
+      recordedAt: DateTime.now(),
+    );
+    _salaryAdjustments.insert(0, flaggedAdj);
+
+    _syncService.enqueue(
+      actionType: SyncActionType.shortageAdjustment,
+      payload: {
+        'id': flaggedAdj.id,
+        'attendant_name': flaggedAdj.attendantName,
+        'station': flaggedAdj.station,
+        'shift_ref': flaggedAdj.shiftRef,
+        'amount': flaggedAdj.amount,
+        'status': flaggedAdj.status,
+        'recorded_at': DateTime.now().toIso8601String(),
+      },
     );
 
     _notifService.postNotification(
@@ -820,6 +1008,7 @@ class StationAppState extends ChangeNotifier {
     required double litres,
     required String vehiclePlate,
     required String driverName,
+    List<String> evidencePhotos = const [],
   }) {
     final customer = _creditCustomers.firstWhere((c) => c.id == customerId);
     final nozzle = _nozzles.firstWhere((n) => n.nozzleNumber == nozzleNumber);
@@ -857,6 +1046,8 @@ class StationAppState extends ChangeNotifier {
     _syncService.enqueue(
       actionType: SyncActionType.creditSale,
       payload: {
+        'id': SupabaseRepository.instance.generateUuid(),
+        'attendantId': _currentUser.id,
         'customerId': customerId,
         'customerName': customer.name,
         'nozzleNumber': nozzleNumber,
@@ -864,6 +1055,39 @@ class StationAppState extends ChangeNotifier {
         'totalAmount': saleValue,
         'vehicleReg': vehiclePlate,
         'driverName': driverName,
+        'evidencePhotos': evidencePhotos,
+      },
+    );
+
+    notifyListeners();
+  }
+
+  /// Record a credit repayment against a customer's outstanding balance (§4.8)
+  void recordCreditRepayment({
+    required String customerId,
+    required double amount,
+  }) {
+    if (amount <= 0) return;
+
+    final idx = _creditCustomers.indexWhere((c) => c.id == customerId);
+    if (idx != -1) {
+      final c = _creditCustomers[idx];
+      _creditCustomers[idx] = CreditCustomer(
+        id: c.id,
+        name: c.name,
+        outstanding:
+            (c.outstanding - amount).clamp(0, double.infinity).toDouble(),
+        lastRepayment: _formatRepaymentDate(DateTime.now()),
+        dueDate: c.dueDate,
+        status: c.status,
+      );
+    }
+
+    _syncService.enqueue(
+      actionType: SyncActionType.creditRepayment,
+      payload: {
+        'customerId': customerId,
+        'amount': amount,
       },
     );
 
@@ -1042,6 +1266,7 @@ class StationAppState extends ChangeNotifier {
     tank.bookStock += received;
     tank.physicalDip = dipAfter;
     tank.lastDipTime = DateTime.now();
+    _enqueueTankStock(tank);
 
     // Queue in Offline Sync Engine
     _syncService.enqueue(
@@ -1080,10 +1305,12 @@ class StationAppState extends ChangeNotifier {
     final tank = _tanks.firstWhere((t) => t.code == tankCode);
     tank.physicalDip = physicalDipLitres;
     tank.lastDipTime = DateTime.now();
+    _enqueueTankStock(tank);
 
     _syncService.enqueue(
       actionType: SyncActionType.tankDipAudit,
       payload: {
+        'id': SupabaseRepository.instance.generateUuid(),
         'tank_id': tankCode,
         'physical_dip_litres': physicalDipLitres,
         'dip_stick_cm': dipStickCm,
@@ -1111,18 +1338,22 @@ class StationAppState extends ChangeNotifier {
     required String tankCode,
     required double litres,
     required String reason,
+    List<String> evidencePhotos = const [],
   }) {
     final tank = _tanks.firstWhere((t) => t.code == tankCode);
     tank.bookStock += litres;
     tank.physicalDip += litres;
+    _enqueueTankStock(tank);
 
     _syncService.enqueue(
       actionType: SyncActionType.fuelReturn,
       payload: {
+        'id': SupabaseRepository.instance.generateUuid(),
         'tankCode': tankCode,
         'litres': litres,
         'reason': reason,
         'attendantId': _currentUser.id,
+        'evidencePhotos': evidencePhotos,
       },
     );
 
@@ -1155,6 +1386,7 @@ class StationAppState extends ChangeNotifier {
     _syncService.enqueue(
       actionType: SyncActionType.priceChange,
       payload: {
+        'id': SupabaseRepository.instance.generateUuid(),
         'product': product,
         'new_price': newPrice,
         'reason': reason,
@@ -1174,18 +1406,33 @@ class StationAppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Legacy local ids ('DISC-…') have no uuid row in
+  /// attendant_salary_adjustments — never queue those for sync.
+  static final RegExp _uuidPattern = RegExp(
+      r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
+
+  void _enqueueShortageStatusUpdate(SalaryAdjustment adj) {
+    if (!_uuidPattern.hasMatch(adj.id)) return;
+    _syncService.enqueue(
+      actionType: SyncActionType.shortageAdjustment,
+      payload: {
+        'id': adj.id,
+        'attendant_name': adj.attendantName,
+        'station': adj.station,
+        'shift_ref': adj.shiftRef,
+        'amount': adj.amount,
+        'status': adj.status,
+        'recorded_at': adj.recordedAt.toIso8601String(),
+      },
+    );
+  }
+
   /// Director approves salary deduction
   void approveSalaryDeduction(String adjustmentId) {
     final adj = _salaryAdjustments.firstWhere((a) => a.id == adjustmentId);
     adj.status = 'Salary Deduction Approved';
 
-    _syncService.enqueue(
-      actionType: SyncActionType.salaryAdjustment,
-      payload: {
-        'id': adjustmentId,
-        'status': 'Salary Deduction Approved',
-      },
-    );
+    _enqueueShortageStatusUpdate(adj);
 
     notifyListeners();
   }
@@ -1195,13 +1442,7 @@ class StationAppState extends ChangeNotifier {
     final adj = _salaryAdjustments.firstWhere((a) => a.id == adjustmentId);
     adj.status = 'Waived by Director';
 
-    _syncService.enqueue(
-      actionType: SyncActionType.salaryAdjustment,
-      payload: {
-        'id': adjustmentId,
-        'status': 'Waived by Director',
-      },
-    );
+    _enqueueShortageStatusUpdate(adj);
 
     notifyListeners();
   }
@@ -1280,33 +1521,15 @@ class StationAppState extends ChangeNotifier {
     final attendantStaff = _staff.where((s) => s.role == UserRole.attendant).toList();
     final List<MonthlyPayrollSettlement> results = [];
 
-    // Process all enrolled attendants
+    // Process attendants with a Director-configured base salary (no fabricated fallback)
     for (var att in attendantStaff) {
+      if (att.baseSalary <= 0) continue; // Awaiting Director — base salary not set yet
       final settlement = processMonthlyPayrollSettlement(
         attendantId: att.id,
         attendantName: att.displayName,
         stationName: att.stationName.isNotEmpty ? att.stationName : _currentStationName,
         monthYear: monthYear,
-        baseSalary: att.baseSalary > 0 ? att.baseSalary : 75000.0,
-        settledBy: settledBy,
-      );
-      results.add(settlement);
-    }
-
-    // Process any attendants who have adjustments but are not yet in staff table
-    final otherAttendantNames = _salaryAdjustments
-        .where((adj) => adj.status == 'Salary Deduction Approved')
-        .map((adj) => adj.attendantName.trim())
-        .toSet()
-        .difference(attendantStaff.map((s) => s.displayName.trim()).toSet());
-
-    for (var name in otherAttendantNames) {
-      final settlement = processMonthlyPayrollSettlement(
-        attendantId: 'att-${name.hashCode.abs()}',
-        attendantName: name,
-        stationName: _currentStationName,
-        monthYear: monthYear,
-        baseSalary: 75000.0,
+        baseSalary: att.baseSalary,
         settledBy: settledBy,
       );
       results.add(settlement);
@@ -1340,10 +1563,14 @@ class StationAppState extends ChangeNotifier {
       _deposits.removeWhere((d) => d.id == dep.id);
       _deposits.insert(0, dep);
 
-      _syncService.enqueue(
-        actionType: SyncActionType.branchExpense,
-        payload: dep.toJson(),
-      );
+      // Offline: the repo returned a local-only record — queue the handover
+      // so it lands in bank_deposits when connectivity returns.
+      if (!repo.isConnected) {
+        _syncService.enqueue(
+          actionType: SyncActionType.bankDepositRecord,
+          payload: dep.toJson(),
+        );
+      }
 
       _notifService.postNotification(
         title: 'Bank Remittance Handed Over',
@@ -1429,6 +1656,49 @@ class StationAppState extends ChangeNotifier {
     }
   }
 
+  /// Persist the physical safe count to the daily_cash_counts audit table
+  /// (§5.3). Returns 'saved' (written to Supabase), 'queued' (offline or
+  /// write failed — handed to the Offline Engine) or 'failed'.
+  Future<String> saveDailyCashAudit() async {
+    final repo = SupabaseRepository.instance;
+    final payload = <String, dynamic>{
+      'station_id': _currentStationCode,
+      'cashier_id': _currentUser.id,
+      'opening_cash': _openingCash,
+      'cash_receipts': totalVerifiedCashReceipts,
+      'cash_expenses': totalPhysicalCashExpenses,
+      'handed_over_for_deposit': totalHandedOverDeposits,
+      'expected_closing_cash': expectedClosingCash,
+      'physical_total_counted': totalCountedCash,
+      'count_1000': _cashCounts[1000] ?? 0,
+      'count_500': _cashCounts[500] ?? 0,
+      'count_200': _cashCounts[200] ?? 0,
+      'count_100': _cashCounts[100] ?? 0,
+      'count_50': _cashCounts[50] ?? 0,
+      'count_20': _cashCounts[20] ?? 0,
+      'count_10': _cashCounts[10] ?? 0,
+      'deposit_status': 'awaiting_bank',
+    };
+
+    if (!repo.isConnected) {
+      _syncService.enqueue(
+        actionType: SyncActionType.dailyCashAudit,
+        payload: payload,
+      );
+      return 'queued';
+    }
+
+    final ok = await repo.recordDailyCashAuditPayload(payload);
+    if (ok) return 'saved';
+
+    // Online write failed — keep the count safe in the queue for retry.
+    _syncService.enqueue(
+      actionType: SyncActionType.dailyCashAudit,
+      payload: payload,
+    );
+    return 'queued';
+  }
+
   double get totalCountedCash {
     double sum = 0.0;
     _cashCounts.forEach((d, c) => sum += (d * c));
@@ -1487,6 +1757,193 @@ class StationAppState extends ChangeNotifier {
   }
 
   double get cashDrawerVariance => totalCountedCash - expectedClosingCash;
+
+  // ---------------------------------------------------------------------------
+  // STATION SETUP CREATE FLOWS (§3.1, §4.8) — 'created' | 'queued' | 'failed'
+  // ---------------------------------------------------------------------------
+
+  /// Add a tank from Station Setup
+  Future<String> createTank({
+    required String code,
+    required String productCode,
+    required double capacityLitres,
+    required double initialStockLitres,
+  }) async {
+    if (code.trim().isEmpty ||
+        productCode.trim().isEmpty ||
+        capacityLitres <= 0 ||
+        initialStockLitres < 0) {
+      return 'failed';
+    }
+
+    final repo = SupabaseRepository.instance;
+    final id = repo.generateUuid();
+    final tank = LiveTankStock(
+      code: code,
+      product: productCode,
+      capacity: capacityLitres,
+      bookStock: initialStockLitres,
+      physicalDip: initialStockLitres,
+      lastDipTime: DateTime.now(),
+    );
+
+    if (repo.isConnected) {
+      final ok = await repo.createTank(
+        id: id,
+        code: code,
+        productCode: productCode,
+        capacityLitres: capacityLitres,
+        initialStockLitres: initialStockLitres,
+        stationCode: _currentStationCode,
+      );
+      if (ok) {
+        _tanks.add(tank);
+        notifyListeners();
+        return 'created';
+      }
+    }
+
+    try {
+      await _syncService.enqueue(
+        actionType: SyncActionType.tankCreate,
+        payload: {
+          'id': id,
+          'code': code,
+          'name': '$productCode Tank $code',
+          'capacity_litres': capacityLitres,
+          'current_dip_litres': initialStockLitres,
+          'calculated_stock_litres': initialStockLitres,
+          'is_interlocked': false,
+          'product_code': productCode,
+          'station_code': _currentStationCode,
+        },
+      );
+    } catch (_) {
+      return 'failed';
+    }
+
+    _tanks.add(tank);
+    notifyListeners();
+    return 'queued';
+  }
+
+  /// Add a pump nozzle from Station Setup
+  Future<String> createNozzle({
+    required int nozzleNumber,
+    required String productCode,
+    required String tankCode,
+    required double latestMeterReading,
+  }) async {
+    if (nozzleNumber <= 0 ||
+        productCode.trim().isEmpty ||
+        tankCode.trim().isEmpty ||
+        latestMeterReading < 0) {
+      return 'failed';
+    }
+
+    final repo = SupabaseRepository.instance;
+    final id = repo.generateUuid();
+    final nozzle = NozzleItem(
+      nozzleNumber: nozzleNumber,
+      productName: productCode,
+      tankCode: tankCode,
+      openingReading: latestMeterReading,
+      pricePerLitre: productCode == 'PMS' ? _pmsPrice : _agoPrice,
+      isOpeningConfirmed: false,
+    );
+
+    if (repo.isConnected) {
+      final ok = await repo.createNozzle(
+        id: id,
+        nozzleNumber: nozzleNumber,
+        productCode: productCode,
+        tankCode: tankCode,
+        latestMeterReading: latestMeterReading,
+        stationCode: _currentStationCode,
+      );
+      if (ok) {
+        _nozzles.add(nozzle);
+        notifyListeners();
+        return 'created';
+      }
+    }
+
+    try {
+      await _syncService.enqueue(
+        actionType: SyncActionType.nozzleCreate,
+        payload: {
+          'id': id,
+          'nozzle_number': nozzleNumber,
+          'latest_meter_reading': latestMeterReading,
+          'product_code': productCode,
+          'tank_code': tankCode,
+          'station_code': _currentStationCode,
+        },
+      );
+    } catch (_) {
+      return 'failed';
+    }
+
+    _nozzles.add(nozzle);
+    notifyListeners();
+    return 'queued';
+  }
+
+  /// Onboard a credit customer from Station Setup
+  Future<String> createCreditCustomer({
+    required String companyName,
+    required String contactPerson,
+    required int paymentTermsDays,
+  }) async {
+    if (companyName.trim().isEmpty || paymentTermsDays < 0) return 'failed';
+
+    final repo = SupabaseRepository.instance;
+    final id = repo.generateUuid();
+    final customer = CreditCustomer(
+      id: id,
+      name: companyName,
+      outstanding: 0,
+      lastRepayment: 'No repayment yet',
+      dueDate: '$paymentTermsDays days',
+      status: CustomerCreditStatus.current,
+    );
+
+    if (repo.isConnected) {
+      final ok = await repo.createCreditCustomer(
+        id: id,
+        companyName: companyName,
+        contactPerson: contactPerson,
+        paymentTermsDays: paymentTermsDays,
+        stationCode: _currentStationCode,
+      );
+      if (ok) {
+        _creditCustomers.add(customer);
+        notifyListeners();
+        return 'created';
+      }
+    }
+
+    try {
+      await _syncService.enqueue(
+        actionType: SyncActionType.creditCustomerCreate,
+        payload: {
+          'id': id,
+          'company_name': companyName,
+          'contact_person': contactPerson,
+          'payment_terms_days': paymentTermsDays,
+          'outstanding_balance': 0,
+          'status': 'current',
+          'station_code': _currentStationCode,
+        },
+      );
+    } catch (_) {
+      return 'failed';
+    }
+
+    _creditCustomers.add(customer);
+    notifyListeners();
+    return 'queued';
+  }
 
   // ---------------------------------------------------------------------------
   // INTERLOCKED TANK CHANGEOVERS & FORECOURT SETUP (§3.1, §7)
@@ -1764,17 +2221,22 @@ class StationAppState extends ChangeNotifier {
       attendantName: _currentUser.displayName,
       amount: amount,
       notes: notes,
+      shiftId: currentShiftId,
     );
 
     if (drop != null) {
       _cashDrops.removeWhere((d) => d.id == drop.id);
       _cashDrops.insert(0, drop);
 
-      // Queue in Offline Engine
-      _syncService.enqueue(
-        actionType: SyncActionType.branchExpense,
-        payload: drop.toJson(),
-      );
+      // Offline: queue the drop for interim_cash_drops instead of the
+      // memory-only fallback (a mis-typed branchExpense enqueue here
+      // previously poisoned the queue).
+      if (!repo.isConnected) {
+        _syncService.enqueue(
+          actionType: SyncActionType.interimCashDrop,
+          payload: drop.toJson(),
+        );
+      }
 
       // Post high-priority notification to Cashier
       _notifService.postNotification(
@@ -1835,17 +2297,22 @@ class StationAppState extends ChangeNotifier {
       referenceNumber: referenceNumber,
       storagePath: storagePath,
       customerVehicle: customerVehicle,
+      shiftId: currentShiftId,
     );
 
     if (tx != null) {
       _posTransactions.removeWhere((p) => p.id == tx.id);
       _posTransactions.insert(0, tx);
 
-      // Queue in Offline Engine
-      _syncService.enqueue(
-        actionType: SyncActionType.evidencePhoto,
-        payload: tx.toJson(),
-      );
+      // Offline: queue for shift_pos_transactions (previously a bogus
+      // evidencePhoto enqueue dispatched to the photo uploader and always
+      // failed).
+      if (!repo.isConnected) {
+        _syncService.enqueue(
+          actionType: SyncActionType.posTransaction,
+          payload: tx.toJson(),
+        );
+      }
 
       notifyListeners();
     }

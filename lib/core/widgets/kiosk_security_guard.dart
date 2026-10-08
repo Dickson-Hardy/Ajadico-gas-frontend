@@ -244,7 +244,7 @@ class _KioskSecurityGuardState extends State<KioskSecurityGuard> {
                           ),
                           child: Column(
                             children: [
-                              const Text('LOCKOUT COOLDOWN', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.slate)),
+                              const Text('LOCKOUT COOLDOWN', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.slate)),
                               const SizedBox(height: 4),
                               Text(
                                 '${(_securityManager.lockoutSecondsRemaining ~/ 60).toString().padLeft(2, '0')}:${(_securityManager.lockoutSecondsRemaining % 60).toString().padLeft(2, '0')}',

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
@@ -65,40 +66,38 @@ class CameraCompressionService {
   static final CameraCompressionService instance = CameraCompressionService._internal();
   CameraCompressionService._internal();
 
-  /// High-efficiency compression simulation & pipeline
-  /// Compresses 4–8MB high-res forecourt photos down to <150KB while preserving legible slip numbers
+  /// Real capture pipeline: processes actual camera bytes (already platform-compressed
+  /// by the picker at capture time) and records their true sizes. No fabricated data.
   Future<CompressedImageResult> processAndCompressPhoto({
     required String photoType, // 'pos_slip', 'bank_transfer', 'waybill', 'tank_dip'
     required String stationName,
     required String staffName,
-    Uint8List? rawBytes,
+    required Uint8List rawBytes,
     String? explicitFileName,
   }) async {
+    if (rawBytes.isEmpty) {
+      throw ArgumentError('Evidence photo requires real image bytes.');
+    }
+
     final now = DateTime.now();
     final localId = 'IMG-${now.millisecondsSinceEpoch}-${Random().nextInt(9999).toString().padLeft(4, '0')}';
     final fileName = explicitFileName ?? '${photoType}_$localId.jpg';
 
-    // Original uncompressed size simulation if not provided (typically 4.2 MB - 6.5 MB from Android tablet camera)
-    final originalBytes = rawBytes != null ? rawBytes.length : (4200000 + Random().nextInt(1800000));
-
-    // Target compressed size: between 75 KB and 130 KB (<150 KB target per BRD)
-    final compressedBytes = 75000 + Random().nextInt(55000);
-    final ratio = ((1 - (compressedBytes / originalBytes)) * 100).clamp(0.0, 99.9);
+    // True sizes of the actual image being stored (platform compresses at capture).
+    final originalBytes = rawBytes.length;
+    final compressedBytes = rawBytes.length;
 
     // Audit stamp overlay metadata (Watermark for anti-fraud)
     final watermarkStamp = 'AJADICO $stationName | $staffName | ${now.toIso8601String().substring(0, 19).replaceAll('T', ' ')} | $photoType';
-
-    // Create a compact synthetic 1x1 or preview placeholder base64
-    final sampleBase64 = _generateSampleEvidenceBase64(photoType);
 
     final result = CompressedImageResult(
       localId: localId,
       fileName: fileName,
       originalSizeBytes: originalBytes,
       compressedSizeBytes: compressedBytes,
-      compressionRatioPercent: ratio,
+      compressionRatioPercent: 0,
       imageBytes: rawBytes,
-      base64Preview: sampleBase64,
+      base64Preview: '',
       watermarkStamp: watermarkStamp,
       capturedAt: now,
       isUploaded: false,
@@ -123,28 +122,32 @@ class CameraCompressionService {
         final publicUrl = await repo.uploadStorageFile(
           bucket: bucketName,
           path: storagePath,
-          fileBytes: image.imageBytes ?? Uint8List(image.compressedSizeBytes),
+          fileBytes: image.imageBytes!,
         );
 
-        return CompressedImageResult(
-          localId: image.localId,
-          fileName: image.fileName,
-          originalSizeBytes: image.originalSizeBytes,
-          compressedSizeBytes: image.compressedSizeBytes,
-          compressionRatioPercent: image.compressionRatioPercent,
-          imageBytes: image.imageBytes,
-          base64Preview: image.base64Preview,
-          remoteStorageUrl: publicUrl ?? 'https://haeakygzrnrjwphmhlkp.supabase.co/storage/v1/object/public/$bucketName/$storagePath',
-          watermarkStamp: image.watermarkStamp,
-          capturedAt: image.capturedAt,
-          isUploaded: true,
-        );
+        if (publicUrl != null) {
+          return CompressedImageResult(
+            localId: image.localId,
+            fileName: image.fileName,
+            originalSizeBytes: image.originalSizeBytes,
+            compressedSizeBytes: image.compressedSizeBytes,
+            compressionRatioPercent: image.compressionRatioPercent,
+            imageBytes: image.imageBytes,
+            base64Preview: image.base64Preview,
+            remoteStorageUrl: publicUrl,
+            watermarkStamp: image.watermarkStamp,
+            capturedAt: image.capturedAt,
+            isUploaded: true,
+          );
+        }
+        // Upload failed → fall through to offline outbox with real bytes
       } catch (e) {
         // Fall back to offline queue
       }
     }
 
-    // Offline outbox queue fallback
+    // Offline outbox queue fallback — carries the real image bytes so the
+    // later sync can perform the actual Storage upload (no metadata-only records)
     await syncService.enqueue(
       actionType: SyncActionType.evidencePhotoUpload,
       payload: {
@@ -154,6 +157,7 @@ class CameraCompressionService {
         'watermark': image.watermarkStamp,
         'compressedSize': image.compressedSizeBytes,
         'fileName': image.fileName,
+        'imageBase64': base64Encode(image.imageBytes!),
       },
     );
 
@@ -170,11 +174,5 @@ class CameraCompressionService {
       capturedAt: image.capturedAt,
       isUploaded: false,
     );
-  }
-
-  /// Compact SVG / Base64 visual evidence thumbnail for instant UI preview
-  String _generateSampleEvidenceBase64(String type) {
-    // Return a lightweight data URI representation
-    return 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120"><rect width="120" height="120" fill="%230F172A"/><text x="60" y="55" fill="%2322C55E" font-size="14" font-family="sans-serif" text-anchor="middle" font-weight="bold">${type.toUpperCase()}</text><text x="60" y="75" fill="%2394A3B8" font-size="10" font-family="sans-serif" text-anchor="middle">VERIFIED %26lt;150KB</text></svg>';
   }
 }

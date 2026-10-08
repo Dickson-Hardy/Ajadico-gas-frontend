@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../constants/app_colors.dart';
 
 /// Renders the official Ajadico Energy emblem and typography.
@@ -84,10 +85,9 @@ class AjadicoLogo extends StatelessWidget {
           children: [
             Text(
               'AJADICO ENERGY',
-              style: TextStyle(
-                fontFamily: 'Roboto',
+              style: GoogleFonts.manrope(
                 fontSize: size * 0.44,
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w800,
                 letterSpacing: 1.1,
                 color: textColor ?? (isMonochrome ? Colors.black : AppColors.ink),
                 height: 1.1,
@@ -121,9 +121,9 @@ class AjadicoLogo extends StatelessWidget {
         const SizedBox(height: 12),
         Text(
           'AJADICO ENERGY',
-          style: TextStyle(
+          style: GoogleFonts.manrope(
             fontSize: size * 0.28,
-            fontWeight: FontWeight.w900,
+            fontWeight: FontWeight.w800,
             letterSpacing: 1.4,
             color: textColor ?? (isMonochrome ? Colors.black : AppColors.ink),
           ),

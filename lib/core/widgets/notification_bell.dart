@@ -187,7 +187,7 @@ class NotificationBell extends StatelessWidget {
                                                 const SizedBox(width: 8),
                                                 Text(
                                                   notif.timeAgo,
-                                                  style: const TextStyle(fontSize: 12, color: AppColors.mutedSlate),
+                                                  style: const TextStyle(fontSize: 12, color: AppColors.slate),
                                                 ),
                                               ],
                                             ),
