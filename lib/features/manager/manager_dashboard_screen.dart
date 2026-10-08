@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/theme/app_typography.dart';
 import '../../core/utils/currency_formatter.dart';
+import '../../core/widgets/executive_hero_card.dart';
+import '../../core/widgets/forecourt_charts.dart';
 import '../../core/widgets/forecourt_tank_gauge.dart';
 import '../../core/widgets/status_chip.dart';
 import '../../state/station_app_state.dart';
@@ -228,7 +231,7 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.bad,
                   foregroundColor: Colors.white,
-                  disabledBackgroundColor: AppColors.mutedSlate,
+                  disabledBackgroundColor: AppColors.line,
                   minimumSize: const Size(0, 48),
                 ),
                 child: const Text('Reject Expense'),
@@ -268,6 +271,11 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: Icon(state.isDarkMode ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
+            tooltip: state.isDarkMode ? 'Daylight Mode' : 'Night Shift Mode',
+            onPressed: () => state.toggleTheme(),
+          ),
           if (widget.onOpenStaffManagement != null)
             IconButton(
               icon: const Icon(Icons.badge_outlined),
@@ -305,37 +313,47 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // 1. Executive Duotone Hero Card: The One Number That Matters
+                ExecutiveHeroCard(
+                  totalRevenue: totalSalesValue,
+                  pmsLitres: pmsSold,
+                  agoLitres: agoSold,
+                  safeCashBalance: state.totalCountedCash > 0 ? state.totalCountedCash : state.expectedClosingCash,
+                  netVariance: state.submissions.fold(0.0, (s, sub) => s + sub.variance),
+                  pendingAuditCount: pendingVerifications,
+                  stationName: state.currentStationName,
+                  onDepositPressed: () => _openBankDepositDialog(
+                    state.totalCountedCash > 0 ? state.totalCountedCash : state.expectedClosingCash,
+                  ),
+                  onAuditPressed: widget.onOpenVerificationQueue,
+                  onExportPressed: () => ShiftSummaryExportDialog.show(context),
+                ),
+
+                const SizedBox(height: 20),
+
+                // 2. 7-Day Forecourt Throughput & Sales Trend Sparkline Chart
+                const Forecourt7DaySalesChart(),
+
+                const SizedBox(height: 20),
+
+                // 3. Operational Dials Title & Submissions Status
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Today at ${state.currentStationName}',
-                            style: const TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.ink,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          const Text(
-                            'Real-time operational status, forecourt exceptions, and cash movements.',
-                            style: TextStyle(fontSize: 15, color: AppColors.muted),
-                          ),
-                        ],
+                    Text(
+                      'Operational Dials & Safe Balances',
+                      style: AppTypography.title(
+                        fontSize: 18,
+                        color: Theme.of(context).brightness == Brightness.dark ? AppColors.darkInk : AppColors.ink,
                       ),
                     ),
-                    const SizedBox(width: 12),
                     StatusChip(
                       label: pendingVerifications > 0 ? '$pendingVerifications Submissions Need Audit' : 'All Clear',
                       type: pendingVerifications > 0 ? ChipType.warn : ChipType.ok,
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
 
                 // KPI Metric Tiles
                 LayoutBuilder(
@@ -724,26 +742,49 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
   }
 
   Widget _buildKpiCard(String label, String value, double width, {bool isGreen = false, bool isBlue = false}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final valueColor = isGreen
+        ? (isDark ? AppColors.emerald : AppColors.okInk)
+        : (isBlue ? AppColors.accent : (isDark ? AppColors.darkInk : AppColors.ink));
+
     return SizedBox(
       width: width,
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: const TextStyle(fontSize: 13, color: AppColors.muted)),
-              const SizedBox(height: 6),
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: isGreen ? AppColors.ok : (isBlue ? AppColors.bank : AppColors.ink),
-                ),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isDark ? AppColors.darkCard : AppColors.card,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: isDark ? AppColors.darkLine : AppColors.line),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.03),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label.toUpperCase(),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.5,
+                color: isDark ? AppColors.darkMuted : AppColors.muted,
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              value,
+              style: AppTypography.monoNumeric(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: valueColor,
+              ),
+            ),
+          ],
         ),
       ),
     );

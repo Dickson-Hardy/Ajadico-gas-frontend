@@ -120,15 +120,31 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
             child: const Text('Keep Counting'),
           ),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(ctx);
+              final result = await state.saveDailyCashAudit();
+              if (!mounted) return;
+              final countedNow = state.totalCountedCash;
+              final varianceNow = state.cashDrawerVariance;
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  backgroundColor: AppColors.ok,
+                  backgroundColor: switch (result) {
+                    'saved' => AppColors.ok,
+                    'queued' => AppColors.warn,
+                    _ => AppColors.bad,
+                  },
                   behavior: SnackBarBehavior.floating,
-                  content: Text(
-                    'Physical cash count saved: ${CurrencyFormatter.formatNaira(state.totalCountedCash)}. Variance: ${CurrencyFormatter.formatVariance(state.cashDrawerVariance)}',
-                  ),
+                  content: switch (result) {
+                    'saved' => Text(
+                        'Cash count saved to the audit log: ${CurrencyFormatter.formatNaira(countedNow)}. Variance: ${CurrencyFormatter.formatVariance(varianceNow)}',
+                      ),
+                    'queued' => Text(
+                        'Cash count saved on this device and queued to sync when the station reconnects: ${CurrencyFormatter.formatNaira(countedNow)}.',
+                      ),
+                    _ => const Text(
+                        'Could not save the cash count to the audit log. Please retry.',
+                      ),
+                  },
                 ),
               );
             },
@@ -170,7 +186,7 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('Daily Physical Cash Audit', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('${state.currentUser.displayName} · Station Safe Cash Count (§5.3)', style: const TextStyle(fontSize: 13, color: Colors.white70)),
+            Text('${state.currentUser.displayName} · Station Safe Cash Count', style: const TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
         actions: [
@@ -205,7 +221,7 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Count physical bank notes in the cashier safe. The expected closing cash formula updates dynamically from verified shifts and expenses (§5.3).',
+                  'Count physical bank notes in the cashier safe. The expected closing cash formula updates dynamically from verified shifts and expenses.',
                   style: TextStyle(fontSize: 15, color: AppColors.muted),
                 ),
                 const SizedBox(height: 16),
@@ -409,7 +425,7 @@ class _DailyCashCountScreenState extends State<DailyCashCountScreen> {
                                         const SizedBox(width: 8),
                                         Expanded(
                                           child: Text(
-                                            '${CurrencyFormatter.formatNaira(state.totalHandedOverDeposits)} handed over to bank, awaiting Director credit alert verification (§5.5).',
+                                            '${CurrencyFormatter.formatNaira(state.totalHandedOverDeposits)} handed over to bank, awaiting Director credit alert verification.',
                                             style: const TextStyle(fontSize: 12, color: AppColors.muted),
                                           ),
                                         ),

@@ -136,7 +136,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> with UnsavedWorkA
             ),
             const SizedBox(height: 10),
             Text(
-              'This applies immediately at every nozzle of all 5 branches. Transition meter readings are captured for each $_selectedProduct nozzle and prior sales stay locked at the old price (§2.9).',
+              'This applies immediately at every nozzle of all 5 branches. Transition meter readings are captured for each $_selectedProduct nozzle and prior sales stay locked at the old price.',
               style: const TextStyle(fontSize: 13, color: AppColors.slate),
             ),
             const SizedBox(height: 12),
@@ -236,7 +236,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> with UnsavedWorkA
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Fuel Price Authorization', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('Director · Central Price Governance (§2.8, §2.9)', style: TextStyle(fontSize: 13, color: Colors.white70)),
+            Text('Director · Central Price Governance', style: TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
       ),
@@ -258,7 +258,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> with UnsavedWorkA
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'At a price change, the system captures transition meter readings across all nozzles. Previous sales are locked at old price; new sales calculate at new price (§2.9).',
+                  'At a price change, the system captures transition meter readings across all nozzles. Previous sales are locked at old price; new sales calculate at new price.',
                   style: TextStyle(fontSize: 15, color: AppColors.muted),
                 ),
                 const SizedBox(height: 16),
@@ -319,7 +319,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> with UnsavedWorkA
                         const SizedBox(height: 6),
                         Text(
                           reasonReady
-                              ? 'Recorded verbatim in the price authorization audit trail (§2.8).'
+                              ? 'Recorded verbatim in the price authorization audit trail.'
                               : 'Required — type a custom directive. Pre-filled directives are not accepted.',
                           style: TextStyle(
                             fontSize: 12,
@@ -443,7 +443,7 @@ class _PriceChangeScreenState extends State<PriceChangeScreen> with UnsavedWorkA
               ),
               const SizedBox(height: 8),
               const Text(
-                'Central retail price governance is limited to the Director role (§2.8, §2.9).',
+                'Central retail price governance is limited to the Director role.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 14, color: AppColors.muted),
               ),

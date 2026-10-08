@@ -179,7 +179,7 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         Text(
-                          'BRD §3.1 & §7 • Interlocked UST Operation',
+                          'Interlocked UST Operation',
                           style: TextStyle(fontSize: 12, color: AppColors.muted),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -329,7 +329,7 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
 
                     // Affected Nozzle Transition Meter Readings (§7)
                     const Text(
-                      '1. Transition Meter Readings (§7)',
+                      '1. Transition Meter Readings',
                       style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.ink),
                     ),
                     const SizedBox(height: 4),

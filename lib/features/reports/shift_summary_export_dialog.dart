@@ -253,7 +253,7 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                     const SizedBox(height: 16),
 
                     // Section 1: Pump Meter Reconciliation
-                    _buildSectionHeader('1. Pump Meter Sales & Litres Reconciliation (§2.5, §2.10)', Icons.speed),
+                    _buildSectionHeader('1. Pump Meter Sales & Litres Reconciliation', Icons.speed),
                     const SizedBox(height: 8),
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
@@ -298,7 +298,7 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                     const SizedBox(height: 16),
 
                     // Section 2: Attendant Remittances
-                    _buildSectionHeader('2. Forecourt Attendant Remittances (§4.1–§4.7)', Icons.people_outline),
+                    _buildSectionHeader('2. Forecourt Attendant Remittances', Icons.people_outline),
                     const SizedBox(height: 8),
                     if (state.submissions.isEmpty)
                       Container(
@@ -362,7 +362,7 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                     const SizedBox(height: 16),
 
                     // Section 3: Cash Safe Reconciliation & Denominations
-                    _buildSectionHeader('3. Cashier Safe & Physical Denomination Count (§5.3)', Icons.point_of_sale),
+                    _buildSectionHeader('3. Cashier Safe & Physical Denomination Count', Icons.point_of_sale),
                     const SizedBox(height: 8),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -442,7 +442,7 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                     const SizedBox(height: 16),
 
                     // Section 4: Underground Storage Tanks
-                    _buildSectionHeader('4. Underground Tanks (UST) Physical Dips & Ullage (§3.1)', Icons.propane_tank_outlined),
+                    _buildSectionHeader('4. Underground Tanks (UST) Physical Dips & Ullage', Icons.propane_tank_outlined),
                     const SizedBox(height: 8),
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,

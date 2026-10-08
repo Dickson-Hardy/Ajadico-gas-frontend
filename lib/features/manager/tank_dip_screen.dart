@@ -217,7 +217,7 @@ class _TankDipScreenState extends State<TankDipScreen> with UnsavedWorkAware {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Daily Tank Dip Readings', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('Underground Storage Tanks (UST) · Physical Audit (§3.2, §3.3)', style: TextStyle(fontSize: 13, color: Colors.white70)),
+            Text('Underground Storage Tanks (UST) · Physical Audit', style: TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
       ),

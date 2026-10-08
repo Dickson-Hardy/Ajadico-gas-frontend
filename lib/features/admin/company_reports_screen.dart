@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/theme/app_typography.dart';
 import '../../core/utils/currency_formatter.dart';
+import '../../core/widgets/empty_state_view.dart';
+import '../../core/widgets/forecourt_charts.dart';
 import '../../core/widgets/forecourt_tank_gauge.dart';
 import '../../core/widgets/status_chip.dart';
 import '../../models/user_profile.dart';
@@ -143,7 +146,7 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
             Text(exp.description, style: const TextStyle(fontSize: 13, color: AppColors.slate)),
             const SizedBox(height: 12),
             const Text(
-              'Approving locks this expense into the consolidated company ledger as Director-authorized (§6.1).',
+              'Approving locks this expense into the consolidated company ledger as Director-authorized.',
               style: TextStyle(fontSize: 12, color: AppColors.muted),
             ),
           ],
@@ -290,7 +293,7 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Consolidated financials, expense approvals and storage oversight are limited to the Director role (§6.1).',
+                'Consolidated financials, expense approvals and storage oversight are limited to the Director role.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 14, color: AppColors.muted),
               ),
@@ -353,10 +356,15 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Company Consolidated Executive View', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('Director · Live Multi-Branch Consolidated Ledger & Storage (§6.1, §3.1)', style: TextStyle(fontSize: 13, color: Colors.white70)),
+            Text('Director · Live Multi-Branch Consolidated Ledger & Storage', style: TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
         actions: [
+          IconButton(
+            icon: Icon(state.isDarkMode ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
+            tooltip: state.isDarkMode ? 'Daylight Mode' : 'Night Shift Mode',
+            onPressed: () => state.toggleTheme(),
+          ),
           if (state.hasInterlockedTanks)
             TextButton.icon(
               icon: const Icon(Icons.alt_route, color: AppColors.amber),
@@ -407,8 +415,8 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
                           const SizedBox(height: 4),
                           Text(
                             _selectedView == 0
-                                ? 'Real-time revenue, audited shift remittances, and verified expenses (§6.1).'
-                                : 'Real-time physical dip levels, book stock, and available discharge ullage (§3.1).',
+                                ? 'Real-time revenue, audited shift remittances, and verified expenses.'
+                                : 'Real-time physical dip levels, book stock, and available discharge ullage.',
                             style: const TextStyle(fontSize: 15, color: AppColors.muted),
                           ),
                         ],
@@ -456,6 +464,10 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
                 // VIEW 0: REAL FINANCIAL LEDGER (ZERO DEMO DATA)
                 // =============================================================
                 if (_selectedView == 0) ...[
+                  // 7-Day Forecourt Sales Trend Sparkline Chart
+                  const Forecourt7DaySalesChart(),
+                  const SizedBox(height: 20),
+
                   // Real Financial KPI Summary Cards
                   LayoutBuilder(
                     builder: (context, constraints) {
@@ -500,26 +512,9 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
                           const SizedBox(height: 12),
 
                           if (totalRevenue == 0 && totalExpenses == 0)
-                            const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 36),
-                              child: Center(
-                                child: Column(
-                                  children: [
-                                    Icon(Icons.receipt_long_outlined, size: 44, color: AppColors.muted),
-                                    SizedBox(height: 8),
-                                    Text(
-                                      'No Verified Transactions Yet Today',
-                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.ink),
-                                    ),
-                                    SizedBox(height: 4),
-                                    Text(
-                                      'Financial figures update live as pump attendants submit shift remittances and cashiers verify them.',
-                                      style: TextStyle(fontSize: 13, color: AppColors.muted),
-                                      textAlign: TextAlign.center,
-                                    ),
-                                  ],
-                                ),
-                              ),
+                            const EmptyStateView.noRecords(
+                              title: 'No Verified Transactions Yet Today',
+                              message: 'Financial figures update live as pump attendants submit shift remittances and cashiers verify them.',
                             )
                           else
                             SingleChildScrollView(
@@ -583,7 +578,7 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
                                         const Icon(Icons.receipt_long, color: AppColors.ink, size: 22),
                                         const SizedBox(width: 8),
                                         const Text(
-                                          'Expense Ledger & Executive Approvals (§6.1)',
+                                          'Expense Ledger & Executive Approvals',
                                           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
                                         ),
                                       ],
@@ -810,26 +805,47 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
   }
 
   Widget _buildSummaryKpi(String label, String value, double width, {Color color = AppColors.ink}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final effectiveColor = color == AppColors.ink ? (isDark ? AppColors.darkInk : AppColors.ink) : color;
+
     return SizedBox(
       width: width,
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: const TextStyle(fontSize: 13, color: AppColors.muted)),
-              const SizedBox(height: 6),
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: color,
-                ),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isDark ? AppColors.darkCard : AppColors.card,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: isDark ? AppColors.darkLine : AppColors.line),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.03),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label.toUpperCase(),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.5,
+                color: isDark ? AppColors.darkMuted : AppColors.muted,
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              value,
+              style: AppTypography.monoNumeric(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: effectiveColor,
+              ),
+            ),
+          ],
         ),
       ),
     );

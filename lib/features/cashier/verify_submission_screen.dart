@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/navigation/shell_back_guard.dart';
 import '../../core/utils/currency_formatter.dart';
+import '../../core/widgets/empty_state_view.dart';
 import '../../core/widgets/status_chip.dart';
 import '../../models/interim_cash_drop.dart';
 import '../../models/pos_transaction.dart';
@@ -333,6 +334,11 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
         ],
       ),
       actions: [
+        IconButton(
+          icon: Icon(state.isDarkMode ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
+          tooltip: state.isDarkMode ? 'Daylight Mode' : 'Night Shift Mode',
+          onPressed: () => state.toggleTheme(),
+        ),
         if (widget.onOpenExpenseEntry != null)
           IconButton(
             icon: const Icon(Icons.receipt_long),
@@ -379,25 +385,21 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                   ],
 
                   // Queue Empty Info Card
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        children: [
-                          const Icon(Icons.inventory_2_outlined, size: 56, color: AppColors.muted),
-                          const SizedBox(height: 16),
-                          const Text(
-                            'No End-of-Shift Submissions in Queue',
-                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Attendants currently dispensing fuel on the forecourt have not yet submitted their shift closures. Intra-shift cash drops can be received and acknowledged above at any time.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(fontSize: 14, color: AppColors.muted),
-                          ),
-                        ],
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).brightness == Brightness.dark ? AppColors.darkCard : AppColors.card,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: Theme.of(context).brightness == Brightness.dark ? AppColors.darkLine : AppColors.line,
                       ),
+                    ),
+                    child: const EmptyStateView(
+                      icon: Icons.checklist_rtl_rounded,
+                      title: 'No End-of-Shift Submissions in Queue',
+                      message: 'Attendants currently dispensing fuel on the forecourt have not yet submitted their shift closures. Intra-shift cash drops can be received and acknowledged above at any time.',
+                      iconColor: AppColors.ok,
                     ),
                   ),
 
@@ -406,7 +408,7 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                   // Today's Acknowledged Cash Drops Log
                   if (acknowledgedDropsToday.isNotEmpty) ...[
                     const Text(
-                      'Today\'s Acknowledged Mid-Shift Drops (§2.6)',
+                      'Today\'s Acknowledged Mid-Shift Drops',
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
                     ),
                     const SizedBox(height: 10),
@@ -530,7 +532,7 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                             : header,
                         const SizedBox(height: 4),
                         const Text(
-                          'Audit physical cash (interim sweeps + final handoff) and verify card/transfer receipts against POS slips before confirming (§4.2).',
+                          'Audit physical cash (interim sweeps + final handoff) and verify card/transfer receipts against POS slips before confirming.',
                           style: TextStyle(fontSize: 14, color: AppColors.muted),
                         ),
                         const SizedBox(height: 16),
@@ -620,28 +622,37 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
             ),
             const SizedBox(height: 10),
-            ...sub.nozzles.map((n) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Nozzle ${n.nozzleNumber} (${n.productName})',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: AppColors.muted),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      '${CurrencyFormatter.formatLitres(n.openingReading)} → ${CurrencyFormatter.formatLitres(n.closingReading ?? n.openingReading)}',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ],
+            if (sub.nozzles.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  'Nozzle readings not synced for this submission',
+                  style: TextStyle(fontSize: 13, color: AppColors.muted, fontStyle: FontStyle.italic),
                 ),
-              );
-            }).toList(),
+              )
+            else
+              ...sub.nozzles.map((n) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Nozzle ${n.nozzleNumber} (${n.productName})',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: AppColors.muted),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        '${CurrencyFormatter.formatLitres(n.openingReading)} → ${CurrencyFormatter.formatLitres(n.closingReading ?? n.openingReading)}',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
             const Divider(color: AppColors.line),
             Row(
               children: [

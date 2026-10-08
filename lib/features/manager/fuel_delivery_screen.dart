@@ -228,7 +228,7 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('Record Fuel Delivery', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('${state.currentUser.displayName} · Tanker Discharge Audit (§3.7–§3.9)', style: const TextStyle(fontSize: 12, color: Colors.white70)),
+            Text('${state.currentUser.displayName} · Tanker Discharge Audit', style: const TextStyle(fontSize: 12, color: Colors.white70)),
           ],
         ),
       ),
@@ -256,7 +256,7 @@ class _FuelDeliveryScreenState extends State<FuelDeliveryScreen> {
                       ),
                       const SizedBox(height: 4),
                       const Text(
-                        'Measure physical Before & After tank dip levels to calculate actual delivered volume and identify transit shortage/gain (BRD §3.7–§3.9).',
+                        'Measure physical Before & After tank dip levels to calculate actual delivered volume and identify transit shortage/gain.',
                         style: TextStyle(fontSize: 13, color: AppColors.slate),
                       ),
                       const SizedBox(height: 16),

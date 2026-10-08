@@ -219,7 +219,7 @@ class _RemittanceScreenState extends State<RemittanceScreen>
                       ),
                       const SizedBox(height: 4),
                       const Text(
-                        'Declare 4 payment channels: Cash, POS card, POS Transfer, and Bank Transfer. Photograph physical merchant slips for every non-cash channel (BRD §4.3).',
+                        'Declare 4 payment channels: Cash, POS card, POS Transfer, and Bank Transfer. Photograph physical merchant slips for every non-cash channel.',
                         style: TextStyle(fontSize: 13, color: AppColors.slate),
                       ),
                       const SizedBox(height: 16),
@@ -247,7 +247,7 @@ class _RemittanceScreenState extends State<RemittanceScreen>
                                       'Derived from meter opening vs closing readings',
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(fontSize: 12, color: AppColors.mutedSlate),
+                                      style: TextStyle(fontSize: 12, color: AppColors.slate),
                                     ),
                                   ],
                                 ),
@@ -278,7 +278,7 @@ class _RemittanceScreenState extends State<RemittanceScreen>
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               const Text(
-                                'Payment Declaration Channels (BRD §4.1–§4.3)',
+                                'Payment Declaration Channels',
                                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
                               ),
                               if (_declarationError != null) ...[
@@ -437,7 +437,7 @@ class _RemittanceScreenState extends State<RemittanceScreen>
                                           const Text('Attendant Difference', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink)),
                                           Text(
                                             _variance < 0
-                                                ? 'Shortfall will feed salary deduction register (§4.6)'
+                                                ? 'Shortfall will feed salary deduction register'
                                                 : (_variance > 0 ? 'Excess recorded for management review' : 'Balanced shift account'),
                                             maxLines: 2,
                                             overflow: TextOverflow.ellipsis,

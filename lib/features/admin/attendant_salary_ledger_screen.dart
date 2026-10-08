@@ -87,7 +87,7 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
             ),
             const SizedBox(height: 12),
             const Text(
-              'This amount will be deducted from the attendant\'s payroll once the monthly settlement is executed (§4.7).',
+              'This amount will be deducted from the attendant\'s payroll once the monthly settlement is executed.',
               style: TextStyle(fontSize: 12, color: AppColors.muted),
             ),
           ],
@@ -183,7 +183,7 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'This will finalize attendant payroll calculations for $_selectedMonth, automatically deducting all Director-approved forecourt shortages (§4.7).',
+              'This will finalize attendant payroll calculations for $_selectedMonth, automatically deducting all Director-approved forecourt shortages.',
               style: const TextStyle(fontSize: 14),
             ),
             const SizedBox(height: 12),
@@ -271,7 +271,7 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
       buffer.writeln(
         '  Monthly Base Wage:           ${s.baseSalary == null ? 'Not set (awaiting Director)' : CurrencyFormatter.formatNaira(s.baseSalary!)}',
       );
-      buffer.writeln('  - Shortages Deducted (§4.7): ${CurrencyFormatter.formatNaira(s.approvedShortages)} (${s.shortfallShiftsCount} shifts)');
+      buffer.writeln('  - Shortages Deducted:        ${CurrencyFormatter.formatNaira(s.approvedShortages)} (${s.shortfallShiftsCount} shifts)');
       if (s.approvedExcesses > 0) {
         buffer.writeln('  + Excesses Credited:         ${CurrencyFormatter.formatNaira(s.approvedExcesses)}');
       }
@@ -373,7 +373,7 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Attendant Salary & Payroll Deductions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('Director · Forecourt Discrepancies & Monthly Settlement (§4.6, §4.7)', style: TextStyle(fontSize: 13, color: Colors.white70)),
+            Text('Director · Forecourt Discrepancies & Monthly Settlement', style: TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
       ),
@@ -399,7 +399,7 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                         Text(
                           _selectedTab == 0
                               ? 'Review individual shift variances, approve salary deductions, or waive operational differences.'
-                              : 'Reconcile attendant monthly base wages against approved shift shortages (§4.7).',
+                              : 'Reconcile attendant monthly base wages against approved shift shortages.',
                           style: const TextStyle(fontSize: 14, color: AppColors.muted),
                         ),
                       ],
@@ -650,7 +650,7 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                         runSpacing: 12,
                         children: [
                           _buildKpiCard('Total Base Wages', CurrencyFormatter.formatNaira(totalBasePayroll), itemWidth),
-                          _buildKpiCard('Shortages Deducted (§4.7)', CurrencyFormatter.formatVariance(-totalShortagesDeducted), itemWidth, isRed: true),
+                          _buildKpiCard('Shortages Deducted', CurrencyFormatter.formatVariance(-totalShortagesDeducted), itemWidth, isRed: true),
                           _buildKpiCard('Net Disbursable Payroll', CurrencyFormatter.formatNaira(totalNetPayable), itemWidth, isGreen: true),
                           _buildKpiCard('Shortfall Shifts Resolved', '$totalShortfallShifts Shifts', itemWidth, isBlue: true),
                         ],
@@ -683,7 +683,7 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                           ),
                           const SizedBox(height: 6),
                           const Text(
-                            'Net Payable = Base Monthly Salary - Approved Shift Shortages (§4.7). If shortages exceed base salary, remaining balance is carried forward.',
+                            'Net Payable = Base Monthly Salary - Approved Shift Shortages. If shortages exceed base salary, remaining balance is carried forward.',
                             style: TextStyle(fontSize: 13, color: AppColors.muted),
                           ),
                           const SizedBox(height: 16),

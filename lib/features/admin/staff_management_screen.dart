@@ -118,8 +118,8 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
             ),
             Text(
               _isDirector
-                  ? 'Executive Director · Full Access & Payroll (§2.1, §4.7)'
-                  : 'Branch Manager · Staff Onboarding & Forecourt PINs (§2.1–§2.3)',
+                  ? 'Executive Director · Full Access & Payroll'
+                  : 'Branch Manager · Staff Onboarding & Forecourt PINs',
               style: const TextStyle(fontSize: 12, color: Colors.white70),
             ),
           ],
@@ -140,7 +140,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                     : const Icon(Icons.person_add, size: 18),
                 label: Text(_isProcessing ? 'Processing...' : 'Onboard New Staff'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.accent,
+                  backgroundColor: AppColors.bank,
                   foregroundColor: Colors.white,
                   minimumSize: const Size(48, 48),
                   padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -316,7 +316,12 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
             children: [
               Text(
                 value,
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  // Amber fails AA on light cards; warnInk is its AA twin.
+                  color: Theme.of(context).brightness == Brightness.dark || color != AppColors.amber ? color : AppColors.warnInk,
+                ),
               ),
               Text(
                 label,
@@ -347,7 +352,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
   }
 
   Widget _buildStaffCard(UserProfile staff) {
-    final roleColor = _getRoleColor(staff.role);
+    final roleColor = _getRoleColor(staff.role, Theme.of(context).brightness == Brightness.dark);
 
     return Card(
       elevation: 1,
@@ -649,14 +654,16 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
     );
   }
 
-  Color _getRoleColor(UserRole role) {
+  Color _getRoleColor(UserRole role, bool isDark) {
     switch (role) {
       case UserRole.attendant:
-        return AppColors.accent;
+        // Sky accent fails AA on light cards; bank blue is its AA twin.
+        return isDark ? AppColors.accent : AppColors.bank;
       case UserRole.cashier:
         return AppColors.pos;
       case UserRole.manager:
-        return AppColors.amber;
+        // Amber fails AA on light cards; warnInk is its AA twin.
+        return isDark ? AppColors.amber : AppColors.warnInk;
       case UserRole.director:
         return AppColors.ok;
     }
@@ -741,7 +748,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Register a new forecourt staff profile with role credentials, address, shortee (guarantor), and kiosk PIN (§2.2).',
+                        'Register a new forecourt staff profile with role credentials, address, shortee (guarantor), and kiosk PIN.',
                         style: TextStyle(fontSize: 12, color: AppColors.muted),
                       ),
                       const SizedBox(height: 16),
@@ -897,7 +904,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                                 Icon(Icons.verified_user_outlined, size: 16, color: AppColors.primary),
                                 SizedBox(width: 6),
                                 Text(
-                                  'Shortee / Guarantor Information (§2.2)',
+                                  'Shortee / Guarantor Information',
                                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.ink),
                                 ),
                               ],
@@ -905,7 +912,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                             const SizedBox(height: 4),
                             const Text(
                               'The guarantor legally stands for pump shortages, cash discrepancies, or absconding.',
-                              style: TextStyle(fontSize: 11, color: AppColors.muted),
+                              style: TextStyle(fontSize: 12, color: AppColors.muted),
                             ),
                             const SizedBox(height: 12),
                             Row(

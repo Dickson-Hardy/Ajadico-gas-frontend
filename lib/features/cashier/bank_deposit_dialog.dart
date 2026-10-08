@@ -207,7 +207,7 @@ class _BankDepositDialogState extends State<BankDepositDialog> {
                           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
                         ),
                         Text(
-                          'Station Safe → Commercial Bank Account (§5.4, §5.5)',
+                          'Station Safe → Commercial Bank Account',
                           style: TextStyle(fontSize: 12, color: AppColors.muted),
                         ),
                       ],

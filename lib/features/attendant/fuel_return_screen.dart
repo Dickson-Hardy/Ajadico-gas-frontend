@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/navigation/shell_back_guard.dart';
+import '../../core/services/camera_compression_service.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/evidence_photo_picker.dart';
 import '../../core/widgets/forecourt_sync_bar.dart';
@@ -36,6 +37,7 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
   int? _selectedNozzleNumber;
   final TextEditingController _litresController = TextEditingController();
   final TextEditingController _reasonController = TextEditingController();
+  List<CompressedImageResult> _evidencePhotos = [];
   bool _evidenceAttached = false;
   bool _isSubmitting = false;
   bool _dirty = false;
@@ -120,12 +122,18 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
 
     setState(() => _isSubmitting = true);
     try {
+      final photoUrls = _evidencePhotos
+          .map((p) => p.remoteStorageUrl)
+          .whereType<String>()
+          .toList();
+
       state.recordFuelReturn(
         tankCode: nozzle.tankCode,
         litres: litres,
         reason: _reasonController.text.trim().isEmpty
             ? '$friendlyType from Nozzle ${nozzle.nozzleNumber}'
             : _reasonController.text.trim(),
+        evidencePhotos: photoUrls,
       );
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -133,7 +141,7 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
           backgroundColor: AppColors.ok,
           behavior: SnackBarBehavior.floating,
           content: Text(
-            'Non-sale return of ${CurrencyFormatter.formatLitres(litres)} recorded to Tank ${nozzle.tankCode} (§3.4).',
+            'Non-sale return of ${CurrencyFormatter.formatLitres(litres)} recorded to Tank ${nozzle.tankCode}.',
           ),
         ),
       );
@@ -167,7 +175,7 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
           children: [
             const Text('Fuel Return / Non-Sale', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             Text(
-              '${state.currentUser.displayName} · Calibration Tests & Generator Diesel (§3.4)',
+              '${state.currentUser.displayName} · Calibration Tests & Generator Diesel',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 13, color: Colors.white70),
@@ -340,6 +348,7 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
                                   maxPhotos: 1,
                                   onPhotosChanged: (photos) {
                                     setState(() {
+                                      _evidencePhotos = photos;
                                       _evidenceAttached = photos.isNotEmpty;
                                       _photoError = null;
                                       _dirty = true;

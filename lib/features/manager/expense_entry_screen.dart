@@ -161,8 +161,8 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> with UnsavedWor
             ),
             Text(
               state.currentUser.role == UserRole.cashier
-                  ? '${state.currentUser.displayName} · Station Cash Safe (§5.1, §5.2)'
-                  : '${state.currentUser.displayName} · Manager / Admin Entry (§5.1, §5.2)',
+                  ? '${state.currentUser.displayName} · Station Cash Safe'
+                  : '${state.currentUser.displayName} · Manager / Admin Entry',
               style: const TextStyle(fontSize: 13, color: Colors.white70),
             ),
           ],
@@ -186,7 +186,7 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> with UnsavedWor
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Sales cash expenses are deducted from drawer cash; bank-paid expenses are excluded (§5.2).',
+                  'Sales cash expenses are deducted from drawer cash; bank-paid expenses are excluded.',
                   style: TextStyle(fontSize: 15, color: AppColors.muted),
                 ),
                 const SizedBox(height: 16),

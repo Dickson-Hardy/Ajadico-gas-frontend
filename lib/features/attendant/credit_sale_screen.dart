@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/navigation/shell_back_guard.dart';
+import '../../core/services/camera_compression_service.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/evidence_photo_picker.dart';
 import '../../core/widgets/forecourt_sync_bar.dart';
@@ -32,6 +33,7 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
   final TextEditingController _vehicleController = TextEditingController();
   final TextEditingController _driverController = TextEditingController();
 
+  List<CompressedImageResult> _requisitionPhotos = [];
   bool _requisitionUploaded = false;
   bool _isSubmitting = false;
   bool _dirty = false;
@@ -213,12 +215,18 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
 
     setState(() => _isSubmitting = true);
     try {
+      final photoUrls = _requisitionPhotos
+          .map((p) => p.remoteStorageUrl)
+          .whereType<String>()
+          .toList();
+
       state.recordCreditSale(
         customerId: _selectedCustomer!.id,
         nozzleNumber: _selectedNozzleNumber!,
         litres: _litres,
         vehiclePlate: _vehicleController.text.trim(),
         driverName: _driverController.text.trim(),
+        evidencePhotos: photoUrls,
       );
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -262,7 +270,7 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
           children: [
             const Text('Pump Credit Sale Entry', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             Text(
-              '${state.currentUser.displayName} · Authorized Fleet Dispensing (§4.8)',
+              '${state.currentUser.displayName} · Authorized Fleet Dispensing',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 13, color: Colors.white70),
@@ -293,7 +301,7 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
                       ),
                       const SizedBox(height: 4),
                       const Text(
-                        'Dispensed on signed requisition. Updates the customer ledger balance and ensures attendant shift remittance reconciles without shortage (§4.8).',
+                        'Dispensed on signed requisition. Updates the customer ledger balance and ensures attendant shift remittance reconciles without shortage.',
                         style: TextStyle(fontSize: 15, color: AppColors.muted),
                       ),
                       const SizedBox(height: 16),
@@ -437,6 +445,7 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
                                   maxPhotos: 1,
                                   onPhotosChanged: (photos) {
                                     setState(() {
+                                      _requisitionPhotos = photos;
                                       _requisitionUploaded = photos.isNotEmpty;
                                       _photoError = null;
                                       _dirty = true;

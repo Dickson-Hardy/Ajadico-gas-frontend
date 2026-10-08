@@ -8,6 +8,7 @@ import '../../core/offline/offline_sync_service.dart';
 import '../../core/security/kiosk_security_manager.dart';
 import '../../core/widgets/kiosk_security_guard.dart';
 import '../../core/widgets/notification_bell.dart';
+import '../../core/widgets/page_transition_switcher.dart';
 import '../../models/user_profile.dart';
 import '../../state/station_app_state.dart';
 import '../admin/attendant_salary_ledger_screen.dart';
@@ -265,6 +266,16 @@ class _AppShellState extends State<AppShell> {
                 ),
               ),
             const Spacer(),
+            IconButton(
+              icon: Icon(
+                state.isDarkMode ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+                color: Colors.white,
+                size: 20,
+              ),
+              tooltip: state.isDarkMode ? 'Daylight Mode' : 'Night Shift Mode',
+              onPressed: () => state.toggleTheme(),
+            ),
+            const SizedBox(width: 8),
             Material(
               color: AppColors.cardSurface,
               borderRadius: BorderRadius.circular(8),
@@ -324,7 +335,14 @@ class _AppShellState extends State<AppShell> {
                 ? _buildCurrentScreen()
                 : Column(
                     children: [
-                      Expanded(child: _buildCurrentScreen()),
+                      Expanded(
+                        child: PageTransitionSwitcher(
+                          child: KeyedSubtree(
+                            key: ValueKey(_currentView),
+                            child: _buildCurrentScreen(),
+                          ),
+                        ),
+                      ),
                       _buildShellControlBar(pendingAudits),
                     ],
                   ),
@@ -739,7 +757,7 @@ class _AppShellState extends State<AppShell> {
                           color: syncService.isOnline ? AppColors.lightEmerald : const Color(0xFFFEF3C7),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                            color: syncService.isOnline ? AppColors.emerald : AppColors.amber,
+                            color: syncService.isOnline ? AppColors.emerald : AppColors.warnInk,
                           ),
                         ),
                         child: Row(
@@ -750,7 +768,7 @@ class _AppShellState extends State<AppShell> {
                                 Icon(
                                   syncService.isOnline ? Icons.wifi : Icons.wifi_off,
                                   size: 18,
-                                  color: syncService.isOnline ? AppColors.emerald : AppColors.amber,
+                                  color: syncService.isOnline ? AppColors.emerald : AppColors.warnInk,
                                 ),
                                 const SizedBox(width: 8),
                                 Text(

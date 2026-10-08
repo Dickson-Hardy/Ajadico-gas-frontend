@@ -65,7 +65,7 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
             ),
             const SizedBox(height: 12),
             const Text(
-              'Dual-custody action: this locks the deposit into the company ledger as matched against the bank credit alert (§4.3, §5.5).',
+              'Dual-custody action: this locks the deposit into the company ledger as matched against the bank credit alert.',
               style: TextStyle(fontSize: 12, color: AppColors.muted),
             ),
           ],
@@ -99,7 +99,7 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
               backgroundColor: AppColors.ok,
               behavior: SnackBarBehavior.floating,
               content: Text(
-                'Deposit ${dep.id} of ${CurrencyFormatter.formatNaira(dep.amount)} confirmed against bank credit alert by Director (§4.3, §5.5).',
+                'Deposit ${dep.id} of ${CurrencyFormatter.formatNaira(dep.amount)} confirmed against bank credit alert by Director.',
               ),
             ),
           );
@@ -212,7 +212,7 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
               ),
               const SizedBox(height: 8),
               const Text(
-                'Dual-custody bank credit verification is limited to the Director role (§4.3, §5.5).',
+                'Dual-custody bank credit verification is limited to the Director role.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 14, color: AppColors.muted),
               ),
@@ -335,7 +335,7 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('Bank Deposit Approvals', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('${state.currentUser.displayName} · Commercial Bank Alert Verification (§4.3, §5.5)', style: const TextStyle(fontSize: 13, color: Colors.white70)),
+            Text('${state.currentUser.displayName} · Commercial Bank Alert Verification', style: const TextStyle(fontSize: 13, color: Colors.white70)),
           ],
         ),
       ),
@@ -357,7 +357,7 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Cash handed over by station cashiers/managers remains held in "Awaiting bank" status until Director matches the bank SMS/email credit alert against the stamped teller (§5.5).',
+                  'Cash handed over by station cashiers/managers remains held in "Awaiting bank" status until Director matches the bank SMS/email credit alert against the stamped teller.',
                   style: TextStyle(fontSize: 14, color: AppColors.muted),
                 ),
                 const SizedBox(height: 16),

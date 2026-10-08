@@ -63,7 +63,9 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
   void _openCashDropDialog() {
     final amountCtrl = TextEditingController();
     final notesCtrl = TextEditingController();
-    final estimatedPouch = state.attendantEstimatedCashInPouch;
+    final acknowledgedDrops = state.totalAttendantAcknowledgedDrops(widget.user.id);
+    final pendingDrops = state.totalAttendantPendingDrops(widget.user.id);
+    final totalDropped = acknowledgedDrops + pendingDrops;
 
     showDialog(
       context: context,
@@ -90,25 +92,30 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.06),
+                          color: AppColors.ok.withValues(alpha: 0.08),
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+                          border: Border.all(color: AppColors.ok.withValues(alpha: 0.2)),
                         ),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Expanded(
+                            Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text('Current Est. Cash in Pouch', style: TextStyle(fontSize: 12, color: AppColors.muted)),
-                                  Text('Forecourt Physical Cash', style: TextStyle(fontSize: 12, color: AppColors.slate)),
+                                  const Text('Total Drops Handed Over This Shift', style: TextStyle(fontSize: 12, color: AppColors.muted)),
+                                  Text(
+                                    pendingDrops > 0
+                                        ? '${CurrencyFormatter.formatNaira(acknowledgedDrops)} acknowledged · ${CurrencyFormatter.formatNaira(pendingDrops)} pending'
+                                        : 'All previously handed drops acknowledged',
+                                    style: const TextStyle(fontSize: 12, color: AppColors.slate),
+                                  ),
                                 ],
                               ),
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              CurrencyFormatter.formatNaira(estimatedPouch),
+                              CurrencyFormatter.formatNaira(totalDropped),
                               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ok),
                             ),
                           ],
@@ -133,22 +140,10 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                         spacing: 6,
                         runSpacing: 6,
                         children: [
+                          _buildQuickAddButton('+₦20,000', 20000, amountCtrl, setDlgState),
                           _buildQuickAddButton('+₦50,000', 50000, amountCtrl, setDlgState),
                           _buildQuickAddButton('+₦100,000', 100000, amountCtrl, setDlgState),
-                          _buildQuickAddButton('+₦150,000', 150000, amountCtrl, setDlgState),
-                          if (estimatedPouch > 0)
-                            OutlinedButton(
-                              onPressed: () {
-                                setDlgState(() => amountCtrl.text = estimatedPouch.toStringAsFixed(0));
-                              },
-                              style: OutlinedButton.styleFrom(
-                                minimumSize: const Size(0, 48),
-                                padding: const EdgeInsets.symmetric(horizontal: 14),
-                                textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                              ),
-                              child: const Text('All Pouch Cash'),
-                            ),
+                          _buildQuickAddButton('+₦200,000', 200000, amountCtrl, setDlgState),
                         ],
                       ),
                     const SizedBox(height: 14),
@@ -293,7 +288,7 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Record card swipe or customer bank transfer directly at pump (§4.4).',
+                        'Record card swipe or customer bank transfer directly at pump.',
                         style: TextStyle(fontSize: 12, color: AppColors.muted),
                       ),
                       const SizedBox(height: 14),
@@ -439,15 +434,20 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
           if (widget.onOpenCreditSale != null)
             IconButton(
               icon: const Icon(Icons.assignment_outlined),
-              tooltip: 'Record Fleet Credit Sale (§4.8)',
+              tooltip: 'Record Fleet Credit Sale',
               onPressed: widget.onOpenCreditSale,
             ),
           if (widget.onOpenFuelReturn != null)
             IconButton(
               icon: const Icon(Icons.replay_circle_filled_outlined),
-              tooltip: 'Calibration Pour-back (§3.4)',
+              tooltip: 'Calibration Pour-back',
               onPressed: widget.onOpenFuelReturn,
             ),
+          IconButton(
+            icon: Icon(state.isDarkMode ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
+            tooltip: state.isDarkMode ? 'Daylight Mode' : 'Night Shift Mode',
+            onPressed: () => state.toggleTheme(),
+          ),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Log out',
@@ -488,7 +488,7 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                                 ),
                                 const SizedBox(height: 4),
                                 const Text(
-                                  'Carry-forward opening readings & shift operations (BRD §2.5).',
+                                  'Carry-forward opening readings & shift operations.',
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(fontSize: 13, color: AppColors.slate),
@@ -599,16 +599,14 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
 
                       const SizedBox(height: 14),
 
-                      // Forecourt Pouch & Intra-Shift Collections Card (§2.6, §4.1, §4.4)
+                      // Forecourt Drops & Intra-Shift Collections Card
                       Card(
                         elevation: 2,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),
-                          side: BorderSide(
-                            color: state.attendantEstimatedCashInPouch > 150000
-                                ? AppColors.amber.withValues(alpha: 0.5)
-                                : AppColors.border,
-                            width: state.attendantEstimatedCashInPouch > 150000 ? 1.5 : 1.0,
+                          side: const BorderSide(
+                            color: AppColors.border,
+                            width: 1.0,
                           ),
                         ),
                         child: Padding(
@@ -636,13 +634,13 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                                             crossAxisAlignment: CrossAxisAlignment.start,
                                             children: [
                                               Text(
-                                                'Forecourt Pouch & Intra-Shift Ledger',
+                                                'Forecourt Drops & Non-Cash Collections',
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
                                               ),
                                               Text(
-                                                'In-between sales cash drops & POS card/transfer logger (§2.6, §4.4)',
+                                                'Interim cash drops to safe & POS card/transfer logger',
                                                 maxLines: 2,
                                                 overflow: TextOverflow.ellipsis,
                                                 style: TextStyle(fontSize: 12, color: AppColors.slate),
@@ -653,28 +651,6 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                                       ],
                                     ),
                                   ),
-                                  if (state.attendantEstimatedCashInPouch > 150000) ...[
-                                    const SizedBox(width: 8),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: AppColors.warnSurface,
-                                        borderRadius: BorderRadius.circular(20),
-                                        border: Border.all(color: AppColors.amber),
-                                      ),
-                                      child: const Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(Icons.warning_amber_rounded, size: 14, color: AppColors.amber),
-                                          SizedBox(width: 4),
-                                          Text(
-                                            'High Cash in Pouch',
-                                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.warnInk),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
                                 ],
                               ),
                               const SizedBox(height: 16),
@@ -683,26 +659,31 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                               LayoutBuilder(
                                 builder: (context, constraints) {
                                   final isMobile = constraints.maxWidth < 600;
+                                  final acknowledgedDrops = state.totalAttendantAcknowledgedDrops(widget.user.id);
+                                  final pendingDrops = state.totalAttendantPendingDrops(widget.user.id);
+                                  final totalDrops = acknowledgedDrops + pendingDrops;
+
                                   return Wrap(
                                     spacing: 10,
                                     runSpacing: 10,
                                     children: [
                                       _buildPouchMetricBox(
-                                        'Est. Cash in Pouch',
-                                        CurrencyFormatter.formatNaira(state.attendantEstimatedCashInPouch),
-                                        state.attendantEstimatedCashInPouch > 150000 ? AppColors.amber : AppColors.ok,
-                                        Icons.payments,
-                                        isMobile ? (constraints.maxWidth - 10) / 2 : (constraints.maxWidth - 30) / 4,
-                                      ),
-                                      _buildPouchMetricBox(
-                                        'Cash Dropped to Cashier',
-                                        CurrencyFormatter.formatNaira(state.totalAttendantAcknowledgedDrops(widget.user.id)),
-                                        AppColors.primary,
+                                        'Total Cash Drops',
+                                        CurrencyFormatter.formatNaira(totalDrops),
+                                        AppColors.ok,
                                         Icons.archive_outlined,
                                         isMobile ? (constraints.maxWidth - 10) / 2 : (constraints.maxWidth - 30) / 4,
-                                        subtitle: state.totalAttendantPendingDrops(widget.user.id) > 0
-                                            ? '+${CurrencyFormatter.formatNaira(state.totalAttendantPendingDrops(widget.user.id))} pending'
+                                        subtitle: pendingDrops > 0
+                                            ? '${CurrencyFormatter.formatNaira(pendingDrops)} awaiting sign-off'
                                             : 'All acknowledged',
+                                      ),
+                                      _buildPouchMetricBox(
+                                        'Acknowledged by Vault',
+                                        CurrencyFormatter.formatNaira(acknowledgedDrops),
+                                        AppColors.primary,
+                                        Icons.verified_outlined,
+                                        isMobile ? (constraints.maxWidth - 10) / 2 : (constraints.maxWidth - 30) / 4,
+                                        subtitle: 'Signed off in cashier safe',
                                       ),
                                       _buildPouchMetricBox(
                                         'POS / Card Slips',
@@ -917,7 +898,7 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                                     child: OutlinedButton.icon(
                                       onPressed: widget.onOpenCreditSale,
                                       icon: const Icon(Icons.assignment_outlined, size: 18),
-                                      label: const Text('Fleet Credit Sale (§4.8)'),
+                                      label: const Text('Fleet Credit Sale'),
                                       style: OutlinedButton.styleFrom(
                                         padding: const EdgeInsets.symmetric(vertical: 12),
                                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -929,7 +910,7 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                                     child: OutlinedButton.icon(
                                       onPressed: widget.onOpenFuelReturn,
                                       icon: const Icon(Icons.replay_circle_filled_outlined, size: 18),
-                                      label: const Text('Calibration Pour-Back (§3.4)'),
+                                      label: const Text('Calibration Pour-Back'),
                                       style: OutlinedButton.styleFrom(
                                         padding: const EdgeInsets.symmetric(vertical: 12),
                                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -1108,7 +1089,12 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
           const SizedBox(height: 4),
           Text(
             value,
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color),
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              // Sky accent fails AA on light cards; bank blue is its AA twin.
+              color: Theme.of(context).brightness == Brightness.dark || color != AppColors.accent ? color : AppColors.bank,
+            ),
           ),
           if (subtitle != null) ...[
             const SizedBox(height: 2),

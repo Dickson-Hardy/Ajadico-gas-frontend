@@ -27,22 +27,30 @@ class AjadicoGasApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Ajadico Energy - Forecourt Filling Station Management',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      builder: (context, child) {
-        final mediaQuery = MediaQuery.of(context);
-        return _KioskActivityListener(
-          child: MediaQuery(
-            data: mediaQuery.copyWith(
-              textScaler: mediaQuery.textScaler.clamp(minScaleFactor: 1.0, maxScaleFactor: 1.3),
-            ),
-            child: child ?? const SizedBox.shrink(),
-          ),
+    final state = StationAppState.instance;
+    return AnimatedBuilder(
+      animation: state,
+      builder: (context, _) {
+        return MaterialApp(
+          title: 'Ajadico Energy - Forecourt Filling Station Management',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.lightTheme,
+          darkTheme: AppTheme.darkTheme,
+          themeMode: state.themeMode,
+          builder: (context, child) {
+            final mediaQuery = MediaQuery.of(context);
+            return _KioskActivityListener(
+              child: MediaQuery(
+                data: mediaQuery.copyWith(
+                  textScaler: mediaQuery.textScaler.clamp(minScaleFactor: 1.0, maxScaleFactor: 1.3),
+                ),
+                child: child ?? const SizedBox.shrink(),
+              ),
+            );
+          },
+          home: const AppShell(),
         );
       },
-      home: const AppShell(),
     );
   }
 }

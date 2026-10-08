@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../models/user_profile.dart';
@@ -71,8 +72,8 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
     final confirmed = await _confirmSafetyChange(
       title: value ? 'Enable interlocked manifold piping?' : 'Disable interlocked manifold piping?',
       message: value
-          ? 'Enabling the station manifold equips the Branch Manager and Director with the changeover workflow to record valve shifts and split meter sales between twin tanks (§3.1).'
-          : 'Disabling the station manifold reverts this branch to fixed one-to-one pipe routing and removes the changeover workflow (§3.1).',
+          ? 'Enabling the station manifold equips the Branch Manager and Director with the changeover workflow to record valve shifts and split meter sales between twin tanks.'
+          : 'Disabling the station manifold reverts this branch to fixed one-to-one pipe routing and removes the changeover workflow.',
       confirmLabel: value ? 'Enable Interlock' : 'Disable Interlock',
       confirmColor: value ? AppColors.primary : AppColors.bad,
     );
@@ -151,6 +152,313 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
     }
   }
 
+  void _showSetupResultSnackBar(String result, {required String createdMessage, required String failedMessage}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: switch (result) {
+          'created' => AppColors.ok,
+          'queued' => AppColors.warn,
+          _ => AppColors.bad,
+        },
+        behavior: SnackBarBehavior.floating,
+        content: switch (result) {
+          'created' => Text(createdMessage),
+          'queued' => const Text('Saved — will sync when online'),
+          _ => Text(failedMessage),
+        },
+      ),
+    );
+  }
+
+  Future<void> _showAddTankDialog() async {
+    final codeController = TextEditingController();
+    final capacityController = TextEditingController();
+    final stockController = TextEditingController(text: '0');
+    String product = 'PMS';
+    String error = '';
+    bool isSubmitting = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return AlertDialog(
+            title: const Text('Add Storage Tank'),
+            content: SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 440),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Tank Code *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    TextField(
+                      controller: codeController,
+                      textCapitalization: TextCapitalization.characters,
+                      decoration: const InputDecoration(hintText: 'T3'),
+                      onChanged: (_) => setDialogState(() => error = ''),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('Product *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    DropdownButtonFormField<String>(
+                      initialValue: product,
+                      items: const [
+                        DropdownMenuItem(value: 'PMS', child: Text('PMS')),
+                        DropdownMenuItem(value: 'AGO', child: Text('AGO')),
+                      ],
+                      onChanged: (v) => setDialogState(() {
+                        if (v != null) product = v;
+                        error = '';
+                      }),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('Capacity (L) *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    TextField(
+                      controller: capacityController,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                      decoration: const InputDecoration(hintText: 'e.g. 15000'),
+                      onChanged: (_) => setDialogState(() => error = ''),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('Initial Stock (L) *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    TextField(
+                      controller: stockController,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                      decoration: const InputDecoration(hintText: '0'),
+                      onChanged: (_) => setDialogState(() => error = ''),
+                    ),
+                    if (error.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        error,
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.bad),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isSubmitting ? null : () => Navigator.pop(ctx),
+                style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: isSubmitting
+                    ? null
+                    : () async {
+                        final code = codeController.text.trim();
+                        final capacity =
+                            double.tryParse(capacityController.text.trim().replaceAll(',', '')) ?? 0.0;
+                        final stock =
+                            double.tryParse(stockController.text.trim().replaceAll(',', '')) ?? 0.0;
+                        if (code.isEmpty) {
+                          setDialogState(() => error = 'Enter a tank code.');
+                          return;
+                        }
+                        if (capacity <= 0) {
+                          setDialogState(() => error = 'Enter a capacity greater than 0 L.');
+                          return;
+                        }
+                        if (stock < 0) {
+                          setDialogState(() => error = 'Initial stock cannot be negative.');
+                          return;
+                        }
+                        setDialogState(() {
+                          isSubmitting = true;
+                          error = '';
+                        });
+                        final result = await state.createTank(
+                          code: code,
+                          productCode: product,
+                          capacityLitres: capacity,
+                          initialStockLitres: stock,
+                        );
+                        if (!mounted) return;
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        _showSetupResultSnackBar(
+                          result,
+                          createdMessage: 'Tank $code created',
+                          failedMessage: 'Could not add tank',
+                        );
+                      },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(48, 48),
+                ),
+                child: const Text('Add Tank'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    codeController.dispose();
+    capacityController.dispose();
+    stockController.dispose();
+  }
+
+  Future<void> _showAddNozzleDialog() async {
+    final numberController = TextEditingController();
+    final meterController = TextEditingController(text: '0');
+    String product = 'PMS';
+    String? tankCode;
+    String error = '';
+    bool isSubmitting = false;
+    final tanks = state.tanks;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return AlertDialog(
+            title: const Text('Add Dispenser Nozzle'),
+            content: SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 440),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Nozzle Number *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    TextField(
+                      controller: numberController,
+                      keyboardType: const TextInputType.numberWithOptions(),
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: const InputDecoration(hintText: 'e.g. 4'),
+                      onChanged: (_) => setDialogState(() => error = ''),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('Product *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    DropdownButtonFormField<String>(
+                      initialValue: product,
+                      items: const [
+                        DropdownMenuItem(value: 'PMS', child: Text('PMS')),
+                        DropdownMenuItem(value: 'AGO', child: Text('AGO')),
+                      ],
+                      onChanged: (v) => setDialogState(() {
+                        if (v != null) product = v;
+                        error = '';
+                      }),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('Supplying Tank *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    DropdownButtonFormField<String>(
+                      initialValue: tankCode,
+                      isExpanded: true,
+                      hint: Text(tanks.isEmpty ? 'No tanks registered yet' : 'Select tank'),
+                      items: tanks.map((t) {
+                        return DropdownMenuItem(
+                          value: t.code,
+                          child: Text(
+                            'Tank ${t.code} (${t.product})',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (v) => setDialogState(() {
+                        tankCode = v;
+                        error = '';
+                      }),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('Opening Meter (L) *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    TextField(
+                      controller: meterController,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                      decoration: const InputDecoration(hintText: '0'),
+                      onChanged: (_) => setDialogState(() => error = ''),
+                    ),
+                    if (error.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        error,
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.bad),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isSubmitting ? null : () => Navigator.pop(ctx),
+                style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: isSubmitting
+                    ? null
+                    : () async {
+                        final number = int.tryParse(numberController.text.trim());
+                        final meter =
+                            double.tryParse(meterController.text.trim().replaceAll(',', '')) ?? 0.0;
+                        if (number == null || number <= 0) {
+                          setDialogState(() => error = 'Enter a nozzle number greater than 0.');
+                          return;
+                        }
+                        if (tankCode == null) {
+                          setDialogState(
+                            () => error = tanks.isEmpty
+                                ? 'Register a storage tank before adding a nozzle.'
+                                : 'Select the supplying tank.',
+                          );
+                          return;
+                        }
+                        if (meter < 0) {
+                          setDialogState(() => error = 'Opening meter cannot be negative.');
+                          return;
+                        }
+                        setDialogState(() {
+                          isSubmitting = true;
+                          error = '';
+                        });
+                        final result = await state.createNozzle(
+                          nozzleNumber: number,
+                          productCode: product,
+                          tankCode: tankCode!,
+                          latestMeterReading: meter,
+                        );
+                        if (!mounted) return;
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        _showSetupResultSnackBar(
+                          result,
+                          createdMessage: 'Nozzle $number created',
+                          failedMessage: 'Could not add nozzle',
+                        );
+                      },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(48, 48),
+                ),
+                child: const Text('Add Nozzle'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    numberController.dispose();
+    meterController.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (state.currentUser.role != UserRole.director) {
@@ -224,7 +532,7 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
-                                state.hasInterlockedTanks ? 'Interlocked Manifold Station (§3.1)' : 'Fixed Dedicated Piping (§3.1)',
+                                state.hasInterlockedTanks ? 'Interlocked Manifold Station' : 'Fixed Dedicated Piping',
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 12,
@@ -244,7 +552,7 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
                         SwitchListTile.adaptive(
                           contentPadding: EdgeInsets.zero,
                           title: const Text(
-                            'Enable Interlocked Manifold Piping (BRD §3.1 & §7)',
+                            'Enable Interlocked Manifold Piping',
                             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                           ),
                           subtitle: const Text(
@@ -272,6 +580,12 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
                     const Text(
                       'Underground Storage Tanks (UST)',
                       style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: AppColors.ink),
+                    ),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.add_circle_outline, size: 18),
+                      label: const Text('Add Tank'),
+                      style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
+                      onPressed: _isSaving ? null : _showAddTankDialog,
                     ),
                     Text(
                       '${state.tanks.length} Tanks Registered',
@@ -367,7 +681,7 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
                               contentPadding: EdgeInsets.zero,
                               dense: true,
                               title: const Text('Mark as Manifold Interlocked Twin', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                              subtitle: const Text('Allows nozzles to be dynamically toggled between this tank and its twin during changeover.', style: TextStyle(fontSize: 11, color: AppColors.muted)),
+                              subtitle: const Text('Allows nozzles to be dynamically toggled between this tank and its twin during changeover.', style: TextStyle(fontSize: 12, color: AppColors.muted)),
                               value: tank.isInterlocked,
                               activeThumbColor: AppColors.primary,
                               onChanged: _isSaving ? null : (val) => _toggleTankInterlock(tank.code, val),
@@ -391,6 +705,12 @@ class _StationSetupScreenState extends State<StationSetupScreen> {
                     const Text(
                       'Dispenser Nozzle Plumbing Routing',
                       style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: AppColors.ink),
+                    ),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.add_circle_outline, size: 18),
+                      label: const Text('Add Nozzle'),
+                      style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
+                      onPressed: _isSaving ? null : _showAddNozzleDialog,
                     ),
                     Text(
                       '${state.nozzles.length} Nozzles Configured',
