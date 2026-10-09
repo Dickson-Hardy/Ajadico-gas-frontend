@@ -8,7 +8,7 @@
 -- Supabase SQL Editor (Dashboard > SQL Editor > New query > Run).
 --
 -- What it does:
---   1. Creates the 4 missing tables the offline queue writes to
+--   1. Creates the 5 missing tables the offline queue writes to
 --   2. Adds columns the app writes but the DB is missing (schema drift)
 --   3. Aligns id/code column types with what the app sends
 --      (app sends station CODES and 'SHIFT-...' text ids; DB had uuids)
@@ -18,7 +18,9 @@
 --      live read model (product_id/price_per_litre/effective_from)
 --   6. attendant_pin_login RPC (works with plaintext today, crypt() hashes
 --      tomorrow) — the app calls it as p_station_id/p_profile_id/p_pin
---   7. Storage buckets remittance-evidence + delivery-waybills (public)
+--   7. Storage buckets the app uploads to (all public, idempotent):
+--      remittance-evidence, delivery-waybills, expense-receipts,
+--      bank-teller-slips, calibration-evidence, credit-requisitions
 --   8. RLS policies + grants so the app's publishable (anon) key can write
 -- ----------------------------------------------------------------------------
 
@@ -436,38 +438,37 @@ revoke all on function public.app_add_credit_outstanding(uuid, numeric) from pub
 grant execute on function public.app_add_credit_outstanding(uuid, numeric) to anon, authenticated;
 
 -- ============================================================================
--- SECTION 7 — Storage buckets for evidence photos & waybills
--- (app: SupabaseConfig.evidenceBucket / waybillBucket, getPublicUrl reads)
+-- SECTION 7 — Storage buckets for evidence photos & receipts
+-- (app screens pass bucketName: remittance-evidence, delivery-waybills,
+--  expense-receipts, bank-teller-slips, calibration-evidence,
+--  credit-requisitions; uploadBinary + getPublicUrl reads)
 -- ============================================================================
 
 insert into storage.buckets (id, name, public)
-values ('remittance-evidence', 'remittance-evidence', true),
-       ('delivery-waybills',   'delivery-waybills',   true)
+values ('remittance-evidence',  'remittance-evidence',  true),
+       ('delivery-waybills',    'delivery-waybills',    true),
+       ('expense-receipts',     'expense-receipts',     true),
+       ('bank-teller-slips',    'bank-teller-slips',    true),
+       ('calibration-evidence', 'calibration-evidence', true),
+       ('credit-requisitions',  'credit-requisitions',  true)
 on conflict (id) do nothing;
 
-do $$
-begin
-  if not exists (
-    select 1 from pg_policies
-     where schemaname = 'storage' and tablename = 'objects'
-       and policyname = 'ajadico evidence public read'
-  ) then
-    create policy "ajadico evidence public read"
-      on storage.objects for select to public
-      using (bucket_id in ('remittance-evidence', 'delivery-waybills'));
-  end if;
+drop policy if exists "ajadico evidence public read" on storage.objects;
+create policy "ajadico evidence public read"
+  on storage.objects for select to public
+  using (bucket_id in ('remittance-evidence', 'delivery-waybills',
+                       'expense-receipts', 'bank-teller-slips',
+                       'calibration-evidence', 'credit-requisitions'));
 
-  if not exists (
-    select 1 from pg_policies
-     where schemaname = 'storage' and tablename = 'objects'
-       and policyname = 'ajadico evidence write'
-  ) then
-    create policy "ajadico evidence write"
-      on storage.objects for all to anon, authenticated
-      using (bucket_id in ('remittance-evidence', 'delivery-waybills'))
-      with check (bucket_id in ('remittance-evidence', 'delivery-waybills'));
-  end if;
-end $$;
+drop policy if exists "ajadico evidence write" on storage.objects;
+create policy "ajadico evidence write"
+  on storage.objects for all to anon, authenticated
+  using (bucket_id in ('remittance-evidence', 'delivery-waybills',
+                       'expense-receipts', 'bank-teller-slips',
+                       'calibration-evidence', 'credit-requisitions'))
+  with check (bucket_id in ('remittance-evidence', 'delivery-waybills',
+                            'expense-receipts', 'bank-teller-slips',
+                            'calibration-evidence', 'credit-requisitions'));
 
 -- ============================================================================
 -- SECTION 8 — RLS + grants for every table the app touches
