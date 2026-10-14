@@ -53,7 +53,8 @@ class _TankDipScreenState extends State<TankDipScreen> with UnsavedWorkAware {
   @override
   bool get hasUnsavedWork {
     for (final entry in _controllers.entries) {
-      if (entry.value.text.trim() != (_initialValues[entry.key] ?? '')) return true;
+      if (entry.value.text.trim() != (_initialValues[entry.key] ?? ''))
+        return true;
     }
     return false;
   }
@@ -72,15 +73,12 @@ class _TankDipScreenState extends State<TankDipScreen> with UnsavedWorkAware {
         product: t.product,
         capacity: t.capacity,
         calculatedStock: t.bookStock,
-        physicalDip: t.physicalDip,
+        physicalDip: null,
       );
     }).toList();
 
     _controllers = {
-      for (var t in _tanks)
-        t.code: TextEditingController(
-          text: t.physicalDip?.toStringAsFixed(0) ?? '',
-        ),
+      for (var t in _tanks) t.code: TextEditingController(),
     };
     _initialValues = {
       for (var t in _tanks) t.code: _controllers[t.code]!.text,
@@ -134,7 +132,8 @@ class _TankDipScreenState extends State<TankDipScreen> with UnsavedWorkAware {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Discard dip readings?'),
-        content: const Text('This screen still has dip entries that have not been submitted. Leaving now discards them.'),
+        content: const Text(
+            'This screen still has dip entries that have not been submitted. Leaving now discards them.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -186,7 +185,8 @@ class _TankDipScreenState extends State<TankDipScreen> with UnsavedWorkAware {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: AppColors.ok,
-          content: Text('Daily tank dip readings saved. Real-time variances updated across all manager & director screens.'),
+          content: const Text(
+              'Daily tank dip readings saved. Real-time variances updated across all manager & director screens.'),
         ),
       );
       widget.onSuccess();
@@ -195,7 +195,8 @@ class _TankDipScreenState extends State<TankDipScreen> with UnsavedWorkAware {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             backgroundColor: AppColors.bad,
-            content: Text('Could not save the tank dip readings. Please retry.'),
+            content: const Text(
+                'Could not save the tank dip readings. Please retry.'),
           ),
         );
       }
@@ -213,11 +214,16 @@ class _TankDipScreenState extends State<TankDipScreen> with UnsavedWorkAware {
           tooltip: 'Back',
           onPressed: () => _confirmDiscard(widget.onBack),
         ),
-        title: const Column(
+        title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Daily Tank Dip Readings', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('Underground Storage Tanks (UST) · Physical Audit', style: TextStyle(fontSize: 13, color: Colors.white70)),
+            const Text('Daily Tank Dip Readings',
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text('Underground Storage Tanks (UST) · Physical Audit',
+                style: TextStyle(
+                    fontSize: 13,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
           ],
         ),
       ),
@@ -229,25 +235,28 @@ class _TankDipScreenState extends State<TankDipScreen> with UnsavedWorkAware {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Underground tank dip readings',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
-                    color: AppColors.ink,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
                 const SizedBox(height: 4),
-                const Text(
+                Text(
                   'Record manual dip stick readings to compare measured stock against calculated book stock.',
-                  style: TextStyle(fontSize: 15, color: AppColors.muted),
+                  style: TextStyle(
+                      fontSize: 15,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant),
                 ),
                 const SizedBox(height: 16),
-
                 ..._tanks.map((tank) {
                   final v = tank.variance;
                   final entered = tank.physicalDip;
-                  final currentLevel = entered ?? tank.calculatedStock;
+                  final previous =
+                      state.tanks.firstWhere((item) => item.code == tank.code);
+                  final currentLevel = entered ?? previous.physicalDip;
                   final fieldError = _fieldErrors[tank.code];
 
                   return Card(
@@ -258,12 +267,24 @@ class _TankDipScreenState extends State<TankDipScreen> with UnsavedWorkAware {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           // Graphical Gauge showing dynamic live animation as manager types
+                          if (entered == null) ...[
+                            Text(
+                                'Previous recorded dip · ${CurrencyFormatter.formatLitres(previous.physicalDip)}. Enter a fresh measurement below.',
+                                style: TextStyle(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant)),
+                            const SizedBox(height: 8),
+                          ],
                           ForecourtTankGauge(
                             tankCode: tank.code,
                             productName: tank.product,
                             capacityLitres: tank.capacity,
                             currentLitres: currentLevel,
+                            isDraft: entered != null,
                             calculatedStockLitres: tank.calculatedStock,
+                            lastDipTime:
+                                entered == null ? previous.lastDipTime : null,
                           ),
                           const SizedBox(height: 16),
 
@@ -275,25 +296,38 @@ class _TankDipScreenState extends State<TankDipScreen> with UnsavedWorkAware {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text(
+                                    Text(
                                       'Enter Measured Physical Dip (Litres):',
-                                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.ink),
+                                      style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurface),
                                     ),
                                     const SizedBox(height: 6),
                                     TextField(
                                       controller: _controllers[tank.code],
-                                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(
+                                              decimal: true),
                                       inputFormatters: [
-                                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+                                        FilteringTextInputFormatter.allow(
+                                            RegExp(r'[0-9.,]')),
                                       ],
                                       decoration: InputDecoration(
                                         hintText: 'e.g. 32,100',
                                         suffixText: 'Litres',
                                         errorText: fieldError,
-                                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                                horizontal: 14, vertical: 12),
+                                        border: OutlineInputBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(8)),
                                       ),
-                                      onChanged: (val) => _onDipChanged(tank, val),
+                                      onChanged: (val) =>
+                                          _onDipChanged(tank, val),
                                     ),
                                   ],
                                 ),
@@ -304,7 +338,12 @@ class _TankDipScreenState extends State<TankDipScreen> with UnsavedWorkAware {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text('Audit Status', style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                                    Text('Audit Status',
+                                        style: TextStyle(
+                                            fontSize: 13,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .onSurfaceVariant)),
                                     const SizedBox(height: 8),
                                     StatusChip(
                                       label: entered == null
@@ -314,7 +353,11 @@ class _TankDipScreenState extends State<TankDipScreen> with UnsavedWorkAware {
                                               : '${v >= 0 ? '+' : '−'}${CurrencyFormatter.formatLitres(v.abs())}'),
                                       type: entered == null
                                           ? ChipType.draft
-                                          : (v == 0 ? ChipType.ok : (v.abs() > 100 ? ChipType.bad : ChipType.warn)),
+                                          : (v == 0
+                                              ? ChipType.ok
+                                              : (v.abs() > 100
+                                                  ? ChipType.bad
+                                                  : ChipType.warn)),
                                     ),
                                   ],
                                 ),
@@ -333,9 +376,11 @@ class _TankDipScreenState extends State<TankDipScreen> with UnsavedWorkAware {
       ),
       bottomNavigationBar: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        decoration: const BoxDecoration(
-          color: AppColors.background,
-          border: Border(top: BorderSide(color: AppColors.border)),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          border: Border(
+              top: BorderSide(
+                  color: Theme.of(context).colorScheme.outlineVariant)),
         ),
         child: SafeArea(
           top: false,
@@ -356,7 +401,8 @@ class _TankDipScreenState extends State<TankDipScreen> with UnsavedWorkAware {
                       ? const SizedBox(
                           width: 18,
                           height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          child: const CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
                         )
                       : const Icon(Icons.check_circle_outline),
                   label: const Text('Save & Submit Dip Audit'),

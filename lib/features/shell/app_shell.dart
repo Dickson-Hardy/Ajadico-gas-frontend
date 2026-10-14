@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/network/supabase_repository.dart';
 import '../../core/navigation/shell_back_guard.dart';
 import '../../core/notifications/forecourt_notification.dart';
 import '../../core/notifications/notification_service.dart';
@@ -8,6 +10,7 @@ import '../../core/offline/offline_sync_service.dart';
 import '../../core/security/kiosk_security_manager.dart';
 import '../../core/widgets/kiosk_security_guard.dart';
 import '../../core/widgets/notification_bell.dart';
+import '../../core/widgets/operations_workspace.dart';
 import '../../core/widgets/page_transition_switcher.dart';
 import '../../models/user_profile.dart';
 import '../../state/station_app_state.dart';
@@ -21,8 +24,10 @@ import '../attendant/attendant_home_screen.dart';
 import '../attendant/closing_readings_screen.dart';
 import '../attendant/credit_sale_screen.dart';
 import '../attendant/fuel_return_screen.dart';
+import '../attendant/pump_expense_screen.dart';
 import '../attendant/remittance_screen.dart';
 import '../auth/login_screen.dart';
+import '../onboarding/company_setup_screen.dart';
 import '../cashier/daily_cash_count_screen.dart';
 import '../cashier/verify_submission_screen.dart';
 import '../credit/credit_customers_screen.dart';
@@ -51,6 +56,7 @@ enum AppView {
   companyReports,
   stationSetup,
   staffManagement,
+  companySetup,
 }
 
 class AppShell extends StatefulWidget {
@@ -66,6 +72,10 @@ class _AppShellState extends State<AppShell> {
   final securityManager = KioskSecurityManager.instance;
   final notifService = NotificationService.instance;
   AppView _currentView = AppView.login;
+  bool _closingSession = false;
+  bool _closeSessionFailed = false;
+  StreamSubscription<String?>? _authSubscription;
+  String? _sessionAuthId;
 
   @override
   void initState() {
@@ -74,10 +84,19 @@ class _AppShellState extends State<AppShell> {
     notifService.addListener(_onStateChanged);
     // Initialize Forecourt 60-second inactivity watchdog
     securityManager.initialize(onAutoLogout: _logout);
+    final repo = SupabaseRepository.instance;
+    if (repo.isConnected) {
+      _authSubscription = repo.authIdentityChanges.listen((authId) {
+        if (mounted &&
+            state.currentUser.isActive &&
+            (authId == null || authId != _sessionAuthId)) _logout();
+      });
+    }
   }
 
   @override
   void dispose() {
+    _authSubscription?.cancel();
     state.removeListener(_onStateChanged);
     notifService.removeListener(_onStateChanged);
     super.dispose();
@@ -88,7 +107,11 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _onLogin(UserProfile user) {
+    _sessionAuthId = SupabaseRepository.instance.authUserId;
+    securityManager.useManagementIdlePolicy(
+        user.role == UserRole.manager || user.role == UserRole.director);
     state.setCurrentUser(user);
+    state.refreshAuthenticatedPolicy();
     securityManager.resetInactivityTimer();
     securityManager.setSessionContext(
       stationId: state.currentStationCode,
@@ -103,14 +126,38 @@ class _AppShellState extends State<AppShell> {
       } else if (user.role == UserRole.manager) {
         _currentView = AppView.managerDashboard;
       } else {
-        _currentView = AppView.companyReports;
+        _currentView = AppView.companySetup;
       }
     });
   }
 
-  void _logout() {
-    securityManager.setSessionContext(stationId: '', actorId: '');
+  void _logout() async {
+    if (_closingSession) return;
     setState(() {
+      _closingSession = true;
+      _closeSessionFailed = false;
+    });
+    state.clearSession();
+    // Close setup editors immediately when their authenticated session ends.
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    _sessionAuthId = null;
+    securityManager.setSessionContext(stationId: '', actorId: '');
+    securityManager.useManagementIdlePolicy(false);
+    // Keep the workspace closed until the previous JWT is removed.
+    try {
+      await SupabaseRepository.instance.endAuthenticatedSession();
+    } catch (_) {
+      // State/outbox remain signed out even if local auth cleanup fails.
+      if (mounted)
+        setState(() {
+          _closingSession = false;
+          _closeSessionFailed = true;
+        });
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _closingSession = false;
       _currentView = AppView.login;
     });
   }
@@ -159,6 +206,7 @@ class _AppShellState extends State<AppShell> {
           AppView.creditCustomers,
           AppView.stationSetup,
           AppView.staffManagement,
+          AppView.companySetup,
         ];
     }
   }
@@ -167,13 +215,203 @@ class _AppShellState extends State<AppShell> {
     if (!_allowedViews().contains(view)) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('${_viewName(view)} is not available to ${state.currentUser.role.name} accounts.'),
+          content: Text(
+              '${_viewName(view)} is not available to ${state.currentUser.role.name} accounts.'),
           backgroundColor: AppColors.bad,
         ),
       );
       return;
     }
-    setState(() => _currentView = view);
+    if (view == _currentView) return;
+    _afterDiscardCheck(() => setState(() => _currentView = view));
+  }
+
+  void _afterDiscardCheck(VoidCallback action) {
+    if (!ShellBackGuard.hasUnsavedWork) {
+      action();
+      return;
+    }
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Leave this page?'),
+        content: const Text(
+            'Your unsubmitted entries will be discarded. Submit them first or continue to the other page.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Keep editing')),
+          ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                action();
+              },
+              child: const Text('Discard and continue')),
+        ],
+      ),
+    );
+  }
+
+  String _workspaceLabel(AppView view) => switch (view) {
+        AppView.login => 'Sign in',
+        AppView.attendantHome => 'My shift',
+        AppView.closingReadings => 'Meter readings',
+        AppView.remittance => 'Shift remittance',
+        AppView.creditSale => 'Credit sale',
+        AppView.fuelReturn => 'Non-sale fuel',
+        AppView.verifySubmission => 'Shift verification',
+        AppView.dailyCashCount => 'Cash reconciliation',
+        AppView.expenseEntry => 'Record expense',
+        AppView.tankDip => 'Tank readings',
+        AppView.fuelDelivery => 'Receive delivery',
+        AppView.managerDashboard => 'Station overview',
+        AppView.priceChange => 'Fuel prices',
+        AppView.salaryLedger => 'Payroll & differences',
+        AppView.bankDeposits => 'Deposit approvals',
+        AppView.creditCustomers => 'Customer accounts',
+        AppView.companyReports => 'Financial overview',
+        AppView.stationSetup => 'Station configuration',
+        AppView.staffManagement => 'People & access',
+        AppView.companySetup => 'Company onboarding',
+      };
+
+  String _workspaceGroup(AppView view) => switch (view) {
+        AppView.companyReports || AppView.managerDashboard => 'Overview',
+        AppView.attendantHome ||
+        AppView.closingReadings ||
+        AppView.remittance ||
+        AppView.verifySubmission ||
+        AppView.dailyCashCount =>
+          'Daily operations',
+        AppView.creditSale ||
+        AppView.creditCustomers ||
+        AppView.expenseEntry ||
+        AppView.salaryLedger ||
+        AppView.bankDeposits =>
+          'Accounts',
+        AppView.tankDip ||
+        AppView.fuelDelivery ||
+        AppView.fuelReturn ||
+        AppView.priceChange =>
+          'Fuel & stock',
+        _ => 'Administration',
+      };
+
+  Widget _buildWorkspace() {
+    final views = _allowedViews()
+        .where((view) =>
+            state.currentUser.role != UserRole.attendant ||
+            view == AppView.attendantHome)
+        .toList()
+      ..sort((a, b) {
+        const groups = [
+          'Overview',
+          'Daily operations',
+          'Accounts',
+          'Fuel & stock',
+          'Administration'
+        ];
+        final groupOrder = groups
+            .indexOf(_workspaceGroup(a))
+            .compareTo(groups.indexOf(_workspaceGroup(b)));
+        return groupOrder == 0 ? a.index.compareTo(b.index) : groupOrder;
+      });
+    final role = switch (state.currentUser.role) {
+      UserRole.attendant => 'Pump attendant',
+      UserRole.cashier => 'Cashier',
+      UserRole.manager => 'Branch manager',
+      UserRole.director => 'Director',
+    };
+    return OperationsWorkspace(
+      selectedId: _currentView.name,
+      destinations: views
+          .map((v) => WorkspaceDestination(
+                id: v.name,
+                label: _workspaceLabel(v),
+                icon: _viewIcon(v),
+                group: _workspaceGroup(v),
+                count: v == AppView.verifySubmission
+                    ? state.submissions
+                        .where((s) => s.status == 'Pending Verification')
+                        .length
+                    : v == AppView.bankDeposits
+                        ? state.deposits.where((d) => !d.isConfirmed).length
+                        : 0,
+              ))
+          .toList(),
+      onSelect: (id) => _navigateTo(AppView.values.byName(id)),
+      userName: state.currentUser.displayName,
+      roleLabel: role,
+      stationName: state.currentStationName,
+      onSignOut: _confirmSignOut,
+      onToggleTheme: state.toggleTheme,
+      stationPicker: state.currentUser.role == UserRole.director &&
+              state.stations.isNotEmpty
+          ? DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+              isExpanded: true,
+              value:
+                  state.stations.any((s) => s.code == state.currentStationCode)
+                      ? state.currentStationCode
+                      : null,
+              hint: const Text('Select station'),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(fontWeight: FontWeight.w600),
+              items: state.stations
+                  .map((s) => DropdownMenuItem(
+                      value: s.code,
+                      child: Text(s.name, overflow: TextOverflow.ellipsis)))
+                  .toList(),
+              onChanged: (code) {
+                if (code == null || code == state.currentStationCode) return;
+                _afterDiscardCheck(() => state.switchStation(
+                    state.stations.firstWhere((s) => s.code == code)));
+              },
+            ))
+          : null,
+      notifications: NotificationBell(
+          currentRole: state.currentUser.role,
+          onNavigateToScreen: _navigateToNamedRoute),
+      status: AnimatedBuilder(
+        animation: syncService,
+        builder: (context, _) {
+          final queued = syncService.pendingCount;
+          final failed = syncService.failedCount;
+          final label = syncService.isSyncing
+              ? 'Syncing records'
+              : failed > 0
+                  ? '$failed need retry'
+                  : queued > 0
+                      ? '$queued queued'
+                      : syncService.isOnline
+                          ? 'No queued records'
+                          : 'Offline';
+          return Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(
+                syncService.isSyncing
+                    ? Icons.sync
+                    : failed > 0
+                        ? Icons.sync_problem
+                        : syncService.isOnline
+                            ? Icons.cloud_done_outlined
+                            : Icons.cloud_off_outlined,
+                size: 16,
+                color: failed > 0 ? AppColors.warn : AppColors.muted),
+            const SizedBox(width: 6),
+            Text(label, style: const TextStyle(fontSize: 11)),
+            if (failed > 0)
+              TextButton(
+                  onPressed: syncService.retryFailedItems,
+                  child: const Text('Retry')),
+          ]);
+        },
+      ),
+      child: PageTransitionSwitcher(
+          child: KeyedSubtree(
+              key: ValueKey(_currentView), child: _buildCurrentScreen())),
+    );
   }
 
   AppView? _resolveRoute(String routeName) {
@@ -199,7 +437,8 @@ class _AppShellState extends State<AppShell> {
     if (view == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('This alert does not map to an openable screen ($routeName).'),
+          content: Text(
+              'This alert does not map to an openable screen ($routeName).'),
           backgroundColor: AppColors.warn,
         ),
       );
@@ -208,116 +447,17 @@ class _AppShellState extends State<AppShell> {
     _navigateTo(view);
   }
 
-  Widget _buildShellControlBar(int pendingAudits) {
-    final canVerify = _allowedViews().contains(AppView.verifySubmission);
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.ink,
-        border: const Border(top: BorderSide(color: AppColors.line, width: 0.5)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.18),
-            blurRadius: 8,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      child: SafeArea(
-        top: false,
-        child: Row(
-          children: [
-            Container(
-              height: 48,
-              width: 48,
-              decoration: const BoxDecoration(color: AppColors.slate, shape: BoxShape.circle),
-              child: NotificationBell(
-                currentRole: state.currentUser.role,
-                onNavigateToScreen: _navigateToNamedRoute,
-              ),
-            ),
-            const SizedBox(width: 10),
-            if (canVerify && pendingAudits > 0)
-              InkWell(
-                onTap: () => _navigateTo(AppView.verifySubmission),
-                borderRadius: BorderRadius.circular(20),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: AppColors.warnSurface,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: AppColors.warn),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.pending_actions, size: 16, color: AppColors.warnInk),
-                      const SizedBox(width: 6),
-                      Text(
-                        '$pendingAudits pending audit${pendingAudits == 1 ? '' : 's'}',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.warnInk,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            const Spacer(),
-            IconButton(
-              icon: Icon(
-                state.isDarkMode ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-                color: Colors.white,
-                size: 20,
-              ),
-              tooltip: state.isDarkMode ? 'Daylight Mode' : 'Night Shift Mode',
-              onPressed: () => state.toggleTheme(),
-            ),
-            const SizedBox(width: 8),
-            Material(
-              color: AppColors.cardSurface,
-              borderRadius: BorderRadius.circular(8),
-              child: InkWell(
-                onTap: _showScreenSwitcherDialog,
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  height: 44,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.layers, size: 18, color: AppColors.ink),
-                      const SizedBox(width: 8),
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 220),
-                        child: Text(
-                          'View: ${_viewName(_currentView)}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.ink,
-                          ),
-                        ),
-                      ),
-                      const Icon(Icons.arrow_drop_down, size: 20, color: AppColors.slate),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final pendingAudits = state.submissions.where((s) => s.status == 'Pending Verification').length;
+    if (_closingSession || _closeSessionFailed) {
+      return Scaffold(
+          body: Center(
+              child: _closeSessionFailed
+                  ? FilledButton(
+                      onPressed: _logout,
+                      child: const Text('Retry secure sign-out'))
+                  : const CircularProgressIndicator()));
+    }
     final headsUp = notifService.latestHeadsUp;
 
     return KioskSecurityGuard(
@@ -331,107 +471,109 @@ class _AppShellState extends State<AppShell> {
         child: Stack(
           children: [
             Scaffold(
-            body: _currentView == AppView.login
-                ? _buildCurrentScreen()
-                : Column(
-                    children: [
-                      Expanded(
-                        child: PageTransitionSwitcher(
-                          child: KeyedSubtree(
-                            key: ValueKey(_currentView),
-                            child: _buildCurrentScreen(),
-                          ),
-                        ),
-                      ),
-                      _buildShellControlBar(pendingAudits),
-                    ],
-                  ),
-          ),
+              body: _currentView == AppView.login ||
+                      _currentView == AppView.companySetup
+                  ? _buildCurrentScreen()
+                  : _buildWorkspace(),
+            ),
 
-          // In-App Heads-Up Alert Popup Toast
-          if (headsUp != null)
-            Positioned(
-              top: 16,
-              left: 20,
-              right: 20,
-              child: Material(
-                elevation: 12,
-                borderRadius: BorderRadius.circular(14),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: headsUp.type == NotificationType.critical
-                        ? AppColors.badSurface
-                        : (headsUp.type == NotificationType.warning
-                            ? AppColors.warnSurface
-                            : AppColors.okSurface),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
+            // In-App Heads-Up Alert Popup Toast
+            if (headsUp != null)
+              Positioned(
+                top: 16,
+                left: 20,
+                right: 20,
+                child: Material(
+                  elevation: 12,
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
                       color: headsUp.type == NotificationType.critical
-                          ? AppColors.bad
-                          : (headsUp.type == NotificationType.warning ? AppColors.warn : AppColors.ok),
-                      width: 1.5,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        headsUp.type == NotificationType.critical
-                            ? Icons.error_outline
-                            : (headsUp.type == NotificationType.warning
-                                ? Icons.warning_amber_rounded
-                                : Icons.check_circle_outline),
+                          ? AppColors.badSurface
+                          : (headsUp.type == NotificationType.warning
+                              ? AppColors.warnSurface
+                              : AppColors.okSurface),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
                         color: headsUp.type == NotificationType.critical
                             ? AppColors.bad
-                            : (headsUp.type == NotificationType.warning ? AppColors.warnInk : AppColors.ok),
-                        size: 24,
+                            : (headsUp.type == NotificationType.warning
+                                ? AppColors.warn
+                                : AppColors.ok),
+                        width: 1.5,
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              headsUp.title,
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.ink),
-                            ),
-                            Text(
-                              headsUp.message,
-                              style: const TextStyle(fontSize: 12, color: AppColors.slate),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          headsUp.type == NotificationType.critical
+                              ? Icons.error_outline
+                              : (headsUp.type == NotificationType.warning
+                                  ? Icons.warning_amber_rounded
+                                  : Icons.check_circle_outline),
+                          color: headsUp.type == NotificationType.critical
+                              ? AppColors.bad
+                              : (headsUp.type == NotificationType.warning
+                                  ? AppColors.warnInk
+                                  : AppColors.ok),
+                          size: 24,
                         ),
-                      ),
-                      if (headsUp.actionRouteName != null) ...[
-                        const SizedBox(width: 8),
-                        ElevatedButton(
-                          onPressed: () {
-                            final route = headsUp.actionRouteName!;
-                            notifService.dismissHeadsUp();
-                            _navigateToNamedRoute(route);
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.ink,
-                            foregroundColor: Colors.white,
-                            minimumSize: const Size(64, 44),
-                            padding: const EdgeInsets.symmetric(horizontal: 14),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                headsUp.title,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                    color: AppColors.ink),
+                              ),
+                              Text(
+                                headsUp.message,
+                                style: const TextStyle(
+                                    fontSize: 12, color: AppColors.slate),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
                           ),
-                          child: const Text('View', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                        ),
+                        if (headsUp.actionRouteName != null) ...[
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            onPressed: () {
+                              final route = headsUp.actionRouteName!;
+                              notifService.dismissHeadsUp();
+                              _navigateToNamedRoute(route);
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.ink,
+                              foregroundColor: Colors.white,
+                              minimumSize: const Size(64, 44),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 14),
+                            ),
+                            child: const Text('View',
+                                style: TextStyle(
+                                    fontSize: 13, fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                        IconButton(
+                          icon: const Icon(Icons.close,
+                              size: 18, color: AppColors.slate),
+                          onPressed: () => notifService.dismissHeadsUp(),
                         ),
                       ],
-                      IconButton(
-                        icon: const Icon(Icons.close, size: 18, color: AppColors.slate),
-                        onPressed: () => notifService.dismissHeadsUp(),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),
-            ),
-        ],
-       ),
+          ],
+        ),
       ),
     );
   }
@@ -518,8 +660,32 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
+  Future<void> _openShiftEntry(Widget Function(VoidCallback close) page) async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (entryContext) {
+        void close() => Navigator.of(entryContext).pop();
+        return Dialog.fullscreen(
+          child: PopScope(
+            canPop: false,
+            onPopInvokedWithResult: (didPop, result) {
+              if (!didPop) _afterDiscardCheck(close);
+            },
+            child: page(close),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildCurrentScreen() {
     switch (_currentView) {
+      case AppView.companySetup:
+        return CompanySetupScreen(
+            onSignOut: _logout,
+            onContinue: () =>
+                setState(() => _currentView = AppView.companyReports));
       case AppView.login:
         return LoginScreen(onLoginSuccess: _onLogin);
 
@@ -527,22 +693,30 @@ class _AppShellState extends State<AppShell> {
         return AttendantHomeScreen(
           user: state.currentUser,
           onLogout: _logout,
-          onOpenClosingReadings: () => setState(() => _currentView = AppView.closingReadings),
-          onOpenRemittance: () => setState(() => _currentView = AppView.remittance),
-          onOpenCreditSale: () => setState(() => _currentView = AppView.creditSale),
-          onOpenFuelReturn: () => setState(() => _currentView = AppView.fuelReturn),
+          onOpenClosingReadings: () => _openShiftEntry((close) =>
+              ClosingReadingsScreen(onBack: close, onSubmitSuccess: close)),
+          onOpenRemittance: () => _openShiftEntry((close) =>
+              RemittanceScreen(onBack: close, onSubmitSuccess: close)),
+          onOpenCreditSale: () => _openShiftEntry(
+              (close) => CreditSaleScreen(onBack: close, onSuccess: close)),
+          onOpenFuelReturn: () => _openShiftEntry(
+              (close) => FuelReturnScreen(onBack: close, onSuccess: close)),
+          onOpenPumpExpense: () => _openShiftEntry(
+              (close) => PumpExpenseScreen(onBack: close, onSuccess: close)),
         );
 
       case AppView.closingReadings:
         return ClosingReadingsScreen(
           onBack: () => setState(() => _currentView = AppView.attendantHome),
-          onSubmitSuccess: () => setState(() => _currentView = AppView.remittance),
+          onSubmitSuccess: () =>
+              setState(() => _currentView = AppView.remittance),
         );
 
       case AppView.remittance:
         return RemittanceScreen(
           onBack: () => setState(() => _currentView = AppView.attendantHome),
-          onSubmitSuccess: () => setState(() => _currentView = AppView.attendantHome),
+          onSubmitSuccess: () =>
+              setState(() => _currentView = AppView.attendantHome),
         );
 
       case AppView.creditSale:
@@ -564,8 +738,10 @@ class _AppShellState extends State<AppShell> {
                 ? AppView.dailyCashCount
                 : AppView.managerDashboard;
           }),
-          onVerified: () => setState(() => _currentView = AppView.dailyCashCount),
-          onOpenExpenseEntry: () => setState(() => _currentView = AppView.expenseEntry),
+          onVerified: () =>
+              setState(() => _currentView = AppView.dailyCashCount),
+          onOpenExpenseEntry: () =>
+              setState(() => _currentView = AppView.expenseEntry),
         );
 
       case AppView.dailyCashCount:
@@ -575,7 +751,8 @@ class _AppShellState extends State<AppShell> {
                 ? AppView.verifySubmission
                 : AppView.managerDashboard;
           }),
-          onOpenExpenseEntry: () => setState(() => _currentView = AppView.expenseEntry),
+          onOpenExpenseEntry: () =>
+              setState(() => _currentView = AppView.expenseEntry),
         );
 
       case AppView.expenseEntry:
@@ -599,31 +776,40 @@ class _AppShellState extends State<AppShell> {
       case AppView.tankDip:
         return TankDipScreen(
           onBack: () => setState(() => _currentView = AppView.managerDashboard),
-          onSuccess: () => setState(() => _currentView = AppView.managerDashboard),
+          onSuccess: () =>
+              setState(() => _currentView = AppView.managerDashboard),
         );
 
       case AppView.fuelDelivery:
         return FuelDeliveryScreen(
           onBack: () => setState(() => _currentView = AppView.managerDashboard),
-          onSuccess: () => setState(() => _currentView = AppView.managerDashboard),
+          onSuccess: () =>
+              setState(() => _currentView = AppView.managerDashboard),
         );
 
       case AppView.managerDashboard:
         return ManagerDashboardScreen(
-          onOpenVerificationQueue: () => setState(() => _currentView = AppView.verifySubmission),
-          onOpenCashCount: () => setState(() => _currentView = AppView.dailyCashCount),
-          onOpenCreditCustomers: () => setState(() => _currentView = AppView.creditCustomers),
+          onOpenVerificationQueue: () =>
+              setState(() => _currentView = AppView.verifySubmission),
+          onOpenCashCount: () =>
+              setState(() => _currentView = AppView.dailyCashCount),
+          onOpenCreditCustomers: () =>
+              setState(() => _currentView = AppView.creditCustomers),
           onOpenTankDip: () => setState(() => _currentView = AppView.tankDip),
-          onOpenFuelDelivery: () => setState(() => _currentView = AppView.fuelDelivery),
-          onOpenStaffManagement: () => setState(() => _currentView = AppView.staffManagement),
-          onOpenExpenseEntry: () => setState(() => _currentView = AppView.expenseEntry),
+          onOpenFuelDelivery: () =>
+              setState(() => _currentView = AppView.fuelDelivery),
+          onOpenStaffManagement: () =>
+              setState(() => _currentView = AppView.staffManagement),
+          onOpenExpenseEntry: () =>
+              setState(() => _currentView = AppView.expenseEntry),
           onLogout: _logout,
         );
 
       case AppView.priceChange:
         return PriceChangeScreen(
           onBack: () => setState(() => _currentView = AppView.managerDashboard),
-          onSuccess: () => setState(() => _currentView = AppView.managerDashboard),
+          onSuccess: () =>
+              setState(() => _currentView = AppView.managerDashboard),
         );
 
       case AppView.salaryLedger:
@@ -644,9 +830,12 @@ class _AppShellState extends State<AppShell> {
       case AppView.companyReports:
         return CompanyReportsScreen(
           onBack: () => setState(() => _currentView = AppView.managerDashboard),
-          onOpenStationSetup: () => setState(() => _currentView = AppView.stationSetup),
-          onOpenStaffManagement: () => setState(() => _currentView = AppView.staffManagement),
-          onOpenExpenseEntry: () => setState(() => _currentView = AppView.expenseEntry),
+          onOpenStationSetup: () =>
+              setState(() => _currentView = AppView.stationSetup),
+          onOpenStaffManagement: () =>
+              setState(() => _currentView = AppView.staffManagement),
+          onOpenExpenseEntry: () =>
+              setState(() => _currentView = AppView.expenseEntry),
         );
 
       case AppView.stationSetup:
@@ -705,149 +894,9 @@ class _AppShellState extends State<AppShell> {
         return '23 Forecourt & Station Setup';
       case AppView.staffManagement:
         return '24 Staff & Attendants';
+      case AppView.companySetup:
+        return 'Company onboarding';
     }
-  }
-
-  void _showScreenSwitcherDialog() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.cardSurface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.75,
-          minChildSize: 0.5,
-          maxChildSize: 0.95,
-          expand: false,
-          builder: (context, scrollController) {
-            return Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Ajadico Forecourt Navigator',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.ink,
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Offline Simulation Control
-                  AnimatedBuilder(
-                    animation: syncService,
-                    builder: (context, _) {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: syncService.isOnline ? AppColors.lightEmerald : const Color(0xFFFEF3C7),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: syncService.isOnline ? AppColors.emerald : AppColors.warnInk,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Row(
-                              children: [
-                                Icon(
-                                  syncService.isOnline ? Icons.wifi : Icons.wifi_off,
-                                  size: 18,
-                                  color: syncService.isOnline ? AppColors.emerald : AppColors.warnInk,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  syncService.isOnline ? 'Online Forecourt Network' : 'Simulated Offline Mode',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: syncService.isOnline ? AppColors.emerald : const Color(0xFF92400E),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            Switch.adaptive(
-                              value: syncService.isOnline,
-                              activeThumbColor: AppColors.primary,
-                              onChanged: (val) {
-                                syncService.setSimulatedConnectivity(val);
-                              },
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-
-                  const SizedBox(height: 12),
-                  Text(
-                    'Jump to any screen your ${state.currentUser.role.name} account can open:',
-                    style: const TextStyle(fontSize: 13, color: AppColors.slate),
-                  ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: Builder(
-                      builder: (context) {
-                        final allowedViews = _allowedViews();
-                        return ListView.separated(
-                          controller: scrollController,
-                          itemCount: allowedViews.length,
-                          separatorBuilder: (context, index) => const Divider(height: 1, color: AppColors.border),
-                          itemBuilder: (context, index) {
-                            final view = allowedViews[index];
-                            final isSelected = view == _currentView;
-
-                            return ListTile(
-                              dense: true,
-                              selected: isSelected,
-                              selectedTileColor: AppColors.primary.withValues(alpha: 0.08),
-                              leading: Icon(
-                                _viewIcon(view),
-                                color: isSelected ? AppColors.primary : AppColors.slate,
-                                size: 20,
-                              ),
-                              title: Text(
-                                _viewName(view),
-                                style: TextStyle(
-                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                                  color: isSelected ? AppColors.primary : AppColors.ink,
-                                ),
-                              ),
-                              trailing: isSelected
-                                  ? const Icon(Icons.check, color: AppColors.primary, size: 18)
-                                  : null,
-                              onTap: () {
-                                Navigator.pop(context);
-                                _navigateTo(view);
-                              },
-                            );
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
   }
 
   IconData _viewIcon(AppView view) {
@@ -890,6 +939,8 @@ class _AppShellState extends State<AppShell> {
         return Icons.settings_suggest;
       case AppView.staffManagement:
         return Icons.badge_outlined;
+      case AppView.companySetup:
+        return Icons.domain_add_outlined;
     }
   }
 }

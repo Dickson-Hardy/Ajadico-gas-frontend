@@ -30,20 +30,31 @@ class StatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final tone = dark
+        ? switch (type) {
+            ChipType.ok => const Color(0xFF7EDBBC),
+            ChipType.warn => const Color(0xFFF3C77A),
+            ChipType.bad => const Color(0xFFF5A29B),
+            ChipType.bank => const Color(0xFF93C5FD),
+            ChipType.draft => const Color(0xFFB4C3BE),
+          }
+        : _getBackgroundColor();
     return Semantics(
       label: 'Status: $label',
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
         decoration: BoxDecoration(
-          color: _getBackgroundColor(),
-          borderRadius: BorderRadius.circular(99),
+          color: tone.withValues(alpha: dark ? 0.13 : 0.08),
+          border: Border.all(color: tone.withValues(alpha: 0.18)),
+          borderRadius: BorderRadius.circular(4),
         ),
         child: Text(
           label,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
+          style: TextStyle(
+            color: tone,
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
           ),
         ),
       ),

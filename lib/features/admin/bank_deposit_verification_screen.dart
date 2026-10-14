@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/status_chip.dart';
+import '../../core/widgets/evidence_preview_dialog.dart';
+import '../../core/widgets/operations_workspace.dart';
 import '../../models/bank_deposit.dart';
 import '../../models/user_profile.dart';
 import '../../state/station_app_state.dart';
@@ -12,10 +14,12 @@ class BankDepositVerificationScreen extends StatefulWidget {
   const BankDepositVerificationScreen({super.key, required this.onBack});
 
   @override
-  State<BankDepositVerificationScreen> createState() => _BankDepositVerificationScreenState();
+  State<BankDepositVerificationScreen> createState() =>
+      _BankDepositVerificationScreenState();
 }
 
-class _BankDepositVerificationScreenState extends State<BankDepositVerificationScreen> {
+class _BankDepositVerificationScreenState
+    extends State<BankDepositVerificationScreen> {
   final state = StationAppState.instance;
   final Set<String> _processingIds = {};
 
@@ -52,7 +56,10 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
           children: [
             Text(
               '${CurrencyFormatter.formatNaira(dep.amount)}',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: AppColors.ink),
+              style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 20,
+                  color: AppColors.ink),
             ),
             const SizedBox(height: 6),
             Text(
@@ -71,7 +78,9 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
@@ -79,7 +88,8 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
               foregroundColor: Colors.white,
               minimumSize: const Size(48, 48),
             ),
-            child: const Text('Confirm Deposit', style: TextStyle(fontSize: 13)),
+            child:
+                const Text('Confirm Deposit', style: TextStyle(fontSize: 13)),
           ),
         ],
       ),
@@ -128,63 +138,9 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
     }
   }
 
-  void _showTellerSlip(BankDepositRecord dep) {
-    final url = dep.slipUrl ?? '';
-    final width = (MediaQuery.of(context).size.width * 0.85).clamp(280.0, 760.0);
-    final height = (MediaQuery.of(context).size.height * 0.6).clamp(240.0, 620.0);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Teller Slip'),
-        content: SizedBox(
-          width: width,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '${dep.id} · ${CurrencyFormatter.formatNaira(dep.amount)}',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.ink),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                height: height,
-                width: double.infinity,
-                clipBehavior: Clip.antiAlias,
-              decoration: BoxDecoration(
-                color: AppColors.lightBackground,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.line),
-              ),
-              child: Image.network(
-                url,
-                fit: BoxFit.contain,
-                loadingBuilder: (c, child, progress) {
-                  if (progress == null) return child;
-                  return const Center(
-                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
-                  );
-                },
-                errorBuilder: (c, err, stack) => const Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.broken_image_outlined, size: 44, color: AppColors.muted),
-                      SizedBox(height: 8),
-                      Text('Teller slip image could not be loaded', style: TextStyle(fontSize: 13, color: AppColors.ink)),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
-        ],
-      ),
-    );
+  void _showTellerSlip(BankDepositRecord deposit) {
+    EvidencePreviewDialog.show(context,
+        title: 'Teller slip', reference: deposit.slipUrl);
   }
 
   Widget _buildRestrictedAccess() {
@@ -195,7 +151,8 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
           tooltip: 'Back',
           onPressed: widget.onBack,
         ),
-        title: const Text('Bank Deposit Approvals', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        title: const Text('Deposit approvals',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
       ),
       body: Center(
         child: Padding(
@@ -208,7 +165,10 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
               const Text(
                 'Restricted — director access required',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.ink),
               ),
               const SizedBox(height: 8),
               const Text(
@@ -221,7 +181,8 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
                 onPressed: widget.onBack,
                 icon: const Icon(Icons.arrow_back),
                 label: const Text('Back'),
-                style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
+                style:
+                    OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
               ),
             ],
           ),
@@ -252,13 +213,15 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
                 style: const TextStyle(fontSize: 13, color: AppColors.muted),
               ),
               const SizedBox(height: 12),
-              const Text('Discrepancy Reason / Audit Note *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              const Text('Discrepancy Reason / Audit Note *',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
               const SizedBox(height: 6),
               TextField(
                 controller: textController,
                 maxLines: 3,
                 decoration: const InputDecoration(
-                  hintText: 'e.g. Credit alert not received on corporate statement; or amount credited is short by ₦50,000.',
+                  hintText:
+                      'e.g. Credit alert not received on corporate statement; or amount credited is short by ₦50,000.',
                 ),
               ),
             ],
@@ -274,20 +237,24 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
                 final notes = textController.text.trim();
                 if (notes.isEmpty) {
                   ScaffoldMessenger.of(ctx).showSnackBar(
-                    const SnackBar(content: Text('Please enter discrepancy reason.')),
+                    const SnackBar(
+                        content: Text('Please enter discrepancy reason.')),
                   );
                   return;
                 }
                 Navigator.pop(ctx);
                 setState(() => _processingIds.add(dep.id));
                 try {
-                  await state.flagBankDepositDiscrepancy(dep.id, notes);
+                  final ok =
+                      await state.flagBankDepositDiscrepancy(dep.id, notes);
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         backgroundColor: AppColors.bad,
                         behavior: SnackBarBehavior.floating,
-                        content: Text('Deposit ${dep.id} flagged for discrepancy investigation!'),
+                        content: Text(ok
+                            ? 'Deposit flagged for review.'
+                            : 'Could not flag the deposit. Reconnect and retry.'),
                       ),
                     );
                   }
@@ -313,377 +280,289 @@ class _BankDepositVerificationScreenState extends State<BankDepositVerificationS
     );
   }
 
+  String _statusFilter = 'Awaiting';
+  String _search = '';
+
+  bool _matchesStatus(BankDepositRecord deposit) => switch (_statusFilter) {
+        'Awaiting' => !deposit.isConfirmed && deposit.status != 'discrepancy',
+        'Confirmed' => deposit.isConfirmed,
+        'Flagged' => deposit.status == 'discrepancy',
+        _ => true,
+      };
+
+  Widget _depositActions(BankDepositRecord deposit) {
+    final processing = _processingIds.contains(deposit.id);
+    return Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          IconButton(
+              tooltip: 'View teller slip',
+              onPressed: () => _showTellerSlip(deposit),
+              icon: const Icon(Icons.attach_file, size: 18)),
+          if (!deposit.isConfirmed) ...[
+            OutlinedButton(
+                onPressed:
+                    processing ? null : () => _flagDiscrepancyDialog(deposit),
+                child: const Text('Flag')),
+            ElevatedButton(
+                onPressed: processing ? null : () => _confirmDeposit(deposit),
+                child: Text(processing ? 'Saving…' : 'Confirm')),
+          ] else
+            Tooltip(
+                message: 'Confirmed by ${deposit.confirmedBy ?? 'Director'}',
+                child: const Icon(Icons.check_circle_outline,
+                    size: 19, color: AppColors.ok)),
+        ]);
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (state.currentUser.role != UserRole.director) {
+    if (state.currentUser.role != UserRole.director)
       return _buildRestrictedAccess();
-    }
-
+    final colors = Theme.of(context).colorScheme;
     final deposits = state.deposits;
-    final totalPending = deposits.where((d) => d.status == 'awaiting_bank' || !d.isConfirmed).fold(0.0, (s, d) => s + d.amount);
-    final totalConfirmed = deposits.where((d) => d.status == 'confirmed' || d.isConfirmed).fold(0.0, (s, d) => s + d.amount);
-    final totalDiscrepancies = deposits.where((d) => d.status == 'discrepancy').fold(0.0, (s, d) => s + d.amount);
-
+    final pending = deposits
+        .where((d) => !d.isConfirmed && d.status != 'discrepancy')
+        .toList();
+    final confirmed = deposits.where((d) => d.isConfirmed).toList();
+    final flagged = deposits.where((d) => d.status == 'discrepancy').toList();
+    final filtered = deposits
+        .where((d) =>
+            _matchesStatus(d) &&
+            '${d.bankName} ${d.tellerNumber ?? ''} ${d.cashierName} ${d.stationName}'
+                .toLowerCase()
+                .contains(_search.toLowerCase()))
+        .toList();
+    final metrics = [
+      WorkspaceMetric(
+          label: 'Awaiting confirmation',
+          value: CurrencyFormatter.formatNaira(
+              pending.fold(0.0, (sum, d) => sum + d.amount)),
+          detail: '${pending.length} deposits'),
+      WorkspaceMetric(
+          label: 'Confirmed deposits',
+          value: CurrencyFormatter.formatNaira(
+              confirmed.fold(0.0, (sum, d) => sum + d.amount)),
+          detail: '${confirmed.length} deposits'),
+      WorkspaceMetric(
+          label: 'Flagged for review',
+          value: CurrencyFormatter.formatNaira(
+              flagged.fold(0.0, (sum, d) => sum + d.amount)),
+          detail: '${flagged.length} deposits',
+          color: flagged.isEmpty ? null : AppColors.bad),
+    ];
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          tooltip: 'Back',
-          onPressed: widget.onBack,
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Bank Deposit Approvals', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('${state.currentUser.displayName} · Commercial Bank Alert Verification', style: const TextStyle(fontSize: 13, color: Colors.white70)),
-          ],
-        ),
+        automaticallyImplyLeading: false,
+        title: const Text('Deposit approvals'),
+        actions: [
+          IconButton(
+              tooltip: 'Refresh records',
+              onPressed: state.isSyncingWithRemote
+                  ? null
+                  : () => state.syncWithSupabase(),
+              icon: const Icon(Icons.refresh)),
+          const SizedBox(width: 12),
+        ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1000),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Bank deposit dual-custody audit',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.ink,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  'Cash handed over by station cashiers/managers remains held in "Awaiting bank" status until Director matches the bank SMS/email credit alert against the stamped teller.',
-                  style: TextStyle(fontSize: 14, color: AppColors.muted),
-                ),
-                const SizedBox(height: 16),
-
-                // Summary Stats
-                Row(
+        padding: const EdgeInsets.all(24),
+        child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1240),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('Awaiting Bank Alert', style: TextStyle(fontSize: 13, color: AppColors.muted)),
-                              const SizedBox(height: 6),
-                              Text(
-                                CurrencyFormatter.formatNaira(totalPending),
-                                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.bank),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('Confirmed Bank Assets', style: TextStyle(fontSize: 13, color: AppColors.muted)),
-                              const SizedBox(height: 6),
-                              Text(
-                                CurrencyFormatter.formatNaira(totalConfirmed),
-                                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.ok),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    if (totalDiscrepancies > 0) ...[
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Discrepancies', style: TextStyle(fontSize: 13, color: AppColors.muted)),
-                                const SizedBox(height: 6),
+                    Text('Bank deposit register',
+                        style: Theme.of(context).textTheme.headlineMedium),
+                    const SizedBox(height: 6),
+                    Text(
+                        'Match cash handovers to bank credits, then confirm or flag the record.',
+                        style: TextStyle(
+                            fontSize: 13, color: colors.onSurfaceVariant)),
+                    const SizedBox(height: 24),
+                    LayoutBuilder(builder: (context, constraints) {
+                      final columns = constraints.maxWidth >= 760
+                          ? 3
+                          : constraints.maxWidth >= 500
+                              ? 2
+                              : 1;
+                      final width =
+                          (constraints.maxWidth - (columns - 1) * 12) / columns;
+                      return Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children: metrics
+                              .map((m) => SizedBox(width: width, child: m))
+                              .toList());
+                    }),
+                    const SizedBox(height: 24),
+                    Wrap(
+                        spacing: 8,
+                        runSpacing: 12,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          for (final filter in [
+                            'Awaiting',
+                            'Confirmed',
+                            'Flagged',
+                            'All'
+                          ])
+                            ChoiceChip(
+                                label: Text(filter),
+                                selected: _statusFilter == filter,
+                                onSelected: (_) =>
+                                    setState(() => _statusFilter = filter)),
+                          SizedBox(
+                              width: 260,
+                              child: TextField(
+                                decoration: const InputDecoration(
+                                    prefixIcon: Icon(Icons.search, size: 18),
+                                    hintText: 'Search bank, teller or bearer'),
+                                onChanged: (value) =>
+                                    setState(() => _search = value.trim()),
+                              )),
+                        ]),
+                    const SizedBox(height: 20),
+                    WorkspaceSection(
+                      title: 'Deposit records',
+                      subtitle:
+                          '${filtered.length} matching records · ${state.currentStationName}',
+                      child: filtered.isEmpty
+                          ? Padding(
+                              padding: const EdgeInsets.all(36),
+                              child: Column(children: [
+                                Icon(Icons.account_balance_outlined,
+                                    size: 30, color: colors.onSurfaceVariant),
+                                const SizedBox(height: 12),
+                                const Text('No matching deposits',
+                                    style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600)),
+                                const SizedBox(height: 8),
                                 Text(
-                                  CurrencyFormatter.formatNaira(totalDiscrepancies),
-                                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.bad),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-
-                const SizedBox(height: 20),
-
-                // If empty state
-                if (deposits.isEmpty)
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Center(
-                        child: Column(
-                          children: [
-                            const Icon(Icons.account_balance_wallet_outlined, size: 56, color: AppColors.muted),
-                            const SizedBox(height: 16),
-                            const Text(
-                              'No Bank Deposits in Verification Queue',
-                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
-                            ),
-                            const SizedBox(height: 8),
-                            const Text(
-                              'When station cashiers or managers remit cash from the safe drawer to the commercial bank, deposit records with stamped teller slips will appear here for credit alert verification.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(fontSize: 14, color: AppColors.muted),
-                            ),
-                          ],
-                        ),
-                      ),
+                                    deposits.isEmpty
+                                        ? 'Cash handovers recorded at the station appear here for review.'
+                                        : 'Choose another status or adjust your search.',
+                                    textAlign: TextAlign.center,
+                                    style:
+                                        Theme.of(context).textTheme.bodySmall),
+                              ]))
+                          : LayoutBuilder(builder: (context, constraints) {
+                              if (constraints.maxWidth < 720) {
+                                return Column(children: [
+                                  for (var i = 0; i < filtered.length; i++) ...[
+                                    if (i > 0)
+                                      Divider(
+                                          height: 1,
+                                          color: colors.outlineVariant),
+                                    Padding(
+                                        padding: const EdgeInsets.all(18),
+                                        child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                  CurrencyFormatter.formatNaira(
+                                                      filtered[i].amount),
+                                                  style: const TextStyle(
+                                                      fontSize: 22,
+                                                      fontWeight:
+                                                          FontWeight.w700)),
+                                              const SizedBox(height: 6),
+                                              Text(
+                                                  '${filtered[i].bankName} · ${filtered[i].tellerNumber ?? 'No teller reference'}'),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                  '${filtered[i].cashierName} · ${_formatDateTime(filtered[i].handedOverAt)}',
+                                                  style: Theme.of(context)
+                                                      .textTheme
+                                                      .bodySmall),
+                                              if (filtered[i]
+                                                      .directorNotes
+                                                      ?.isNotEmpty ==
+                                                  true) ...[
+                                                const SizedBox(height: 6),
+                                                Text(filtered[i].directorNotes!,
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .bodySmall),
+                                              ],
+                                              const SizedBox(height: 12),
+                                              _depositActions(filtered[i]),
+                                            ])),
+                                  ],
+                                ]);
+                              }
+                              return SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: DataTable(
+                                    dataRowMinHeight: 68,
+                                    dataRowMaxHeight: 92,
+                                    columns: const [
+                                      DataColumn(
+                                          label: Text('BANK / REFERENCE')),
+                                      DataColumn(label: Text('BEARER')),
+                                      DataColumn(label: Text('HANDOVER')),
+                                      DataColumn(
+                                          label: Text('AMOUNT'), numeric: true),
+                                      DataColumn(label: Text('STATUS')),
+                                      DataColumn(label: Text('REVIEW')),
+                                    ],
+                                    rows: filtered
+                                        .map((d) => DataRow(cells: [
+                                              DataCell(Column(
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment.center,
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(d.bankName,
+                                                        style: const TextStyle(
+                                                            fontWeight:
+                                                                FontWeight
+                                                                    .w600)),
+                                                    Text(
+                                                        d.tellerNumber ??
+                                                            'No teller reference',
+                                                        style: Theme.of(context)
+                                                            .textTheme
+                                                            .bodySmall),
+                                                  ])),
+                                              DataCell(Text(d.cashierName)),
+                                              DataCell(Text(_formatDateTime(
+                                                  d.handedOverAt))),
+                                              DataCell(Text(
+                                                  CurrencyFormatter.formatNaira(
+                                                      d.amount),
+                                                  style: const TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.w600))),
+                                              DataCell(StatusChip(
+                                                  label: d.isConfirmed
+                                                      ? 'Confirmed'
+                                                      : d.status ==
+                                                              'discrepancy'
+                                                          ? 'Flagged'
+                                                          : 'Awaiting',
+                                                  type: d.isConfirmed
+                                                      ? ChipType.ok
+                                                      : d.status ==
+                                                              'discrepancy'
+                                                          ? ChipType.bad
+                                                          : ChipType.warn)),
+                                              DataCell(_depositActions(d)),
+                                            ]))
+                                        .toList(),
+                                  ));
+                            }),
                     ),
-                  )
-                else ...[
-                  const Text(
-                    'Remittance Verification Queue',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
-                  ),
-                  const SizedBox(height: 10),
-
-                  // Deposit Queue Cards
-                  ...deposits.map((dep) {
-                    final isProcessing = _processingIds.contains(dep.id);
-
-                    ChipType chipType;
-                    String statusLabel;
-                    if (dep.status == 'confirmed' || dep.isConfirmed) {
-                      chipType = ChipType.ok;
-                      statusLabel = 'Confirmed in Bank';
-                    } else if (dep.status == 'discrepancy') {
-                      chipType = ChipType.bad;
-                      statusLabel = 'Discrepancy Flagged';
-                    } else {
-                      chipType = ChipType.bank;
-                      statusLabel = 'Awaiting Bank Alert';
-                    }
-
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 14),
-                      child: Padding(
-                        padding: const EdgeInsets.all(18),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Flexible(
-                                  child: Row(
-                                    children: [
-                                      const Icon(Icons.account_balance, color: AppColors.bank, size: 22),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          '${dep.stationName} (${dep.id})',
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            fontSize: 17,
-                                            fontWeight: FontWeight.bold,
-                                            color: AppColors.ink,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                StatusChip(
-                                  label: statusLabel,
-                                  type: chipType,
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-
-                            // Main numbers row
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      const Text('Amount Remitted:', style: TextStyle(fontSize: 12, color: AppColors.muted)),
-                                      Text(
-                                        CurrencyFormatter.formatNaira(dep.amount),
-                                        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppColors.ink),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Flexible(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-                                    children: [
-                                      const Text('Designated Bank Account:', style: TextStyle(fontSize: 12, color: AppColors.muted)),
-                                      Text(
-                                        dep.bankName,
-                                        textAlign: TextAlign.end,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.ink),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const Divider(height: 20, color: AppColors.line),
-
-                            // Audit details row
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Bearer / Depositor: ${dep.cashierName}',
-                                        style: const TextStyle(fontSize: 13, color: AppColors.ink, fontWeight: FontWeight.w500),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        'Teller Ref: ${dep.tellerNumber ?? "N/A"} • ${_formatDateTime(dep.handedOverAt)}',
-                                        style: const TextStyle(fontSize: 12, color: AppColors.muted),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                if (dep.slipUrl != null && dep.slipUrl!.trim().isNotEmpty)
-                                  OutlinedButton.icon(
-                                    onPressed: () => _showTellerSlip(dep),
-                                    icon: const Icon(Icons.receipt_long, size: 16, color: AppColors.bank),
-                                    label: const Text('View Teller Slip', style: TextStyle(fontSize: 13)),
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: AppColors.bank,
-                                      minimumSize: const Size(48, 48),
-                                    ),
-                                  )
-                                else if (dep.slipUrl != null)
-                                  const Text(
-                                    'No teller slip uploaded',
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(fontSize: 12, color: AppColors.muted),
-                                  ),
-                              ],
-                            ),
-
-                            if (dep.notes != null && dep.notes!.isNotEmpty) ...[
-                              const SizedBox(height: 6),
-                              Text(
-                                'Station Memo: "${dep.notes}"',
-                                style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: AppColors.muted),
-                              ),
-                            ],
-
-                            if (dep.directorNotes != null && dep.directorNotes!.isNotEmpty) ...[
-                              const SizedBox(height: 6),
-                              Text(
-                                'Director Note: "${dep.directorNotes}"',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: dep.status == 'discrepancy' ? AppColors.bad : AppColors.ok,
-                                ),
-                              ),
-                            ],
-
-                            const SizedBox(height: 14),
-
-                            // Actions
-                            Wrap(
-                              alignment: WrapAlignment.end,
-                              spacing: 10,
-                              runSpacing: 8,
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              children: [
-                                if (dep.status == 'awaiting_bank' || !dep.isConfirmed) ...[
-                                  OutlinedButton.icon(
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: AppColors.bad,
-                                      minimumSize: const Size(48, 48),
-                                    ),
-                                    icon: const Icon(Icons.flag_outlined, size: 16),
-                                    label: const Text('Flag Discrepancy', style: TextStyle(fontSize: 13)),
-                                    onPressed: isProcessing ? null : () => _flagDiscrepancyDialog(dep),
-                                  ),
-                                  ElevatedButton.icon(
-                                    onPressed: isProcessing ? null : () => _confirmDeposit(dep),
-                                    icon: isProcessing
-                                        ? const SizedBox(
-                                            width: 16,
-                                            height: 16,
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                          )
-                                        : const Icon(Icons.verified, size: 18),
-                                    label: const Text('Confirm against bank credit alert', style: TextStyle(fontSize: 13)),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppColors.bank,
-                                      foregroundColor: Colors.white,
-                                      minimumSize: const Size(48, 48),
-                                      padding: const EdgeInsets.symmetric(horizontal: 18),
-                                    ),
-                                  ),
-                                ] else if (dep.status == 'confirmed' || dep.isConfirmed) ...[
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(Icons.check_circle, color: AppColors.ok, size: 18),
-                                      const SizedBox(width: 6),
-                                      Flexible(
-                                        child: Text(
-                                          'Verified & Locked into Company Ledger (${dep.confirmedBy ?? "Director"})',
-                                          style: const TextStyle(color: AppColors.ok, fontWeight: FontWeight.bold, fontSize: 13),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ] else if (dep.status == 'discrepancy') ...[
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(Icons.error, color: AppColors.bad, size: 18),
-                                      const SizedBox(width: 6),
-                                      const Flexible(
-                                        child: Text(
-                                          'Flagged for Shortage Investigation',
-                                          style: TextStyle(color: AppColors.bad, fontWeight: FontWeight.bold, fontSize: 13),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ],
-              ],
-            ),
-          ),
-        ),
+                    const SizedBox(height: 24),
+                  ]),
+            )),
       ),
     );
   }

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import '../../models/user_profile.dart';
 import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/status_chip.dart';
+import '../../core/widgets/operations_workspace.dart';
 import '../../models/credit_customer.dart';
 import '../../state/station_app_state.dart';
 
@@ -39,7 +41,9 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
   List<CreditCustomer> get _filteredCustomers {
     final query = _searchController.text.trim().toLowerCase();
     if (query.isEmpty) return state.creditCustomers;
-    return state.creditCustomers.where((c) => c.name.toLowerCase().contains(query)).toList();
+    return state.creditCustomers
+        .where((c) => c.name.toLowerCase().contains(query))
+        .toList();
   }
 
   void _showCreateResultSnackBar(String result) {
@@ -67,7 +71,7 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
     String error = '';
     bool isSubmitting = false;
 
-    await showDialog<void>(
+    final route = DialogRoute<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
@@ -80,23 +84,31 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Company Name *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    const Text('Company Name *',
+                        style: const TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
                     TextField(
                       controller: companyController,
-                      decoration: const InputDecoration(hintText: 'e.g. Dangote Logistics'),
+                      decoration: const InputDecoration(
+                          hintText: 'Registered company name'),
                       onChanged: (_) => setDialogState(() => error = ''),
                     ),
                     const SizedBox(height: 14),
-                    const Text('Contact Person *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    const Text('Contact Person *',
+                        style: const TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
                     TextField(
                       controller: contactController,
-                      decoration: const InputDecoration(hintText: 'e.g. Bisi Okafor'),
+                      decoration: const InputDecoration(
+                          hintText: 'Contact person full name'),
                       onChanged: (_) => setDialogState(() => error = ''),
                     ),
                     const SizedBox(height: 14),
-                    const Text('Payment Terms (days) *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    const Text('Payment Terms (days) *',
+                        style: const TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
                     TextField(
                       controller: termsController,
@@ -109,7 +121,10 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
                       const SizedBox(height: 10),
                       Text(
                         error,
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.bad),
+                        style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.bad),
                       ),
                     ],
                   ],
@@ -130,11 +145,13 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
                         final contact = contactController.text.trim();
                         final terms = int.tryParse(termsController.text.trim());
                         if (company.isEmpty || contact.isEmpty) {
-                          setDialogState(() => error = 'Company name and contact person are required.');
+                          setDialogState(() => error =
+                              'Company name and contact person are required.');
                           return;
                         }
                         if (terms == null || terms <= 0) {
-                          setDialogState(() => error = 'Enter payment terms in days greater than 0.');
+                          setDialogState(() => error =
+                              'Enter payment terms in days greater than 0.');
                           return;
                         }
                         setDialogState(() {
@@ -163,6 +180,8 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
       ),
     );
 
+    await Navigator.of(context).push(route);
+    await route.completed;
     companyController.dispose();
     contactController.dispose();
     termsController.dispose();
@@ -172,7 +191,7 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
     final amountController = TextEditingController();
     String error = '';
 
-    await showDialog<void>(
+    final route = DialogRoute<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
@@ -187,28 +206,43 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
                   children: [
                     Text(
                       customer.name,
-                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.ink),
+                      style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.onSurface),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       'Current outstanding: ${CurrencyFormatter.formatNaira(customer.outstanding)}',
-                      style: const TextStyle(fontSize: 13, color: AppColors.muted),
+                      style: TextStyle(
+                          fontSize: 13,
+                          color:
+                              Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
                     const SizedBox(height: 16),
-                    const Text('Amount *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    const Text('Amount *',
+                        style: const TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
                     TextField(
                       controller: amountController,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
-                      decoration: const InputDecoration(prefixText: '₦ ', hintText: 'e.g. 50,000'),
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))
+                      ],
+                      decoration: const InputDecoration(
+                          prefixText: '₦ ', hintText: 'e.g. 50,000'),
                       onChanged: (_) => setDialogState(() => error = ''),
                     ),
                     if (error.isNotEmpty) ...[
                       const SizedBox(height: 10),
                       Text(
                         error,
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.bad),
+                        style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.bad),
                       ),
                     ],
                   ],
@@ -223,19 +257,23 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
               ),
               ElevatedButton(
                 onPressed: () {
-                  final amount =
-                      double.tryParse(amountController.text.trim().replaceAll(',', '')) ?? 0.0;
+                  final amount = double.tryParse(
+                          amountController.text.trim().replaceAll(',', '')) ??
+                      0.0;
                   if (amount <= 0) {
-                    setDialogState(() => error = 'Enter an amount greater than ₦0.');
+                    setDialogState(
+                        () => error = 'Enter an amount greater than ₦0.');
                     return;
                   }
-                  state.recordCreditRepayment(customerId: customer.id, amount: amount);
+                  state.recordCreditRepayment(
+                      customerId: customer.id, amount: amount);
                   Navigator.pop(ctx);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       backgroundColor: AppColors.ok,
                       behavior: SnackBarBehavior.floating,
-                      content: Text('Repayment of ${CurrencyFormatter.formatNaira(amount)} recorded'),
+                      content: Text(
+                          'Repayment of ${CurrencyFormatter.formatNaira(amount)} recorded'),
                     ),
                   );
                 },
@@ -252,13 +290,60 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
       ),
     );
 
+    await Navigator.of(context).push(route);
+    await route.completed;
     amountController.dispose();
+  }
+
+  Widget _mobileCustomerCard(CreditCustomer customer) {
+    final colors = Theme.of(context).colorScheme;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(customer.name, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            StatusChip(
+              label: switch (customer.status) {
+                CustomerCreditStatus.current => 'Current',
+                CustomerCreditStatus.overdue => 'Overdue',
+                CustomerCreditStatus.settled => 'Settled',
+              },
+              type: customer.status == CustomerCreditStatus.overdue
+                  ? ChipType.bad
+                  : ChipType.ok,
+            ),
+            const SizedBox(height: 16),
+            Text('Outstanding balance',
+                style: TextStyle(color: colors.onSurfaceVariant)),
+            Text(CurrencyFormatter.formatNaira(customer.outstanding),
+                style: Theme.of(context).textTheme.headlineSmall),
+            const SizedBox(height: 12),
+            Text('Last repayment: ${customer.lastRepayment}'),
+            const SizedBox(height: 4),
+            Text('Payment terms: ${customer.dueDate}'),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _showRepaymentDialog(customer),
+                icon: const Icon(Icons.payments_outlined),
+                label: const Text('Repayment'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final customers = _filteredCustomers;
-    final totalOutstanding = state.creditCustomers.fold(0.0, (s, c) => s + c.outstanding);
+    final totalOutstanding =
+        state.creditCustomers.fold(0.0, (s, c) => s + c.outstanding);
 
     return Scaffold(
       appBar: AppBar(
@@ -267,11 +352,16 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
           tooltip: 'Back',
           onPressed: widget.onBack,
         ),
-        title: const Column(
+        title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Credit Customers Ledger', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('Director · All Branches Corporate Accounts', style: TextStyle(fontSize: 13, color: Colors.white70)),
+            const Text('Credit Customers Ledger',
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text('Customer credit and repayments',
+                style: TextStyle(
+                    fontSize: 13,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
           ],
         ),
       ),
@@ -283,54 +373,50 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Credit customers ledger',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.ink,
-                            ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            'Authorized commercial accounts who may dispense fuel on credit at any pump.',
-                            style: TextStyle(fontSize: 15, color: AppColors.muted),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            const Text('Total Outstanding Receivables', style: TextStyle(fontSize: 12, color: AppColors.muted)),
-                            Text(
-                              CurrencyFormatter.formatNaira(totalOutstanding),
-                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.ink),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.person_add, size: 18),
-                      label: const Text('Add Customer'),
-                      style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
-                      onPressed: _showAddCustomerDialog,
-                    ),
-                  ],
-                ),
+                LayoutBuilder(builder: (context, constraints) {
+                  final narrow = constraints.maxWidth < 760;
+                  return Wrap(
+                      spacing: 16,
+                      runSpacing: 16,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        SizedBox(
+                            width: narrow
+                                ? constraints.maxWidth
+                                : constraints.maxWidth - 420,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Customer accounts',
+                                    style: const TextStyle(
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.w600)),
+                                const SizedBox(height: 6),
+                                Text(
+                                    'Review credit balances and record customer repayments.',
+                                    style: TextStyle(
+                                        fontSize: 13,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant)),
+                              ],
+                            )),
+                        SizedBox(
+                            width: narrow ? constraints.maxWidth : 240,
+                            child: WorkspaceMetric(
+                              label: 'Outstanding credit',
+                              value: CurrencyFormatter.formatNaira(
+                                  totalOutstanding),
+                            )),
+                        ElevatedButton.icon(
+                            onPressed: state.currentUser.isActive &&
+                                    state.currentUser.role == UserRole.director
+                                ? _showAddCustomerDialog
+                                : null,
+                            icon: const Icon(Icons.add, size: 17),
+                            label: const Text('Add customer')),
+                      ]);
+                }),
                 const SizedBox(height: 16),
 
                 // Search Bar
@@ -339,10 +425,13 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
                     padding: const EdgeInsets.all(12),
                     child: TextField(
                       controller: _searchController,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         hintText: 'Search by customer name...',
-                        prefixIcon: Icon(Icons.search, color: AppColors.muted),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        prefixIcon: Icon(Icons.search,
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 10),
                       ),
                       onChanged: (_) => setState(() {}),
                     ),
@@ -353,22 +442,35 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
 
                 // Customer Data Table or Empty State
                 if (customers.isEmpty)
-                  const Card(
+                  Card(
                     child: Padding(
-                      padding: EdgeInsets.symmetric(vertical: 40, horizontal: 20),
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 40, horizontal: 20),
                       child: Center(
                         child: Column(
                           children: [
-                            Icon(Icons.people_outline, size: 48, color: AppColors.muted),
-                            SizedBox(height: 12),
+                            Icon(Icons.people_outline,
+                                size: 48,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant),
+                            const SizedBox(height: 12),
                             Text(
                               'No Credit Customers Registered',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
+                              style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color:
+                                      Theme.of(context).colorScheme.onSurface),
                             ),
-                            SizedBox(height: 4),
+                            const SizedBox(height: 4),
                             Text(
                               'Authorized commercial fleet accounts will appear here once registered by the Director.',
-                              style: TextStyle(fontSize: 13, color: AppColors.muted),
+                              style: TextStyle(
+                                  fontSize: 13,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant),
                               textAlign: TextAlign.center,
                             ),
                           ],
@@ -376,6 +478,8 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
                       ),
                     ),
                   )
+                else if (MediaQuery.sizeOf(context).width < 700)
+                  ...customers.map(_mobileCustomerCard)
                 else
                   Card(
                     child: Padding(
@@ -383,25 +487,35 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
                       child: SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
                         child: DataTable(
-                          headingTextStyle: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.ink),
+                          headingTextStyle: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Theme.of(context).colorScheme.onSurface),
                           columns: const [
-                            DataColumn(label: Text('Customer Account')),
-                            DataColumn(label: Align(alignment: Alignment.centerRight, child: Text('Outstanding Debt')), numeric: true),
-                            DataColumn(label: Text('Last Repayment')),
-                            DataColumn(label: Text('Payment Terms')),
-                            DataColumn(label: Text('Status')),
-                            DataColumn(label: Text('Actions')),
+                            DataColumn(label: const Text('Customer Account')),
+                            DataColumn(
+                                label: const Align(
+                                    alignment: Alignment.centerRight,
+                                    child: const Text('Outstanding Debt')),
+                                numeric: true),
+                            DataColumn(label: const Text('Last Repayment')),
+                            DataColumn(label: const Text('Payment Terms')),
+                            DataColumn(label: const Text('Status')),
+                            DataColumn(label: const Text('Actions')),
                           ],
                           rows: customers.map((cust) {
                             return DataRow(
                               cells: [
-                                DataCell(Text(cust.name, style: const TextStyle(fontWeight: FontWeight.bold))),
+                                DataCell(Text(cust.name,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold))),
                                 DataCell(
                                   Align(
                                     alignment: Alignment.centerRight,
                                     child: Text(
-                                      CurrencyFormatter.formatNaira(cust.outstanding),
-                                      style: const TextStyle(fontWeight: FontWeight.bold),
+                                      CurrencyFormatter.formatNaira(
+                                          cust.outstanding),
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.bold),
                                     ),
                                   ),
                                 ),
@@ -409,14 +523,18 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
                                 DataCell(Text(cust.dueDate)),
                                 DataCell(
                                   StatusChip(
-                                    label: cust.status == CustomerCreditStatus.current
+                                    label: cust.status ==
+                                            CustomerCreditStatus.current
                                         ? 'Current'
-                                        : cust.status == CustomerCreditStatus.overdue
+                                        : cust.status ==
+                                                CustomerCreditStatus.overdue
                                             ? 'Overdue'
                                             : 'Settled',
-                                    type: cust.status == CustomerCreditStatus.current
+                                    type: cust.status ==
+                                            CustomerCreditStatus.current
                                         ? ChipType.ok
-                                        : cust.status == CustomerCreditStatus.overdue
+                                        : cust.status ==
+                                                CustomerCreditStatus.overdue
                                             ? ChipType.bad
                                             : ChipType.ok,
                                   ),
@@ -425,7 +543,8 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
                                   TextButton.icon(
                                     label: const Text('Repayment'),
                                     icon: const Icon(Icons.payments, size: 18),
-                                    style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+                                    style: TextButton.styleFrom(
+                                        minimumSize: const Size(48, 48)),
                                     onPressed: () => _showRepaymentDialog(cust),
                                   ),
                                 ),
@@ -438,9 +557,11 @@ class _CreditCustomersScreenState extends State<CreditCustomersScreen> {
                   ),
 
                 const SizedBox(height: 8),
-                const Text(
+                Text(
                   'Note: Only Directors can authorize new credit customers and set credit limits.',
-                  style: TextStyle(fontSize: 13, color: AppColors.muted),
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant),
                 ),
               ],
             ),

@@ -4,6 +4,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/ajadico_logo.dart';
 import '../../state/station_app_state.dart';
+import '../../core/widgets/shift_adjustment_ledger.dart';
 
 /// Shift Summary Export & Print Modal Dialog (BRD v3 §5.3, §5.5, §6.1)
 ///
@@ -23,47 +24,71 @@ class ShiftSummaryExportDialog extends StatelessWidget {
   }
 
   String _generateCsv(StationAppState state) {
+    String cell(String value) {
+      final safe = RegExp(r'^[=+@\-\t\r]').hasMatch(value) ? "'$value" : value;
+      return '"${safe.replaceAll('"', '""')}"';
+    }
+
     final buffer = StringBuffer();
     final now = DateTime.now();
-    final dateStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final dateStr =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
 
     buffer.writeln('AJADICO ENERGY LIMITED - FORECOURT SHIFT SUMMARY AUDIT');
     buffer.writeln('Station Name,"${state.currentStationName}"');
     buffer.writeln('Station Code,"${state.currentStationCode}"');
     buffer.writeln('Audit Date,"$dateStr"');
-    buffer.writeln('Audited By,"${state.currentUser.displayName} (${state.currentUser.role.name.toUpperCase()})"');
+    buffer.writeln(
+        'Audited By,"${state.currentUser.displayName} (${state.currentUser.role.name.toUpperCase()})"');
     buffer.writeln('');
 
     // 1. Pump Meter Reconciliation
     buffer.writeln('SECTION 1: PUMP METER SALES RECONCILIATION');
-    buffer.writeln('Nozzle,Product,Opening Reading,Closing Reading,Litres Sold,Price (NGN),Expected Sales Value (NGN)');
+    buffer.writeln(
+        'Pump ID,Pump,Product,Opening Reading,Closing Reading,Litres Sold,Price (NGN),Expected Sales Value (NGN)');
     double totalLitres = 0.0;
     double totalExpectedValue = 0.0;
     for (var n in state.nozzles) {
-      buffer.writeln('${n.nozzleNumber},"${n.productName}",${n.openingReading},${n.closingReading ?? ''},${n.litresSold},${n.pricePerLitre},${n.salesValue}');
+      buffer.writeln(
+          '${cell(n.id)},${cell(n.label)},"${n.productName}",${n.openingReading},${n.closingReading ?? ''},${n.litresSold},${n.pricePerLitre},${n.salesValue}');
       totalLitres += n.litresSold;
       totalExpectedValue += n.salesValue;
     }
-    buffer.writeln('TOTAL,,,,$totalLitres,,$totalExpectedValue');
+    buffer.writeln('TOTAL,,,,,$totalLitres,,$totalExpectedValue');
     buffer.writeln('');
 
     // 2. Attendant Remittances
     buffer.writeln('SECTION 2: FORECOURT ATTENDANT REMITTANCES');
-    buffer.writeln('Attendant Name,Status,Expected Sales,Cash Declared,POS Card,POS Transfer,Bank Transfer,Credit Sales,Total Declared,Variance');
+    buffer.writeln(
+        'Attendant Name,Status,Expected Collectible Sales,Cash Declared,POS Card,POS Transfer,Bank Transfer,Credit Sales,Approved Pump Expenses,Approved Non-sale Fuel,Total Accounted For,Variance');
     for (var sub in state.submissions) {
-      final totalDecl = sub.cashDeclared + sub.posCardDeclared + sub.posTransferDeclared + sub.bankTransferDeclared + sub.creditSalesDeclared;
-      buffer.writeln('"${sub.attendantName}","${sub.status}",${sub.expectedSalesValue},${sub.cashDeclared},${sub.posCardDeclared},${sub.posTransferDeclared},${sub.bankTransferDeclared},${sub.creditSalesDeclared},$totalDecl,${sub.variance}');
+      final totalDecl = sub.totalMoneyDeclared +
+          sub.creditSalesDeclared +
+          sub.approvedPumpExpenses;
+      buffer.writeln(
+          '${cell(sub.attendantName)},${cell(sub.status)},${sub.expectedSalesValue},${sub.cashDeclared},${sub.posCardDeclared},${sub.posTransferDeclared},${sub.bankTransferDeclared},${sub.creditSalesDeclared},${sub.approvedPumpExpenses},${sub.approvedNonSaleFuel},$totalDecl,${sub.variance}');
     }
     buffer.writeln('');
 
     // 3. Physical Safe Cash Flow
+    buffer.writeln('SHIFT-LINKED EXPENSES AND NON-SALE FUEL');
+    buffer.writeln(
+        'Shift,Attendant,Type,Category,Reason,Amount,Litres,Status,Reviewer,Review Notes');
+    for (final entry in state.shiftAdjustments) {
+      buffer.writeln(
+          '${cell(entry.shiftId)},${cell(entry.attendantName)},${cell(entry.label)},${cell(entry.category)},${cell(entry.reason)},${entry.amount},${entry.litres},${cell(entry.statusLabel)},${cell(entry.reviewedBy ?? '')},${cell(entry.reviewNotes ?? '')}');
+    }
+    buffer.writeln('');
     buffer.writeln('SECTION 3: PHYSICAL CASH SAFE RECONCILIATION');
     buffer.writeln('Item,Amount (NGN)');
     buffer.writeln('Opening Cash Safe,${state.openingCash}');
-    buffer.writeln('Acknowledged Interim Cash Drops,${state.totalAcknowledgedInterimDrops}');
+    buffer.writeln(
+        'Acknowledged Interim Cash Drops,${state.totalAcknowledgedInterimDrops}');
     buffer.writeln('Verified Cash Receipts,${state.totalVerifiedCashReceipts}');
-    buffer.writeln('Approved Cash Expenses,-${state.totalPhysicalCashExpenses}');
-    buffer.writeln('Handed Over for Bank Deposit,-${state.totalHandedOverDeposits}');
+    buffer
+        .writeln('Approved Cash Expenses,-${state.totalPhysicalCashExpenses}');
+    buffer.writeln(
+        'Handed Over for Bank Deposit,-${state.totalHandedOverDeposits}');
     buffer.writeln('Expected Closing Safe Cash,${state.expectedClosingCash}');
     buffer.writeln('Actual Physical Counted Cash,${state.totalCountedCash}');
     buffer.writeln('Cash Drawer Variance,${state.cashDrawerVariance}');
@@ -81,9 +106,11 @@ class ShiftSummaryExportDialog extends StatelessWidget {
 
     // 5. Underground Tanks
     buffer.writeln('SECTION 5: UNDERGROUND FUEL TANKS');
-    buffer.writeln('Tank Code,Product,Capacity (L),Physical Dip (L),Book Stock (L),Variance (L),Ullage (L)');
+    buffer.writeln(
+        'Tank Code,Product,Capacity (L),Physical Dip (L),Book Stock (L),Variance (L),Ullage (L)');
     for (var t in state.tanks) {
-      buffer.writeln('"${t.code}","${t.product}",${t.capacity},${t.physicalDip},${t.bookStock},${t.variance},${t.capacity - t.physicalDip}');
+      buffer.writeln(
+          '"${t.code}","${t.product}",${t.capacity},${t.physicalDip},${t.bookStock},${t.variance},${t.capacity - t.physicalDip}');
     }
 
     return buffer.toString();
@@ -96,20 +123,25 @@ class ShiftSummaryExportDialog extends StatelessWidget {
     buffer.writeln('====================================================');
     buffer.writeln('        AJADICO ENERGY - SHIFT AUDIT REPORT        ');
     buffer.writeln('====================================================');
-    buffer.writeln('Station: ${state.currentStationName} (${state.currentStationCode})');
-    buffer.writeln('Date:    ${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}');
-    buffer.writeln('Auditor: ${state.currentUser.displayName} [${state.currentUser.role.name.toUpperCase()}]');
+    buffer.writeln(
+        'Station: ${state.currentStationName} (${state.currentStationCode})');
+    buffer.writeln(
+        'Date:    ${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}');
+    buffer.writeln(
+        'Auditor: ${state.currentUser.displayName} [${state.currentUser.role.name.toUpperCase()}]');
     buffer.writeln('----------------------------------------------------');
 
     buffer.writeln('\n[1. FUEL SALES & PUMP DISPENSING]');
     double totalLitres = 0.0;
     double totalExpected = 0.0;
     for (var n in state.nozzles) {
-      buffer.writeln(' Nozzle ${n.nozzleNumber} (${n.productName}): ${n.litresSold.toStringAsFixed(1)}L @ ${CurrencyFormatter.formatNaira(n.pricePerLitre)} = ${CurrencyFormatter.formatNaira(n.salesValue)}');
+      buffer.writeln(
+          ' ${n.label} (${n.productName}): ${n.litresSold.toStringAsFixed(1)}L @ ${CurrencyFormatter.formatNaira(n.pricePerLitre)} = ${CurrencyFormatter.formatNaira(n.salesValue)}');
       totalLitres += n.litresSold;
       totalExpected += n.salesValue;
     }
-    buffer.writeln(' TOTAL METER SALES: ${totalLitres.toStringAsFixed(1)} Litres | ${CurrencyFormatter.formatNaira(totalExpected)}');
+    buffer.writeln(
+        ' TOTAL METER SALES: ${totalLitres.toStringAsFixed(1)} Litres | ${CurrencyFormatter.formatNaira(totalExpected)}');
 
     buffer.writeln('\n[2. ATTENDANT REMITTANCES]');
     if (state.submissions.isEmpty) {
@@ -117,25 +149,46 @@ class ShiftSummaryExportDialog extends StatelessWidget {
     } else {
       for (var sub in state.submissions) {
         buffer.writeln(' Attendant: ${sub.attendantName} [${sub.status}]');
-        buffer.writeln('   Expected: ${CurrencyFormatter.formatNaira(sub.expectedSalesValue)}');
-        buffer.writeln('   Cash Declared: ${CurrencyFormatter.formatNaira(sub.cashDeclared)} | POS: ${CurrencyFormatter.formatNaira(sub.posCardDeclared + sub.posTransferDeclared)}');
-        buffer.writeln('   Variance: ${CurrencyFormatter.formatVariance(sub.variance)}');
+        buffer.writeln(
+            '   Expected: ${CurrencyFormatter.formatNaira(sub.expectedSalesValue)}');
+        buffer.writeln(
+            '   Approved pump expenses: ${CurrencyFormatter.formatNaira(sub.approvedPumpExpenses)}');
+        buffer.writeln(
+            '   Approved non-sale fuel: ${CurrencyFormatter.formatNaira(sub.approvedNonSaleFuel)}');
+        buffer.writeln(
+            '   Cash Declared: ${CurrencyFormatter.formatNaira(sub.cashDeclared)} | POS: ${CurrencyFormatter.formatNaira(sub.posCardDeclared + sub.posTransferDeclared)}');
+        buffer.writeln(
+            '   Variance: ${CurrencyFormatter.formatVariance(sub.variance)}');
       }
     }
 
     buffer.writeln('\n[3. CASH SAFE RECONCILIATION]');
-    buffer.writeln(' Opening Safe:        ${CurrencyFormatter.formatNaira(state.openingCash)}');
-    buffer.writeln(' + Interim Drops:     ${CurrencyFormatter.formatNaira(state.totalAcknowledgedInterimDrops)}');
-    buffer.writeln(' + Cash Receipts:     ${CurrencyFormatter.formatNaira(state.totalVerifiedCashReceipts)}');
-    buffer.writeln(' - Cash Expenses:     ${CurrencyFormatter.formatNaira(state.totalPhysicalCashExpenses)}');
-    buffer.writeln(' - Bank Handover:     ${CurrencyFormatter.formatNaira(state.totalHandedOverDeposits)}');
-    buffer.writeln(' Expected Closing:    ${CurrencyFormatter.formatNaira(state.expectedClosingCash)}');
-    buffer.writeln(' Physical Counted:    ${CurrencyFormatter.formatNaira(state.totalCountedCash)}');
-    buffer.writeln(' Drawer Variance:     ${CurrencyFormatter.formatVariance(state.cashDrawerVariance)}');
+    buffer.writeln('\n[SHIFT EXPENSES AND NON-SALE FUEL]');
+    for (final entry in state.shiftAdjustments) {
+      buffer.writeln(
+          ' ${entry.attendantName} | ${entry.label} | ${CurrencyFormatter.formatNaira(entry.amount)} | ${entry.statusLabel} | ${entry.reason}');
+    }
+    buffer.writeln(
+        ' Opening Safe:        ${CurrencyFormatter.formatNaira(state.openingCash)}');
+    buffer.writeln(
+        ' + Interim Drops:     ${CurrencyFormatter.formatNaira(state.totalAcknowledgedInterimDrops)}');
+    buffer.writeln(
+        ' + Cash Receipts:     ${CurrencyFormatter.formatNaira(state.totalVerifiedCashReceipts)}');
+    buffer.writeln(
+        ' - Cash Expenses:     ${CurrencyFormatter.formatNaira(state.totalPhysicalCashExpenses)}');
+    buffer.writeln(
+        ' - Bank Handover:     ${CurrencyFormatter.formatNaira(state.totalHandedOverDeposits)}');
+    buffer.writeln(
+        ' Expected Closing:    ${CurrencyFormatter.formatNaira(state.expectedClosingCash)}');
+    buffer.writeln(
+        ' Physical Counted:    ${CurrencyFormatter.formatNaira(state.totalCountedCash)}');
+    buffer.writeln(
+        ' Drawer Variance:     ${CurrencyFormatter.formatVariance(state.cashDrawerVariance)}');
 
     buffer.writeln('\n[4. UNDERGROUND STORAGE TANKS]');
     for (var t in state.tanks) {
-      buffer.writeln(' Tank ${t.code} (${t.product}): Dip ${t.physicalDip.toStringAsFixed(0)}L | Book ${t.bookStock.toStringAsFixed(0)}L | Var ${t.variance.toStringAsFixed(0)}L');
+      buffer.writeln(
+          ' Tank ${t.code} (${t.product}): Dip ${t.physicalDip.toStringAsFixed(0)}L | Book ${t.bookStock.toStringAsFixed(0)}L | Var ${t.variance.toStringAsFixed(0)}L');
     }
 
     buffer.writeln('\n====================================================');
@@ -170,7 +223,8 @@ class ShiftSummaryExportDialog extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.print_outlined, color: Colors.white, size: 24),
+                  const Icon(Icons.print_outlined,
+                      color: Colors.white, size: 24),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -178,13 +232,17 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                       children: [
                         const Text(
                           'Shift Summary & Audit Report',
-                          style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                         Text(
                           '${state.currentStationName} · ${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}',
-                          style: const TextStyle(color: Colors.white70, fontSize: 13),
+                          style: const TextStyle(
+                              color: Colors.white70, fontSize: 13),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -208,6 +266,12 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Meta Card
+                    if (state.shiftAdjustments.isNotEmpty) ...[
+                      const Text('Shift expenses & non-sale fuel',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      ShiftAdjustmentLedger(entries: state.shiftAdjustments),
+                    ],
                     Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
@@ -222,11 +286,13 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const AjadicoLogo.horizontal(size: 28, showSubtitle: true),
+                                const AjadicoLogo.horizontal(
+                                    size: 28, showSubtitle: true),
                                 const SizedBox(height: 6),
                                 Text(
                                   'Station Code: ${state.currentStationCode} · Forecourt Multi-Tank Branch',
-                                  style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                                  style: const TextStyle(
+                                      fontSize: 12, color: AppColors.muted),
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -239,12 +305,18 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                             children: [
                               Text(
                                 'Auditor: ${state.currentUser.displayName}',
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.ink),
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                    color: AppColors.ink),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
                               const SizedBox(height: 2),
-                              Text('Role: ${state.currentUser.role.name.toUpperCase()} · Certified', style: const TextStyle(fontSize: 12, color: AppColors.ok)),
+                              Text(
+                                  'Role: ${state.currentUser.role.name.toUpperCase()} · Certified',
+                                  style: const TextStyle(
+                                      fontSize: 12, color: AppColors.ok)),
                             ],
                           ),
                         ],
@@ -253,14 +325,17 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                     const SizedBox(height: 16),
 
                     // Section 1: Pump Meter Reconciliation
-                    _buildSectionHeader('1. Pump Meter Sales & Litres Reconciliation', Icons.speed),
+                    _buildSectionHeader(
+                        '1. Pump Meter Sales & Litres Reconciliation',
+                        Icons.speed),
                     const SizedBox(height: 8),
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(minWidth: 640),
                         child: Table(
-                          border: TableBorder.all(color: AppColors.line, width: 0.8),
+                          border: TableBorder.all(
+                              color: AppColors.line, width: 0.8),
                           columnWidths: const {
                             0: FlexColumnWidth(1.2),
                             1: FlexColumnWidth(1.2),
@@ -271,9 +346,10 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                           },
                           children: [
                             TableRow(
-                              decoration: const BoxDecoration(color: AppColors.lightBackground),
+                              decoration: const BoxDecoration(
+                                  color: AppColors.lightBackground),
                               children: [
-                                _buildTableHeader('Nozzle'),
+                                _buildTableHeader('Pump'),
                                 _buildTableHeader('Product'),
                                 _buildTableHeader('Opening (L)'),
                                 _buildTableHeader('Closing (L)'),
@@ -283,12 +359,21 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                             ),
                             ...state.nozzles.map((n) => TableRow(
                                   children: [
-                                    _buildTableCell('Pump #${n.nozzleNumber}'),
-                                    _buildTableCell(n.productName, isBold: true),
-                                    _buildTableCell(n.openingReading.toStringAsFixed(1)),
-                                    _buildTableCell(n.closingReading?.toStringAsFixed(1) ?? '—'),
-                                    _buildTableCell(n.litresSold.toStringAsFixed(1), isBold: true),
-                                    _buildTableCell(CurrencyFormatter.formatNaira(n.salesValue), isBold: true),
+                                    _buildTableCell('${n.label}'),
+                                    _buildTableCell(n.productName,
+                                        isBold: true),
+                                    _buildTableCell(
+                                        n.openingReading.toStringAsFixed(1)),
+                                    _buildTableCell(
+                                        n.closingReading?.toStringAsFixed(1) ??
+                                            '—'),
+                                    _buildTableCell(
+                                        n.litresSold.toStringAsFixed(1),
+                                        isBold: true),
+                                    _buildTableCell(
+                                        CurrencyFormatter.formatNaira(
+                                            n.salesValue),
+                                        isBold: true),
                                   ],
                                 )),
                           ],
@@ -298,7 +383,8 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                     const SizedBox(height: 16),
 
                     // Section 2: Attendant Remittances
-                    _buildSectionHeader('2. Forecourt Attendant Remittances', Icons.people_outline),
+                    _buildSectionHeader('2. Forecourt Attendant Remittances',
+                        Icons.people_outline),
                     const SizedBox(height: 8),
                     if (state.submissions.isEmpty)
                       Container(
@@ -309,7 +395,10 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(color: AppColors.line),
                         ),
-                        child: const Text('No attendant shift remittance closures submitted yet today.', textAlign: TextAlign.center, style: TextStyle(color: AppColors.muted)),
+                        child: const Text(
+                            'No attendant shift remittance closures submitted yet today.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: AppColors.muted)),
                       )
                     else
                       SingleChildScrollView(
@@ -317,7 +406,8 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                         child: ConstrainedBox(
                           constraints: const BoxConstraints(minWidth: 700),
                           child: Table(
-                            border: TableBorder.all(color: AppColors.line, width: 0.8),
+                            border: TableBorder.all(
+                                color: AppColors.line, width: 0.8),
                             columnWidths: const {
                               0: FlexColumnWidth(1.8),
                               1: FlexColumnWidth(1.3),
@@ -329,7 +419,8 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                             },
                             children: [
                               TableRow(
-                                decoration: const BoxDecoration(color: AppColors.lightBackground),
+                                decoration: const BoxDecoration(
+                                    color: AppColors.lightBackground),
                                 children: [
                                   _buildTableHeader('Attendant'),
                                   _buildTableHeader('Expected (₦)'),
@@ -342,14 +433,30 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                               ),
                               ...state.submissions.map((sub) => TableRow(
                                     children: [
-                                      _buildTableCell(sub.attendantName, isBold: true),
-                                      _buildTableCell(CurrencyFormatter.formatNaira(sub.expectedSalesValue)),
-                                      _buildTableCell(CurrencyFormatter.formatNaira(sub.cashDeclared)),
-                                      _buildTableCell(CurrencyFormatter.formatNaira(sub.posCardDeclared + sub.posTransferDeclared + sub.bankTransferDeclared)),
-                                      _buildTableCell(CurrencyFormatter.formatNaira(sub.creditSalesDeclared)),
+                                      _buildTableCell(sub.attendantName,
+                                          isBold: true),
                                       _buildTableCell(
-                                        CurrencyFormatter.formatVariance(sub.variance),
-                                        textColor: sub.variance < 0 ? AppColors.bad : (sub.variance > 0 ? AppColors.ok : AppColors.ink),
+                                          CurrencyFormatter.formatNaira(
+                                              sub.expectedSalesValue)),
+                                      _buildTableCell(
+                                          CurrencyFormatter.formatNaira(
+                                              sub.cashDeclared)),
+                                      _buildTableCell(
+                                          CurrencyFormatter.formatNaira(
+                                              sub.posCardDeclared +
+                                                  sub.posTransferDeclared +
+                                                  sub.bankTransferDeclared)),
+                                      _buildTableCell(
+                                          CurrencyFormatter.formatNaira(
+                                              sub.creditSalesDeclared)),
+                                      _buildTableCell(
+                                        CurrencyFormatter.formatVariance(
+                                            sub.variance),
+                                        textColor: sub.variance < 0
+                                            ? AppColors.bad
+                                            : (sub.variance > 0
+                                                ? AppColors.ok
+                                                : AppColors.ink),
                                         isBold: true,
                                       ),
                                       _buildTableCell(sub.status),
@@ -362,7 +469,9 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                     const SizedBox(height: 16),
 
                     // Section 3: Cash Safe Reconciliation & Denominations
-                    _buildSectionHeader('3. Cashier Safe & Physical Denomination Count', Icons.point_of_sale),
+                    _buildSectionHeader(
+                        '3. Cashier Safe & Physical Denomination Count',
+                        Icons.point_of_sale),
                     const SizedBox(height: 8),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -379,19 +488,51 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                             ),
                             child: Column(
                               children: [
-                                _buildSummaryRow('Opening Safe Balance:', CurrencyFormatter.formatNaira(state.openingCash)),
-                                _buildSummaryRow('+ Acknowledged Interim Drops:', CurrencyFormatter.formatNaira(state.totalAcknowledgedInterimDrops), isGreen: true),
-                                _buildSummaryRow('+ Verified Cash Receipts:', CurrencyFormatter.formatNaira(state.totalVerifiedCashReceipts), isGreen: true),
-                                _buildSummaryRow('- Approved Cash Expenses:', CurrencyFormatter.formatNaira(state.totalPhysicalCashExpenses), isRed: true),
-                                _buildSummaryRow('- Bank Deposit Handover:', CurrencyFormatter.formatNaira(state.totalHandedOverDeposits), isBlue: true),
+                                _buildSummaryRow(
+                                    'Opening Safe Balance:',
+                                    CurrencyFormatter.formatNaira(
+                                        state.openingCash)),
+                                _buildSummaryRow(
+                                    '+ Acknowledged Interim Drops:',
+                                    CurrencyFormatter.formatNaira(
+                                        state.totalAcknowledgedInterimDrops),
+                                    isGreen: true),
+                                _buildSummaryRow(
+                                    '+ Verified Cash Receipts:',
+                                    CurrencyFormatter.formatNaira(
+                                        state.totalVerifiedCashReceipts),
+                                    isGreen: true),
+                                _buildSummaryRow(
+                                    '- Approved Cash Expenses:',
+                                    CurrencyFormatter.formatNaira(
+                                        state.totalPhysicalCashExpenses),
+                                    isRed: true),
+                                _buildSummaryRow(
+                                    '- Bank Deposit Handover:',
+                                    CurrencyFormatter.formatNaira(
+                                        state.totalHandedOverDeposits),
+                                    isBlue: true),
                                 const Divider(color: AppColors.line),
-                                _buildSummaryRow('Target Expected Closing Safe:', CurrencyFormatter.formatNaira(state.expectedClosingCash), isBold: true),
-                                _buildSummaryRow('Actual Physical Count:', CurrencyFormatter.formatNaira(state.totalCountedCash), isBold: true),
+                                _buildSummaryRow(
+                                    'Target Expected Closing Safe:',
+                                    CurrencyFormatter.formatNaira(
+                                        state.expectedClosingCash),
+                                    isBold: true),
+                                _buildSummaryRow(
+                                    'Actual Physical Count:',
+                                    CurrencyFormatter.formatNaira(
+                                        state.totalCountedCash),
+                                    isBold: true),
                                 _buildSummaryRow(
                                   'Drawer Variance:',
-                                  CurrencyFormatter.formatVariance(state.cashDrawerVariance),
+                                  CurrencyFormatter.formatVariance(
+                                      state.cashDrawerVariance),
                                   isBold: true,
-                                  textColor: state.cashDrawerVariance < 0 ? AppColors.bad : (state.cashDrawerVariance > 0 ? AppColors.ok : AppColors.ink),
+                                  textColor: state.cashDrawerVariance < 0
+                                      ? AppColors.bad
+                                      : (state.cashDrawerVariance > 0
+                                          ? AppColors.ok
+                                          : AppColors.ink),
                                 ),
                               ],
                             ),
@@ -407,7 +548,8 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                             child: ConstrainedBox(
                               constraints: const BoxConstraints(minWidth: 260),
                               child: Table(
-                                border: TableBorder.all(color: AppColors.line, width: 0.8),
+                                border: TableBorder.all(
+                                    color: AppColors.line, width: 0.8),
                                 columnWidths: const {
                                   0: FlexColumnWidth(1.2),
                                   1: FlexColumnWidth(1.0),
@@ -415,7 +557,8 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                                 },
                                 children: [
                                   TableRow(
-                                    decoration: const BoxDecoration(color: AppColors.lightBackground),
+                                    decoration: const BoxDecoration(
+                                        color: AppColors.lightBackground),
                                     children: [
                                       _buildTableHeader('Note'),
                                       _buildTableHeader('Count'),
@@ -428,7 +571,9 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                                       children: [
                                         _buildTableCell('₦$d'),
                                         _buildTableCell('$count'),
-                                        _buildTableCell(CurrencyFormatter.formatNaira(d * count.toDouble())),
+                                        _buildTableCell(
+                                            CurrencyFormatter.formatNaira(
+                                                d * count.toDouble())),
                                       ],
                                     );
                                   }),
@@ -442,14 +587,17 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                     const SizedBox(height: 16),
 
                     // Section 4: Underground Storage Tanks
-                    _buildSectionHeader('4. Underground Tanks (UST) Physical Dips & Ullage', Icons.propane_tank_outlined),
+                    _buildSectionHeader(
+                        '4. Underground Tanks (UST) Physical Dips & Ullage',
+                        Icons.propane_tank_outlined),
                     const SizedBox(height: 8),
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(minWidth: 720),
                         child: Table(
-                          border: TableBorder.all(color: AppColors.line, width: 0.8),
+                          border: TableBorder.all(
+                              color: AppColors.line, width: 0.8),
                           columnWidths: const {
                             0: FlexColumnWidth(1.0),
                             1: FlexColumnWidth(1.0),
@@ -461,7 +609,8 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                           },
                           children: [
                             TableRow(
-                              decoration: const BoxDecoration(color: AppColors.lightBackground),
+                              decoration: const BoxDecoration(
+                                  color: AppColors.lightBackground),
                               children: [
                                 _buildTableHeader('Tank Code'),
                                 _buildTableHeader('Fuel'),
@@ -476,15 +625,26 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                                   children: [
                                     _buildTableCell(t.code, isBold: true),
                                     _buildTableCell(t.product),
-                                    _buildTableCell(CurrencyFormatter.formatLitres(t.capacity)),
-                                    _buildTableCell(CurrencyFormatter.formatLitres(t.physicalDip), isBold: true),
-                                    _buildTableCell(CurrencyFormatter.formatLitres(t.bookStock)),
+                                    _buildTableCell(
+                                        CurrencyFormatter.formatLitres(
+                                            t.capacity)),
+                                    _buildTableCell(
+                                        CurrencyFormatter.formatLitres(
+                                            t.physicalDip),
+                                        isBold: true),
+                                    _buildTableCell(
+                                        CurrencyFormatter.formatLitres(
+                                            t.bookStock)),
                                     _buildTableCell(
                                       '${t.variance >= 0 ? '+' : '−'}${CurrencyFormatter.formatLitres(t.variance.abs())}',
-                                      textColor: t.hasDeficit ? AppColors.bad : AppColors.ink,
+                                      textColor: t.hasDeficit
+                                          ? AppColors.bad
+                                          : AppColors.ink,
                                       isBold: true,
                                     ),
-                                    _buildTableCell(CurrencyFormatter.formatLitres(t.capacity - t.physicalDip)),
+                                    _buildTableCell(
+                                        CurrencyFormatter.formatLitres(
+                                            t.capacity - t.physicalDip)),
                                   ],
                                 )),
                           ],
@@ -506,9 +666,15 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                           Widget signField(String role) => Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(role, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+                                  Text(role,
+                                      style: const TextStyle(
+                                          fontSize: 12,
+                                          color: AppColors.muted)),
                                   const SizedBox(height: 24),
-                                  const Text('Sign: __________________________', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                  const Text('Sign: __________________________',
+                                      style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold)),
                                 ],
                               );
                           const roles = [
@@ -519,7 +685,11 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text('CERTIFICATION & AUDIT SIGN-OFF:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.ink)),
+                              const Text('CERTIFICATION & AUDIT SIGN-OFF:',
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                      color: AppColors.ink)),
                               const SizedBox(height: 16),
                               if (constraints.maxWidth < 700)
                                 ...roles.map(
@@ -535,7 +705,8 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                                       .map(
                                         (role) => Expanded(
                                           child: Padding(
-                                            padding: const EdgeInsets.only(right: 12),
+                                            padding: const EdgeInsets.only(
+                                                right: 12),
                                             child: signField(role),
                                           ),
                                         ),
@@ -558,7 +729,8 @@ class ShiftSummaryExportDialog extends StatelessWidget {
               decoration: const BoxDecoration(
                 color: AppColors.card,
                 border: Border(top: BorderSide(color: AppColors.border)),
-                borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
+                borderRadius:
+                    BorderRadius.vertical(bottom: Radius.circular(16)),
               ),
               child: Wrap(
                 spacing: 10,
@@ -569,13 +741,15 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                   OutlinedButton.icon(
                     icon: const Icon(Icons.copy_all, size: 18),
                     label: const Text('Copy Formatted Text'),
-                    style: OutlinedButton.styleFrom(minimumSize: const Size(0, 48)),
+                    style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(0, 48)),
                     onPressed: () {
                       final txt = _generateTextSummary(state);
                       Clipboard.setData(ClipboardData(text: txt));
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text('Shift summary text copied to clipboard! Paste it wherever it is needed.'),
+                          content: Text(
+                              'Shift summary text copied to clipboard! Paste it wherever it is needed.'),
                           backgroundColor: AppColors.ink,
                           behavior: SnackBarBehavior.floating,
                         ),
@@ -595,7 +769,8 @@ class ShiftSummaryExportDialog extends StatelessWidget {
                       Clipboard.setData(ClipboardData(text: csv));
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text('Shift Summary CSV copied to clipboard! Paste directly into Microsoft Excel or Google Sheets.'),
+                          content: Text(
+                              'Shift Summary CSV copied to clipboard! Paste directly into Microsoft Excel or Google Sheets.'),
                           backgroundColor: AppColors.ok,
                           behavior: SnackBarBehavior.floating,
                         ),
@@ -628,7 +803,10 @@ class ShiftSummaryExportDialog extends StatelessWidget {
         Expanded(
           child: Text(
             title,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.ink),
+            style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+                color: AppColors.ink),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
@@ -640,7 +818,9 @@ class ShiftSummaryExportDialog extends StatelessWidget {
   Widget _buildTableHeader(String text) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      child: Text(text, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.ink)),
+      child: Text(text,
+          style: const TextStyle(
+              fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.ink)),
     );
   }
 
@@ -658,7 +838,12 @@ class ShiftSummaryExportDialog extends StatelessWidget {
     );
   }
 
-  Widget _buildSummaryRow(String label, String value, {bool isBold = false, bool isGreen = false, bool isRed = false, bool isBlue = false, Color? textColor}) {
+  Widget _buildSummaryRow(String label, String value,
+      {bool isBold = false,
+      bool isGreen = false,
+      bool isRed = false,
+      bool isBlue = false,
+      Color? textColor}) {
     Color valColor = textColor ?? AppColors.ink;
     if (isGreen) valColor = AppColors.ok;
     if (isRed) valColor = AppColors.bad;
@@ -671,13 +856,18 @@ class ShiftSummaryExportDialog extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: TextStyle(fontSize: 13, fontWeight: isBold ? FontWeight.bold : FontWeight.normal, color: AppColors.ink),
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+                  color: AppColors.ink),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
           ),
           const SizedBox(width: 8),
-          Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: valColor)),
+          Text(value,
+              style: TextStyle(
+                  fontSize: 13, fontWeight: FontWeight.bold, color: valColor)),
         ],
       ),
     );

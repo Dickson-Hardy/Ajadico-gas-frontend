@@ -21,7 +21,4 @@ class CreditCustomer {
     required this.status,
   });
 
-  static List<CreditCustomer> getDefaultCustomers() {
-    return const [];
-  }
 }

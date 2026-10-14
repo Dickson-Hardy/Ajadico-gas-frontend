@@ -3,7 +3,9 @@ import '../../core/constants/app_colors.dart';
 import '../../core/navigation/shell_back_guard.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/empty_state_view.dart';
+import '../../core/widgets/shift_adjustment_ledger.dart';
 import '../../core/widgets/status_chip.dart';
+import '../../core/widgets/evidence_preview_dialog.dart';
 import '../../models/interim_cash_drop.dart';
 import '../../models/pos_transaction.dart';
 import '../../state/station_app_state.dart';
@@ -24,7 +26,8 @@ class VerifySubmissionScreen extends StatefulWidget {
   State<VerifySubmissionScreen> createState() => _VerifySubmissionScreenState();
 }
 
-class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with UnsavedWorkAware {
+class _VerifySubmissionScreenState extends State<VerifySubmissionScreen>
+    with UnsavedWorkAware {
   final state = StationAppState.instance;
 
   int _selectedSubmissionIndex = 0;
@@ -70,7 +73,8 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('Switch to another shift?'),
-          content: const Text('Your typed cashier remarks belong to the shift you are leaving and will be cleared.'),
+          content: const Text(
+              'Your typed cashier remarks belong to the shift you are leaving and will be cleared.'),
           actions: [
             TextButton(
               onPressed: () {
@@ -108,7 +112,11 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
   }
 
   bool get _allSectionsChecked =>
-      _cashChecked && _posCardChecked && _posTransferChecked && _bankTransferChecked && _creditChecked;
+      _cashChecked &&
+      _posCardChecked &&
+      _posTransferChecked &&
+      _bankTransferChecked &&
+      _creditChecked;
 
   void _confirmDiscard(VoidCallback onDiscard) {
     if (!hasUnsavedWork) {
@@ -119,7 +127,8 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Discard audit comment?'),
-        content: const Text('Your cashier remarks for this submission have not been used yet. Leaving now discards them.'),
+        content: const Text(
+            'Your cashier remarks for this submission have not been used yet. Leaving now discards them.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -198,7 +207,8 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
         const SnackBar(
           backgroundColor: AppColors.warn,
           behavior: SnackBarBehavior.floating,
-          content: Text('Check off every section (cash, card, POS transfer, bank transfer, credit) before verifying.'),
+          content: Text(
+              'Check off every section (cash, card, POS transfer, bank transfer, credit) before verifying.'),
         ),
       );
       return;
@@ -214,13 +224,16 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
           children: [
             Text('${sub.attendantName} · ${sub.shiftType} Shift'),
             const SizedBox(height: 8),
-            Text('Declared physical cash: ${CurrencyFormatter.formatNaira(sub.cashDeclared)}'),
+            Text(
+                'Declared physical cash: ${CurrencyFormatter.formatNaira(sub.cashDeclared)}'),
             const SizedBox(height: 6),
             Text(
               'Shift variance: ${CurrencyFormatter.formatVariance(sub.variance)}',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
-                color: sub.variance < 0 ? AppColors.bad : (sub.variance > 0 ? AppColors.ok : AppColors.ink),
+                color: sub.variance < 0
+                    ? AppColors.bad
+                    : (sub.variance > 0 ? AppColors.ok : AppColors.ink),
               ),
             ),
             const SizedBox(height: 12),
@@ -284,7 +297,8 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
 
   void _flagUnresolved(ShiftSubmission sub) {
     if (_commentController.text.trim().isEmpty) {
-      setState(() => _commentError = 'Explain why this submission is unresolved before flagging it.');
+      setState(() => _commentError =
+          'Explain why this submission is unresolved before flagging it.');
       return;
     }
     setState(() => _commentError = '');
@@ -321,6 +335,7 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
 
   PreferredSizeWidget _buildAppBar({StatusChip? queueChip}) {
     return AppBar(
+      toolbarHeight: 76,
       leading: IconButton(
         icon: const Icon(Icons.arrow_back),
         tooltip: 'Back',
@@ -329,13 +344,21 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
       title: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Cashier Verification Queue', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          Text('${state.currentUser.displayName} · Station Cashier Booth', style: const TextStyle(fontSize: 13, color: Colors.white70)),
+          const Text('Verify submissions',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          Text('${state.currentUser.displayName} · Station Cashier Booth',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 13, color: AppColors.muted)),
         ],
       ),
       actions: [
         IconButton(
-          icon: Icon(state.isDarkMode ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
+          icon: Icon(state.isDarkMode
+              ? Icons.light_mode_outlined
+              : Icons.dark_mode_outlined),
           tooltip: state.isDarkMode ? 'Daylight Mode' : 'Night Shift Mode',
           onPressed: () => state.toggleTheme(),
         ),
@@ -358,8 +381,10 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
   @override
   Widget build(BuildContext context) {
     final submissions = state.submissions;
-    final pendingDrops = state.cashDrops.where((d) => !d.isAcknowledged).toList();
-    final acknowledgedDropsToday = state.cashDrops.where((d) => d.isAcknowledged).toList();
+    final pendingDrops =
+        state.cashDrops.where((d) => !d.isAcknowledged).toList();
+    final acknowledgedDropsToday =
+        state.cashDrops.where((d) => d.isAcknowledged).toList();
 
     // If no submissions are in queue, show the Live Cash Drops Hub
     if (submissions.isEmpty) {
@@ -367,7 +392,10 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
       return Scaffold(
         appBar: _buildAppBar(
           queueChip: pendingCount > 0
-              ? StatusChip(label: '$pendingCount Drop${pendingCount == 1 ? '' : 's'} Waiting', type: ChipType.warn)
+              ? StatusChip(
+                  label:
+                      '$pendingCount Drop${pendingCount == 1 ? '' : 's'} Waiting',
+                  type: ChipType.warn)
               : null,
         ),
         body: SingleChildScrollView(
@@ -379,6 +407,13 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Pending Cash Drops Banner
+                  if (state.shiftAdjustments.isNotEmpty) ...[
+                    Text('Pump expenses & non-sale fuel',
+                        style: Theme.of(context).textTheme.titleLarge),
+                    const SizedBox(height: 12),
+                    ShiftAdjustmentLedger(
+                        entries: state.shiftAdjustments, review: true),
+                  ],
                   if (pendingDrops.isNotEmpty) ...[
                     _buildPendingDropsBanner(pendingDrops),
                     const SizedBox(height: 20),
@@ -389,16 +424,21 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(vertical: 24),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).brightness == Brightness.dark ? AppColors.darkCard : AppColors.card,
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? AppColors.darkCard
+                          : AppColors.card,
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
-                        color: Theme.of(context).brightness == Brightness.dark ? AppColors.darkLine : AppColors.line,
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? AppColors.darkLine
+                            : AppColors.line,
                       ),
                     ),
                     child: const EmptyStateView(
                       icon: Icons.checklist_rtl_rounded,
                       title: 'No End-of-Shift Submissions in Queue',
-                      message: 'Attendants currently dispensing fuel on the forecourt have not yet submitted their shift closures. Intra-shift cash drops can be received and acknowledged above at any time.',
+                      message:
+                          'Attendants currently dispensing fuel on the forecourt have not yet submitted their shift closures. Intra-shift cash drops can be received and acknowledged above at any time.',
                       iconColor: AppColors.ok,
                     ),
                   ),
@@ -409,10 +449,14 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                   if (acknowledgedDropsToday.isNotEmpty) ...[
                     const Text(
                       'Today\'s Acknowledged Mid-Shift Drops',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
+                      style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.ink),
                     ),
                     const SizedBox(height: 10),
-                    ...acknowledgedDropsToday.map((drop) => _buildAcknowledgedDropTile(drop)),
+                    ...acknowledgedDropsToday
+                        .map((drop) => _buildAcknowledgedDropTile(drop)),
                   ],
                 ],
               ),
@@ -422,13 +466,16 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
       );
     }
 
-    final currentIndex = _selectedSubmissionIndex < submissions.length ? _selectedSubmissionIndex : 0;
+    final currentIndex = _selectedSubmissionIndex < submissions.length
+        ? _selectedSubmissionIndex
+        : 0;
     final sub = submissions[currentIndex];
 
     return Scaffold(
       appBar: _buildAppBar(
         queueChip: StatusChip(
-          label: '${submissions.where((s) => s.status == "Pending Verification").length} Pending',
+          label:
+              '${submissions.where((s) => s.status == "Pending Verification").length} Pending',
           type: ChipType.warn,
         ),
       ),
@@ -450,7 +497,8 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                 if (submissions.length > 1) ...[
                   Row(
                     children: [
-                      const Text('Select shift to audit:', style: TextStyle(fontWeight: FontWeight.bold)),
+                      const Text('Select shift to audit:',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
                       const SizedBox(width: 12),
                       Expanded(
                         child: DropdownButton<int>(
@@ -461,7 +509,8 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                             final s = entry.value;
                             return DropdownMenuItem(
                               value: idx,
-                              child: Text('${s.attendantName} (${s.shiftType}) - Expected: ${CurrencyFormatter.formatNaira(s.expectedSalesValue)} [${s.status}]'),
+                              child: Text(
+                                  '${s.attendantName} (${s.shiftType}) - Expected: ${CurrencyFormatter.formatNaira(s.expectedSalesValue)} [${s.status}]'),
                             );
                           }).toList(),
                           onChanged: (val) {
@@ -499,7 +548,9 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                           label: sub.status,
                           type: sub.status == 'Verified'
                               ? ChipType.ok
-                              : (sub.status == 'Flagged Unresolved' ? ChipType.bad : ChipType.warn),
+                              : (sub.status == 'Flagged Unresolved'
+                                  ? ChipType.bad
+                                  : ChipType.warn),
                         ),
                       ],
                     );
@@ -525,7 +576,9 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                                     label: sub.status,
                                     type: sub.status == 'Verified'
                                         ? ChipType.ok
-                                        : (sub.status == 'Flagged Unresolved' ? ChipType.bad : ChipType.warn),
+                                        : (sub.status == 'Flagged Unresolved'
+                                            ? ChipType.bad
+                                            : ChipType.warn),
                                   ),
                                 ],
                               )
@@ -533,10 +586,19 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                         const SizedBox(height: 4),
                         const Text(
                           'Audit physical cash (interim sweeps + final handoff) and verify card/transfer receipts against POS slips before confirming.',
-                          style: TextStyle(fontSize: 14, color: AppColors.muted),
+                          style:
+                              TextStyle(fontSize: 14, color: AppColors.muted),
                         ),
                         const SizedBox(height: 16),
                         _buildAuditColumns(sub, isNarrow),
+                        const SizedBox(height: 12),
+                        Text(
+                            'Approved pump expenses: ${CurrencyFormatter.formatNaira(sub.approvedPumpExpenses)}'),
+                        Text(
+                            'Approved non-sale fuel: ${CurrencyFormatter.formatNaira(sub.approvedNonSaleFuel)}'),
+                        ShiftAdjustmentLedger(
+                            entries: state.adjustmentsForShift(
+                                sub.shiftId, sub.attendantId)),
                       ],
                     );
                   },
@@ -560,9 +622,13 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                 flex: 2,
                 child: ElevatedButton.icon(
                   icon: const Icon(Icons.check),
-                  onPressed: sub.status == 'Verified' ? null : () => _verify(sub),
-                  style: ElevatedButton.styleFrom(minimumSize: const Size(0, 48)),
-                  label: Text(sub.status == 'Verified' ? 'Already Verified' : 'Verify & accept into safe'),
+                  onPressed:
+                      sub.status == 'Verified' ? null : () => _verify(sub),
+                  style:
+                      ElevatedButton.styleFrom(minimumSize: const Size(0, 48)),
+                  label: Text(sub.status == 'Verified'
+                      ? 'Already Verified'
+                      : 'Verify & accept into safe'),
                 ),
               ),
               const SizedBox(width: 10),
@@ -573,7 +639,9 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                     minimumSize: const Size(0, 48),
                   ),
                   icon: const Icon(Icons.flag),
-                  onPressed: sub.status == 'Verified' ? null : () => _flagUnresolved(sub),
+                  onPressed: sub.status == 'Verified'
+                      ? null
+                      : () => _flagUnresolved(sub),
                   label: const Text('Flag difference'),
                 ),
               ),
@@ -581,7 +649,8 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
               Expanded(
                 child: OutlinedButton(
                   onPressed: () => _confirmDiscard(widget.onBack),
-                  style: OutlinedButton.styleFrom(minimumSize: const Size(0, 48)),
+                  style:
+                      OutlinedButton.styleFrom(minimumSize: const Size(0, 48)),
                   child: const Text('Back'),
                 ),
               ),
@@ -595,21 +664,33 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
   Widget _buildAuditColumns(ShiftSubmission sub, bool isNarrow) {
     final subDrops = sub.cashDrops.isNotEmpty
         ? sub.cashDrops
-        : state.cashDrops.where((d) => d.attendantId == sub.attendantId).toList();
+        : state.cashDrops
+            .where((d) => d.attendantId == sub.attendantId)
+            .toList();
 
     final ackDrops = subDrops.where((d) => d.isAcknowledged).toList();
     final ackDropsTotal = ackDrops.fold(0.0, (sum, d) => sum + d.amount);
     final finalCashInHand = sub.finalCashHandover > 0
         ? sub.finalCashHandover
-        : (sub.cashDeclared >= ackDropsTotal ? sub.cashDeclared - ackDropsTotal : sub.cashDeclared);
+        : (sub.cashDeclared >= ackDropsTotal
+            ? sub.cashDeclared - ackDropsTotal
+            : sub.cashDeclared);
 
     final subPosTransactions = sub.posTransactions.isNotEmpty
         ? sub.posTransactions
-        : state.posTransactions.where((p) => p.attendantId == sub.attendantId).toList();
+        : state.posTransactions
+            .where((p) => p.attendantId == sub.attendantId)
+            .toList();
 
-    final cardTxs = subPosTransactions.where((p) => p.paymentChannel == 'pos_card').toList();
-    final posTransferTxs = subPosTransactions.where((p) => p.paymentChannel == 'pos_transfer').toList();
-    final bankTransferTxs = subPosTransactions.where((p) => p.paymentChannel == 'bank_transfer').toList();
+    final cardTxs = subPosTransactions
+        .where((p) => p.paymentChannel == 'pos_card')
+        .toList();
+    final posTransferTxs = subPosTransactions
+        .where((p) => p.paymentChannel == 'pos_transfer')
+        .toList();
+    final bankTransferTxs = subPosTransactions
+        .where((p) => p.paymentChannel == 'bank_transfer')
+        .toList();
 
     final leftColumn = Card(
       child: Padding(
@@ -619,15 +700,21 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
           children: [
             const Text(
               '1. Meter readings breakdown',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
+              style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.ink),
             ),
             const SizedBox(height: 10),
             if (sub.nozzles.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 8),
                 child: Text(
-                  'Nozzle readings not synced for this submission',
-                  style: TextStyle(fontSize: 13, color: AppColors.muted, fontStyle: FontStyle.italic),
+                  'Pump readings not synced for this submission',
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: AppColors.muted,
+                      fontStyle: FontStyle.italic),
                 ),
               )
             else
@@ -638,7 +725,7 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                     children: [
                       Expanded(
                         child: Text(
-                          'Nozzle ${n.nozzleNumber} (${n.productName})',
+                          '${n.label} (${n.productName})',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(color: AppColors.muted),
@@ -657,12 +744,16 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
             Row(
               children: [
                 const Expanded(
-                  child: Text('Target Expected Sales', style: TextStyle(fontWeight: FontWeight.bold)),
+                  child: Text('Target Expected Sales',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
                 ),
                 const SizedBox(width: 12),
                 Text(
                   CurrencyFormatter.formatNaira(sub.expectedSalesValue),
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
+                  style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.ink),
                 ),
               ],
             ),
@@ -670,7 +761,10 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
 
             const Text(
               '2. Check off physical money & proof',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
+              style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.ink),
             ),
             const SizedBox(height: 8),
 
@@ -701,13 +795,17 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                           '• Intra-Shift Sweeps (${ackDrops.length} drops):',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                          style: const TextStyle(
+                              fontSize: 12, color: AppColors.muted),
                         ),
                       ),
                       const SizedBox(width: 8),
                       Text(
                         CurrencyFormatter.formatNaira(ackDropsTotal),
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.ok),
+                        style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.ok),
                       ),
                     ],
                   ),
@@ -719,35 +817,48 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                           '• Final Cash Handover at Close:',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 12, color: AppColors.muted),
+                          style:
+                              TextStyle(fontSize: 12, color: AppColors.muted),
                         ),
                       ),
                       const SizedBox(width: 8),
                       Text(
                         CurrencyFormatter.formatNaira(finalCashInHand),
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.ink),
+                        style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.ink),
                       ),
                     ],
                   ),
                   if (ackDrops.isNotEmpty) ...[
                     const SizedBox(height: 2),
                     InkWell(
-                      onTap: () => setState(() => _showItemizedDrops = !_showItemizedDrops),
+                      onTap: () => setState(
+                          () => _showItemizedDrops = !_showItemizedDrops),
                       borderRadius: BorderRadius.circular(6),
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 14, horizontal: 4),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(
-                              _showItemizedDrops ? Icons.expand_less : Icons.expand_more,
+                              _showItemizedDrops
+                                  ? Icons.expand_less
+                                  : Icons.expand_more,
                               size: 18,
                               color: AppColors.brandPrimary,
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              _showItemizedDrops ? 'Hide itemized drop log' : 'View itemized drop log',
-                              style: const TextStyle(fontSize: 12, color: AppColors.brandPrimary, fontWeight: FontWeight.bold),
+                              _showItemizedDrops
+                                  ? 'Hide itemized drop log'
+                                  : 'View itemized drop log',
+                              style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.brandPrimary,
+                                  fontWeight: FontWeight.bold),
                             ),
                           ],
                         ),
@@ -756,25 +867,28 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                     if (_showItemizedDrops) ...[
                       const SizedBox(height: 2),
                       ...ackDrops.map((d) => Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 2),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                '  - ${_formatTime(d.createdAt)} (${d.notes ?? "Sweep"}):',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 12, color: AppColors.muted),
-                              ),
+                            padding: const EdgeInsets.symmetric(vertical: 2),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    '  - ${_formatTime(d.createdAt)} (${d.notes ?? "Sweep"}):',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                        fontSize: 12, color: AppColors.muted),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  CurrencyFormatter.formatNaira(d.amount),
+                                  style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold),
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 8),
-                            Text(
-                              CurrencyFormatter.formatNaira(d.amount),
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                            ),
-                          ],
-                        ),
-                      )),
+                          )),
                     ],
                   ],
                 ],
@@ -814,7 +928,10 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                   Expanded(
                     child: Text(
                       'Check off every section above before verifying this shift.',
-                      style: TextStyle(fontSize: 12, color: AppColors.warn, fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.warn,
+                          fontWeight: FontWeight.w600),
                     ),
                   ),
                 ],
@@ -824,7 +941,9 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
             Row(
               children: [
                 const Expanded(
-                  child: Text('Shift Variance', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  child: Text('Shift Variance',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 ),
                 const SizedBox(width: 12),
                 Text(
@@ -832,7 +951,9 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
-                    color: sub.variance < 0 ? AppColors.bad : (sub.variance > 0 ? AppColors.ok : AppColors.ink),
+                    color: sub.variance < 0
+                        ? AppColors.bad
+                        : (sub.variance > 0 ? AppColors.ok : AppColors.ink),
                   ),
                 ),
               ],
@@ -859,12 +980,16 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                         '3. In-Shift POS & Transfer Slips',
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
+                        style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.ink),
                       ),
                     ),
                     const SizedBox(width: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
                         color: AppColors.background,
                         borderRadius: BorderRadius.circular(8),
@@ -872,7 +997,10 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                       ),
                       child: Text(
                         '${subPosTransactions.length} slips',
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.muted),
+                        style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.muted),
                       ),
                     ),
                   ],
@@ -888,12 +1016,14 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                     ),
                     child: const Row(
                       children: [
-                        Icon(Icons.info_outline, size: 20, color: AppColors.muted),
+                        Icon(Icons.info_outline,
+                            size: 20, color: AppColors.muted),
                         SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             'No individual POS slips logged in-between sales for this shift. Check physical thermal roll printouts.',
-                            style: TextStyle(fontSize: 12, color: AppColors.muted),
+                            style:
+                                TextStyle(fontSize: 12, color: AppColors.muted),
                           ),
                         ),
                       ],
@@ -905,7 +1035,8 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                     child: ListView.separated(
                       shrinkWrap: true,
                       itemCount: subPosTransactions.length,
-                      separatorBuilder: (_, __) => const Divider(height: 8, color: AppColors.line),
+                      separatorBuilder: (_, __) =>
+                          const Divider(height: 8, color: AppColors.line),
                       itemBuilder: (context, idx) {
                         final tx = subPosTransactions[idx];
                         return _buildPosSlipAuditItem(tx);
@@ -928,38 +1059,54 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
               children: [
                 const Text(
                   '4. Uploaded evidence slips',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
+                  style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.ink),
                 ),
                 const SizedBox(height: 10),
                 Container(
-                  height: 140,
+                  constraints: const BoxConstraints(minHeight: 140),
                   width: double.infinity,
                   decoration: BoxDecoration(
-                    color: sub.evidencePhotos.isEmpty ? AppColors.badSurface : AppColors.background,
+                    color: sub.evidencePhotos.isEmpty
+                        ? AppColors.badSurface
+                        : AppColors.background,
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
-                      color: sub.evidencePhotos.isEmpty ? AppColors.bad : AppColors.line,
+                      color: sub.evidencePhotos.isEmpty
+                          ? AppColors.bad
+                          : AppColors.line,
                     ),
                   ),
                   child: Center(
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 16),
                       child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
-                            sub.evidencePhotos.isEmpty ? Icons.warning_amber_rounded : Icons.receipt_long,
+                            sub.evidencePhotos.isEmpty
+                                ? Icons.warning_amber_rounded
+                                : Icons.receipt_long,
                             size: 36,
-                            color: sub.evidencePhotos.isEmpty ? AppColors.bad : AppColors.bank,
+                            color: sub.evidencePhotos.isEmpty
+                                ? AppColors.bad
+                                : AppColors.bank,
                           ),
                           const SizedBox(height: 8),
                           Text(
                             sub.evidencePhotos.isNotEmpty
-                                ? sub.evidencePhotos[_currentEvidenceIndex % sub.evidencePhotos.length]
+                                ? sub.evidencePhotos[_currentEvidenceIndex %
+                                    sub.evidencePhotos.length]
                                 : 'No evidence photo uploaded by the attendant',
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.ink),
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.ink),
                             textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 4),
@@ -967,8 +1114,19 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                             sub.evidencePhotos.isEmpty
                                 ? 'Ask the attendant for the POS printouts before verifying'
                                 : 'Proof ${_currentEvidenceIndex + 1} of ${sub.evidencePhotos.length}',
-                            style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                            style: const TextStyle(
+                                fontSize: 12, color: AppColors.muted),
                           ),
+                          if (sub.evidencePhotos.isNotEmpty)
+                            TextButton.icon(
+                                onPressed: () => EvidencePreviewDialog.show(
+                                    context,
+                                    title: 'Remittance evidence',
+                                    reference: sub.evidencePhotos[
+                                        _currentEvidenceIndex %
+                                            sub.evidencePhotos.length]),
+                                icon: const Icon(Icons.image_outlined),
+                                label: const Text('View evidence')),
                         ],
                       ),
                     ),
@@ -983,17 +1141,20 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                           onPressed: _currentEvidenceIndex > 0
                               ? () => setState(() => _currentEvidenceIndex--)
                               : null,
-                          style: OutlinedButton.styleFrom(minimumSize: const Size(0, 48)),
+                          style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(0, 48)),
                           child: const Text('Previous'),
                         ),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: OutlinedButton(
-                          onPressed: _currentEvidenceIndex < sub.evidencePhotos.length - 1
+                          onPressed: _currentEvidenceIndex <
+                                  sub.evidencePhotos.length - 1
                               ? () => setState(() => _currentEvidenceIndex++)
                               : null,
-                          style: OutlinedButton.styleFrom(minimumSize: const Size(0, 48)),
+                          style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(0, 48)),
                           child: const Text('Next'),
                         ),
                       ),
@@ -1001,13 +1162,14 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                   ),
                 ],
                 const SizedBox(height: 16),
-
-                const Text('Cashier remarks / comments', style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                const Text('Cashier remarks / comments',
+                    style: TextStyle(fontSize: 13, color: AppColors.muted)),
                 const SizedBox(height: 4),
                 TextField(
                   controller: _commentController,
                   onChanged: (_) {
-                    if (_commentError.isNotEmpty) setState(() => _commentError = '');
+                    if (_commentError.isNotEmpty)
+                      setState(() => _commentError = '');
                   },
                   decoration: InputDecoration(
                     hintText: 'Enter audit notes or shortage reason...',
@@ -1066,7 +1228,10 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                   'Incoming Intra-Shift Cash Drops (${pendingDrops.length})',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.ink),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: AppColors.ink),
                 ),
               ),
             ],
@@ -1095,7 +1260,8 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                       color: AppColors.ok.withValues(alpha: 0.1),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.account_balance_wallet, color: AppColors.ok, size: 20),
+                    child: const Icon(Icons.account_balance_wallet,
+                        color: AppColors.ok, size: 20),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -1106,14 +1272,18 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                           '${drop.attendantName} — ${CurrencyFormatter.formatNaira(drop.amount)}',
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.ink),
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                              color: AppColors.ink),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           'Submitted at ${_formatTime(drop.createdAt)}${drop.notes != null ? " • ${drop.notes}" : ""}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                          style: const TextStyle(
+                              fontSize: 12, color: AppColors.muted),
                         ),
                       ],
                     ),
@@ -1123,14 +1293,17 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.ok,
                       minimumSize: const Size(0, 48),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 8),
                     ),
-                    onPressed: isAcknowledging ? null : () => _acknowledgeDrop(drop),
+                    onPressed:
+                        isAcknowledging ? null : () => _acknowledgeDrop(drop),
                     child: isAcknowledging
                         ? const SizedBox(
                             width: 18,
                             height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white),
                           )
                         : const Text('Accept Cash'),
                   ),
@@ -1165,7 +1338,10 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                   '${drop.attendantName} • ${drop.notes ?? "Mid-shift sweep"}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.ink),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      color: AppColors.ink),
                 ),
                 Text(
                   'Accepted at ${drop.acknowledgedAt != null ? _formatTime(drop.acknowledgedAt!) : _formatTime(drop.createdAt)} by ${drop.acknowledgedBy ?? "Cashier"}',
@@ -1179,7 +1355,8 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
           const SizedBox(width: 10),
           Text(
             CurrencyFormatter.formatNaira(drop.amount),
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.ok),
+            style: const TextStyle(
+                fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.ok),
           ),
         ],
       ),
@@ -1225,13 +1402,19 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
                         tx.channelDisplayName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.ink),
+                        style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.ink),
                       ),
                     ),
                     const SizedBox(width: 8),
                     Text(
                       CurrencyFormatter.formatNaira(tx.amount),
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.ok),
+                      style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.ok),
                     ),
                   ],
                 ),
@@ -1249,7 +1432,8 @@ class _VerifySubmissionScreenState extends State<VerifySubmissionScreen> with Un
     );
   }
 
-  Widget _buildCheckTile(String label, double amount, bool isChecked, ValueChanged<bool?> onChanged) {
+  Widget _buildCheckTile(String label, double amount, bool isChecked,
+      ValueChanged<bool?> onChanged) {
     return CheckboxListTile(
       value: isChecked,
       onChanged: onChanged,

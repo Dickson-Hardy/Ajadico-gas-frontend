@@ -55,11 +55,11 @@ Deno.serve(async (req: Request) => {
 
     return new Response(
       JSON.stringify({
-        status: "success",
+        status: dispatchResult.dispatched ? "success" : "error",
         event: pushMessage.title,
         dispatch: dispatchResult,
       }),
-      { headers, status: 200 }
+      { headers, status: dispatchResult.dispatched ? 200 : 503 }
     );
   } catch (err: any) {
     console.error("[Push Notification Error]", err);
@@ -115,7 +115,7 @@ function evaluateNotificationEvent(payload: WebhookPayload): PushMessage | null 
   if (table === "fuel_prices" && type === "INSERT") {
     return {
       title: "PRICE CHANGE DIRECTIVE",
-      body: `Fuel price updated to ₦${record.price_per_litre}/L by Director. All 5 branches must adjust nozzles immediately.`,
+      body: `Retail price updated to ₦${record.price_per_litre}/L. Review the affected station's nozzle prices.`,
       targetRole: "all",
       topic: "all_stations",
       stationId: record.station_id,
@@ -206,12 +206,9 @@ function evaluateNotificationEvent(payload: WebhookPayload): PushMessage | null 
  */
 async function sendFcmPushNotification(msg: PushMessage): Promise<any> {
   if (!FCM_SERVER_KEY) {
-    console.log("[FCM Mock Dispatch] (No FCM_SERVER_KEY configured in Supabase secrets):", msg);
     return {
       dispatched: false,
-      simulated: true,
-      reason: "FCM_SERVER_KEY not set in Supabase vault. Push payload generated successfully.",
-      payload: msg,
+      error: "Push notification service is not configured.",
     };
   }
 

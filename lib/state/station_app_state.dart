@@ -1,3 +1,6 @@
+import '../models/operations_policy.dart';
+import '../models/shift_adjustment.dart';
+import '../core/storage/evidence_reference.dart';
 import 'package:flutter/material.dart';
 import '../core/network/supabase_repository.dart';
 import '../core/notifications/forecourt_notification.dart';
@@ -16,6 +19,8 @@ import '../models/user_profile.dart';
 
 /// Models for real-time forecourt operations
 class ShiftSubmission {
+  final double approvedPumpExpenses;
+  final double approvedNonSaleFuel;
   final String id;
   final String shiftId;
   final String attendantName;
@@ -38,6 +43,8 @@ class ShiftSubmission {
   DateTime? verifiedAt;
 
   ShiftSubmission({
+    this.approvedPumpExpenses = 0,
+    this.approvedNonSaleFuel = 0,
     required String id,
     String? shiftId,
     required this.attendantName,
@@ -58,13 +65,18 @@ class ShiftSubmission {
     this.status = 'Pending Verification',
     this.cashierComment,
     this.verifiedAt,
-  }) : id = id, shiftId = shiftId ?? id;
+  })  : id = id,
+        shiftId = shiftId ?? id;
 
   double get totalMoneyDeclared =>
-      cashDeclared + posCardDeclared + posTransferDeclared + bankTransferDeclared;
+      cashDeclared +
+      posCardDeclared +
+      posTransferDeclared +
+      bankTransferDeclared;
 
   double get variance =>
-      (totalMoneyDeclared + creditSalesDeclared) - expectedSalesValue;
+      (totalMoneyDeclared + creditSalesDeclared + approvedPumpExpenses) -
+      expectedSalesValue;
 
   bool get isBalanced => variance.abs() < 1.0;
   bool get isShortage => variance < -1.0;
@@ -92,7 +104,8 @@ class LiveTankStock {
   });
 
   double get variance => physicalDip - bookStock;
-  double get variancePercent => (bookStock > 0) ? (variance / bookStock) * 100 : 0.0;
+  double get variancePercent =>
+      (bookStock > 0) ? (variance / bookStock) * 100 : 0.0;
   bool get hasDeficit => variance < -50.0;
   bool get isLowStock => physicalDip < (capacity * 0.20);
 }
@@ -143,6 +156,7 @@ class FuelDeliveryRecord {
   final double discrepancy;
   final double purchasePricePerLitre;
   final DateTime deliveredAt;
+  final List<String> waybillReferences;
 
   FuelDeliveryRecord({
     required this.id,
@@ -156,6 +170,7 @@ class FuelDeliveryRecord {
     required this.discrepancy,
     required this.purchasePricePerLitre,
     required this.deliveredAt,
+    this.waybillReferences = const [],
   });
 }
 
@@ -165,7 +180,8 @@ class SalaryAdjustment {
   final String station;
   final String shiftRef;
   final double amount; // negative for shortage
-  String status; // 'Pending Review', 'Salary Deduction Approved', 'Waived by Director'
+  String
+      status; // 'Pending Review', 'Salary Deduction Approved', 'Waived by Director'
   final DateTime recordedAt;
 
   SalaryAdjustment({
@@ -181,10 +197,12 @@ class SalaryAdjustment {
 
 class ShiftCreditSaleRecord {
   final String id;
+  final String? shiftId;
   final String attendantId;
   final String customerId;
   final String customerName;
   final int nozzleNumber;
+  final String? pumpId, pumpName;
   final double litres;
   final double amount;
   final String vehiclePlate;
@@ -193,10 +211,13 @@ class ShiftCreditSaleRecord {
 
   ShiftCreditSaleRecord({
     required this.id,
+    this.shiftId,
     required this.attendantId,
     required this.customerId,
     required this.customerName,
     required this.nozzleNumber,
+    this.pumpId,
+    this.pumpName,
     required this.litres,
     required this.amount,
     required this.vehiclePlate,
@@ -217,15 +238,220 @@ class StationAppState extends ChangeNotifier {
   final _syncService = OfflineSyncService.instance;
   final _notifService = NotificationService.instance;
 
+  OperationsPolicy? _operationsPolicy;
+  OperationsPolicy? get operationsPolicy => _operationsPolicy;
+  Future<bool> configureOperationsPolicy(
+      {required double cashierLimit,
+      required double managerLimit,
+      required List<String> categories,
+      required int expectedRevision}) async {
+    if (!currentUser.isActive || currentUser.role != UserRole.director)
+      return false;
+    try {
+      OperationsPolicy(
+          revision: expectedRevision + 1,
+          cashierApprovalLimit: cashierLimit,
+          managerApprovalLimit: managerLimit,
+          expenseCategories: categories);
+    } on FormatException {
+      return false;
+    }
+    final owner = _syncService.captureOwner;
+    final saved = await SupabaseRepository.instance.configureOperationsPolicy(
+        cashierLimit: cashierLimit,
+        managerLimit: managerLimit,
+        categories: categories,
+        expectedRevision: expectedRevision);
+    if (saved == null || !_syncService.isCurrentOwner(owner)) return false;
+    applyOperationsPolicy(saved);
+    return true;
+  }
+
+  final Map<String, ShiftAdjustment> _shiftAdjustments = {};
+  List<ShiftAdjustment> get shiftAdjustments {
+    // Pending records are recoverable from the owner-partitioned durable outbox.
+    final merged = Map<String, ShiftAdjustment>.from(_shiftAdjustments);
+    for (final item in _syncService.queue) {
+      if (item.actionType != SyncActionType.shiftAdjustment) continue;
+      final row = ShiftAdjustment.fromJson(item.payload);
+      if (row.stationCode == currentStationCode)
+        merged.putIfAbsent(row.id, () => row);
+    }
+    return merged.values
+        .where((e) => e.stationCode == currentStationCode)
+        .toList()
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+  }
+
+  List<ShiftAdjustment> adjustmentsForShift(
+          String shiftId, String attendantId) =>
+      shiftAdjustments
+          .where((e) => e.shiftId == shiftId && e.attendantId == attendantId)
+          .toList();
+  ShiftAdjustmentTotals get currentShiftAdjustments => ShiftAdjustmentTotals(
+      adjustmentsForShift(currentShiftId, currentUser.id));
+
+  ShiftAdjustment recordShiftAdjustment(
+      {required ShiftAdjustmentKind kind,
+      required String reason,
+      required List<String> evidence,
+      String category = '',
+      double amount = 0,
+      double litres = 0,
+      int? nozzleNumber}) {
+    if (!currentUser.isActive ||
+        currentUser.role != UserRole.attendant ||
+        currentStationCode.isEmpty ||
+        remittanceSubmitted ||
+        reason.trim().isEmpty ||
+        reason.trim().length > 2000 ||
+        evidence.isEmpty ||
+        evidence.length > 4 ||
+        evidence.any((e) => EvidenceReference.parse(e) == null)) {
+      throw StateError(
+          'An active attendant shift, reason and evidence are required.');
+    }
+    String? tankCode;
+    double price = 0;
+    if (kind == ShiftAdjustmentKind.expense) {
+      amount = double.parse(amount.toStringAsFixed(2));
+      if (operationsPolicy == null ||
+          !operationsPolicy!.expenseCategories.contains(category) ||
+          !amount.isFinite ||
+          amount <= 0 ||
+          amount >= 1000000000000)
+        throw ArgumentError('Choose a configured category and valid amount.');
+    } else {
+      final nozzle =
+          nozzles.where((n) => n.nozzleNumber == nozzleNumber).firstOrNull;
+      if (nozzle == null ||
+          !litres.isFinite ||
+          litres <= 0 ||
+          !nozzle.pricePerLitre.isFinite ||
+          nozzle.pricePerLitre <= 0 ||
+          (kind == ShiftAdjustmentKind.generatorFuel &&
+              nozzle.productName != 'AGO')) {
+        throw ArgumentError(
+            'Choose a valid pump and volume; generator fuel must use AGO.');
+      }
+      tankCode = nozzle.tankCode;
+      litres = double.parse(litres.toStringAsFixed(3));
+      price = double.parse(nozzle.pricePerLitre.toStringAsFixed(2));
+      amount = double.parse((litres * price).toStringAsFixed(2));
+      if (!amount.isFinite ||
+          amount <= 0 ||
+          amount >= 1000000000000 ||
+          litres <= 0 ||
+          litres >= 100000000000)
+        throw ArgumentError('Volume/value is out of range.');
+    }
+    final entry = ShiftAdjustment(
+        id: SupabaseRepository.instance.generateUuid(),
+        shiftId: currentShiftId,
+        stationCode: currentStationCode,
+        attendantId: currentUser.id,
+        attendantName: currentUser.displayName,
+        kind: kind,
+        reason: reason.trim(),
+        category: category,
+        amount: double.parse(amount.toStringAsFixed(2)),
+        litres: kind == ShiftAdjustmentKind.expense ? 0 : litres,
+        pricePerLitre: price,
+        nozzleNumber: nozzleNumber,
+        pumpId: nozzles
+            .where((n) => n.nozzleNumber == nozzleNumber)
+            .firstOrNull
+            ?.id,
+        pumpName: nozzles
+            .where((n) => n.nozzleNumber == nozzleNumber)
+            .firstOrNull
+            ?.label,
+        tankCode: tankCode,
+        evidence: List.unmodifiable(evidence),
+        createdAt: DateTime.now());
+    _shiftAdjustments[entry.id] = entry;
+    _syncService.enqueue(
+        actionType: SyncActionType.shiftAdjustment, payload: entry.toJson());
+    notifyListeners();
+    return entry;
+  }
+
+  Future<bool> reviewShiftAdjustment(
+      String id, bool approved, String notes) async {
+    final entry = shiftAdjustments.where((e) => e.id == id).firstOrNull;
+    final policy = operationsPolicy;
+    if (!currentUser.isActive ||
+        entry == null ||
+        !entry.isPending ||
+        entry.attendantId == currentUser.id ||
+        policy == null ||
+        ![UserRole.cashier, UserRole.manager, UserRole.director]
+            .contains(currentUser.role) ||
+        (currentUser.role == UserRole.cashier &&
+            entry.amount > policy.cashierApprovalLimit) ||
+        (currentUser.role == UserRole.manager &&
+            entry.amount > policy.managerApprovalLimit) ||
+        notes.trim().isEmpty) return false;
+    final owner = _syncService.captureOwner;
+    final result = await SupabaseRepository.instance
+        .reviewShiftAdjustment(id, approved, notes.trim());
+    if (result == null || !_syncService.isCurrentOwner(owner)) return false;
+    _shiftAdjustments[id] = result;
+    if (result.isApproved &&
+        result.kind == ShiftAdjustmentKind.calibrationReturn) {
+      final tank = tanks.where((t) => t.code == result.tankCode).firstOrNull;
+      if (tank != null) tank.bookStock += result.litres;
+    }
+    // Stock restoration for calibration is applied atomically by the review RPC.
+    // Physical dip remains an actual measurement, never an estimated adjustment.
+    notifyListeners();
+    return true;
+  }
+
+  void applyOperationsPolicy(OperationsPolicy policy) {
+    _operationsPolicy = policy;
+    notifyListeners();
+  }
+
+  Future<void> refreshAuthenticatedPolicy() async {
+    final repo = SupabaseRepository.instance;
+    final authId = repo.authUserId;
+    final profileId = currentUser.id;
+    if (authId == null || !currentUser.isActive) return;
+    final policy = await repo.fetchOperationsPolicy();
+    if (repo.authUserId == authId && currentUser.id == profileId) {
+      _operationsPolicy = policy;
+      notifyListeners();
+    }
+  }
+
   // 1. Current Session
-  UserProfile _currentUser = UserProfile.defaultDirector;
+  UserProfile _currentUser = UserProfile.signedOut;
   UserProfile get currentUser => _currentUser;
 
   void setCurrentUser(UserProfile user) {
+    if (_currentUser.id != user.id) {
+      _currentShiftId = null;
+      _shiftSessionRowCreated = false;
+      resetShiftProgress();
+    }
     _currentUser = user;
+    _syncService.bindOwner(
+        profileId: user.id,
+        authUserId: SupabaseRepository.instance.authUserId,
+        stationId: _currentStationId);
     if (user.role == UserRole.attendant) {
       openShiftSession();
     }
+    notifyListeners();
+  }
+
+  void clearSession() {
+    _syncService.bindOwner();
+    _currentUser = UserProfile.signedOut;
+    _currentShiftId = null;
+    _shiftSessionRowCreated = false;
+    resetShiftProgress();
     notifyListeners();
   }
 
@@ -280,12 +506,13 @@ class StationAppState extends ChangeNotifier {
   }
 
   // 1c. Forecourt Theme Mode (Night Shift / Sunlight Mode)
-  ThemeMode _themeMode = ThemeMode.dark;
+  ThemeMode _themeMode = ThemeMode.light;
   ThemeMode get themeMode => _themeMode;
   bool get isDarkMode => _themeMode == ThemeMode.dark;
 
   void toggleTheme() {
-    _themeMode = _themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
+    _themeMode =
+        _themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
     notifyListeners();
   }
 
@@ -317,8 +544,8 @@ class StationAppState extends ChangeNotifier {
   }
 
   // 2. Active Fuel Prices
-  double _pmsPrice = 1050.0;
-  double _agoPrice = 1320.0;
+  double _pmsPrice = 0;
+  double _agoPrice = 0;
   double get pmsPrice => _pmsPrice;
   double get agoPrice => _agoPrice;
 
@@ -326,13 +553,13 @@ class StationAppState extends ChangeNotifier {
   List<Station> _stations = [];
   List<Station> get stations => List.unmodifiable(_stations);
 
-  String _currentStationId = '4c960eed-2f2e-461a-a27e-00a41f5f7bd1';
+  String _currentStationId = '';
   String get currentStationId => _currentStationId;
-  String _currentStationCode = 'LEKKI-01';
+  String _currentStationCode = '';
   String get currentStationCode => _currentStationCode;
-  String _currentStationName = 'Lekki Road Station';
+  String _currentStationName = 'No station selected';
   String get currentStationName => _currentStationName;
-  bool _hasInterlockedTanks = true;
+  bool _hasInterlockedTanks = false;
   bool get hasInterlockedTanks => _hasInterlockedTanks;
 
   // 3. Live Nozzles for Forecourt
@@ -361,11 +588,13 @@ class StationAppState extends ChangeNotifier {
 
   // 9. Attendant Salary Ledger
   final List<SalaryAdjustment> _salaryAdjustments = [];
-  List<SalaryAdjustment> get salaryAdjustments => List.unmodifiable(_salaryAdjustments);
+  List<SalaryAdjustment> get salaryAdjustments =>
+      List.unmodifiable(_salaryAdjustments);
 
   // 9b. Monthly Payroll Settlements (§4.7)
   final List<MonthlyPayrollSettlement> _payrollSettlements = [];
-  List<MonthlyPayrollSettlement> get payrollSettlements => List.unmodifiable(_payrollSettlements);
+  List<MonthlyPayrollSettlement> get payrollSettlements =>
+      List.unmodifiable(_payrollSettlements);
 
   // 10. Bank Deposits
   final List<BankDepositRecord> _deposits = [];
@@ -380,17 +609,19 @@ class StationAppState extends ChangeNotifier {
   List<InterimCashDrop> get cashDrops => List.unmodifiable(_cashDrops);
 
   final List<PosTransaction> _posTransactions = [];
-  List<PosTransaction> get posTransactions => List.unmodifiable(_posTransactions);
+  List<PosTransaction> get posTransactions =>
+      List.unmodifiable(_posTransactions);
 
   // 13. Intra-Shift Credit Sales Records (§4.8)
   final List<ShiftCreditSaleRecord> _creditSalesRecords = [];
-  List<ShiftCreditSaleRecord> get creditSalesRecords => List.unmodifiable(_creditSalesRecords);
+  List<ShiftCreditSaleRecord> get creditSalesRecords =>
+      List.unmodifiable(_creditSalesRecords);
 
   /// Total Credit Sales logged by attendant
   double totalAttendantCreditSales([String? attendantId]) {
     final targetId = attendantId ?? _currentUser.id;
     return _creditSalesRecords
-        .where((c) => c.attendantId == targetId)
+        .where((c) => c.attendantId == targetId && c.shiftId == currentShiftId)
         .fold(0.0, (sum, c) => sum + c.amount);
   }
 
@@ -398,7 +629,10 @@ class StationAppState extends ChangeNotifier {
   double totalAttendantAcknowledgedDrops([String? attendantId]) {
     final targetId = attendantId ?? _currentUser.id;
     return _cashDrops
-        .where((d) => d.attendantId == targetId && d.isAcknowledged)
+        .where((d) =>
+            d.attendantId == targetId &&
+            d.shiftId == currentShiftId &&
+            d.isAcknowledged)
         .fold(0.0, (sum, d) => sum + d.amount);
   }
 
@@ -406,7 +640,10 @@ class StationAppState extends ChangeNotifier {
   double totalAttendantPendingDrops([String? attendantId]) {
     final targetId = attendantId ?? _currentUser.id;
     return _cashDrops
-        .where((d) => d.attendantId == targetId && !d.isAcknowledged)
+        .where((d) =>
+            d.attendantId == targetId &&
+            d.shiftId == currentShiftId &&
+            !d.isAcknowledged)
         .fold(0.0, (sum, d) => sum + d.amount);
   }
 
@@ -414,7 +651,10 @@ class StationAppState extends ChangeNotifier {
   double totalAttendantPosCard([String? attendantId]) {
     final targetId = attendantId ?? _currentUser.id;
     return _posTransactions
-        .where((p) => p.attendantId == targetId && p.paymentChannel == 'pos_card')
+        .where((p) =>
+            p.attendantId == targetId &&
+            p.shiftId == currentShiftId &&
+            p.paymentChannel == 'pos_card')
         .fold(0.0, (sum, p) => sum + p.amount);
   }
 
@@ -422,7 +662,10 @@ class StationAppState extends ChangeNotifier {
   double totalAttendantPosTransfer([String? attendantId]) {
     final targetId = attendantId ?? _currentUser.id;
     return _posTransactions
-        .where((p) => p.attendantId == targetId && p.paymentChannel == 'pos_transfer')
+        .where((p) =>
+            p.attendantId == targetId &&
+            p.shiftId == currentShiftId &&
+            p.paymentChannel == 'pos_transfer')
         .fold(0.0, (sum, p) => sum + p.amount);
   }
 
@@ -430,7 +673,10 @@ class StationAppState extends ChangeNotifier {
   double totalAttendantBankTransfer([String? attendantId]) {
     final targetId = attendantId ?? _currentUser.id;
     return _posTransactions
-        .where((p) => p.attendantId == targetId && p.paymentChannel == 'bank_transfer')
+        .where((p) =>
+            p.attendantId == targetId &&
+            p.shiftId == currentShiftId &&
+            p.paymentChannel == 'bank_transfer')
         .fold(0.0, (sum, p) => sum + p.amount);
   }
 
@@ -442,7 +688,8 @@ class StationAppState extends ChangeNotifier {
   /// Live estimated cash in attendant's pouch
   double get attendantEstimatedCashInPouch {
     final sales = currentForecourtSalesValue;
-    final drops = totalAttendantAcknowledgedDrops() + totalAttendantPendingDrops();
+    final drops =
+        totalAttendantAcknowledgedDrops() + totalAttendantPendingDrops();
     final nonCash = totalAttendantPosCard() +
         totalAttendantPosTransfer() +
         totalAttendantBankTransfer() +
@@ -482,12 +729,14 @@ class StationAppState extends ChangeNotifier {
   /// Pull real-time master data & live records directly from Supabase PostgREST
   Future<void> syncWithSupabase() async {
     final repo = SupabaseRepository.instance;
-    if (!repo.isConnected) return;
+    if (!repo.isConnected || _isSyncingWithRemote) return;
 
     _isSyncingWithRemote = true;
     notifyListeners();
 
     try {
+      final policy = await repo.fetchOperationsPolicy();
+      if (policy != null) applyOperationsPolicy(policy);
       // 0. Fetch all active stations (§1, §2.1)
       final remoteStations = await repo.fetchAllStations();
       if (remoteStations.isNotEmpty) {
@@ -496,6 +745,12 @@ class StationAppState extends ChangeNotifier {
           (s) => s.code.toUpperCase() == _currentStationCode.toUpperCase(),
           orElse: () => _stations.first,
         );
+        if (_currentStationId != match.id) {
+          _syncService.bindOwner(
+              profileId: _currentUser.id,
+              authUserId: repo.authUserId,
+              stationId: match.id);
+        }
         _currentStationId = match.id;
         _currentStationCode = match.code;
         _currentStationName = match.name;
@@ -504,7 +759,14 @@ class StationAppState extends ChangeNotifier {
 
       final stationInfo = await repo.fetchStationInfo(_currentStationCode);
       if (stationInfo != null) {
-        if (stationInfo['id'] != null) _currentStationId = stationInfo['id'];
+        if (stationInfo['id'] != null &&
+            _currentStationId != stationInfo['id']) {
+          _currentStationId = stationInfo['id'];
+          _syncService.bindOwner(
+              profileId: _currentUser.id,
+              authUserId: repo.authUserId,
+              stationId: _currentStationId);
+        }
         _hasInterlockedTanks = stationInfo['has_interlocked_tanks'] ?? false;
         _currentStationName = stationInfo['name'] ?? _currentStationName;
       }
@@ -519,7 +781,7 @@ class StationAppState extends ChangeNotifier {
       if (remoteTanks.isNotEmpty) {
         _tanks = remoteTanks.map((r) {
           final prodMap = r['fuel_products'] as Map?;
-          final prod = prodMap?['code'] ?? 'PMS';
+          final prod = prodMap?['code'] ?? 'Unknown';
           final code = r['code'] as String;
           final isInterlocked = r['is_interlocked'] == true;
           return LiveTankStock(
@@ -541,14 +803,16 @@ class StationAppState extends ChangeNotifier {
         final activeTankCodes = <String>{};
         _nozzles = remoteNozzles.map((r) {
           final prodMap = r['fuel_products'] as Map?;
-          final prod = prodMap?['code'] ?? 'PMS';
+          final prod = prodMap?['code'] ?? 'Unknown';
           final tankMap = r['tanks'] as Map?;
-          final tankCode = tankMap?['code'] ?? 'T1';
+          final tankCode = tankMap?['code'] ?? '';
           activeTankCodes.add(tankCode);
           final numVal = r['nozzle_number'] as int;
           final price = prod == 'PMS' ? _pmsPrice : _agoPrice;
 
           return NozzleItem(
+            id: r['id'] as String,
+            displayName: r['display_name'] as String?,
             nozzleNumber: numVal,
             productName: prod as String,
             tankCode: tankCode as String,
@@ -585,15 +849,26 @@ class StationAppState extends ChangeNotifier {
             recordedByRole: e['recorded_by_role'] ?? 'manager',
             status: e['status'] ?? 'Approved',
             approvedBy: e['approved_by_name'],
-            approvedAt: e['approved_at'] != null ? DateTime.tryParse(e['approved_at']) : null,
+            approvedAt: e['approved_at'] != null
+                ? DateTime.tryParse(e['approved_at'])
+                : null,
             receiptUrl: e['receipt_url'],
-            recordedAt: DateTime.tryParse(e['created_at'] ?? '') ?? DateTime.now(),
+            recordedAt:
+                DateTime.tryParse(e['created_at'] ?? '') ?? DateTime.now(),
           ),
         );
       }
 
       // 6. Fetch live salary adjustments
-      final remoteSalary = await repo.fetchLiveSalaryAdjustments(_currentStationCode);
+      final remoteAdjustments =
+          await repo.fetchShiftAdjustments(currentStationCode);
+      if (remoteAdjustments != null) {
+        for (final entry in remoteAdjustments) {
+          _shiftAdjustments[entry.id] = entry;
+        }
+      }
+      final remoteSalary =
+          await repo.fetchLiveSalaryAdjustments(_currentStationCode);
       _salaryAdjustments.clear();
       for (final s in remoteSalary) {
         _salaryAdjustments.add(
@@ -604,7 +879,8 @@ class StationAppState extends ChangeNotifier {
             shiftRef: s['shift_ref'] ?? 'Shift',
             amount: (s['amount'] as num).toDouble(),
             status: s['status'] ?? 'Pending Review',
-            recordedAt: DateTime.tryParse(s['created_at'] ?? '') ?? DateTime.now(),
+            recordedAt:
+                DateTime.tryParse(s['created_at'] ?? '') ?? DateTime.now(),
           ),
         );
       }
@@ -621,7 +897,8 @@ class StationAppState extends ChangeNotifier {
       _cashDrops.addAll(remoteDrops);
 
       // 9. Fetch live in-between POS & bank transfer sales (§4.4)
-      final remotePos = await repo.fetchShiftPosTransactions(_currentStationCode);
+      final remotePos =
+          await repo.fetchShiftPosTransactions(_currentStationCode);
       _posTransactions.clear();
       _posTransactions.addAll(remotePos);
 
@@ -670,12 +947,15 @@ class StationAppState extends ChangeNotifier {
                     profile?['full_name'] ??
                     'Attendant')
                 .toString(),
-            shiftType:
-                createdAt.toLocal().hour < 14 ? 'Morning' : 'Evening',
+            shiftType: createdAt.toLocal().hour < 14 ? 'Morning' : 'Evening',
             submittedAt: createdAt,
             nozzles: const [],
             expectedSalesValue:
                 (row['expected_sales_value'] as num?)?.toDouble() ?? 0,
+            approvedPumpExpenses:
+                (row['approved_pump_expenses'] as num?)?.toDouble() ?? 0,
+            approvedNonSaleFuel:
+                (row['approved_non_sale_fuel'] as num?)?.toDouble() ?? 0,
             cashDeclared: (row['cash_declared'] as num?)?.toDouble() ?? 0,
             posCardDeclared:
                 (row['pos_card_declared'] as num?)?.toDouble() ?? 0,
@@ -689,8 +969,17 @@ class StationAppState extends ChangeNotifier {
             cashDrops: _cashDrops.where((d) => d.shiftId == shiftId).toList(),
             posTransactions:
                 _posTransactions.where((p) => p.shiftId == shiftId).toList(),
+            // cash_declared already includes earlier acknowledged submissions.
+            // Show the final remainder, not the full shift cash a second time.
             finalCashHandover:
-                (row['cash_declared'] as num?)?.toDouble() ?? 0,
+                ((row['cash_declared'] as num?)?.toDouble() ?? 0) -
+                    _cashDrops
+                        .where((d) =>
+                            d.shiftId == shiftId &&
+                            d.attendantId == row['attendant_id'] &&
+                            d.isAcknowledged &&
+                            !d.createdAt.isAfter(createdAt))
+                        .fold(0.0, (sum, d) => sum + d.amount),
             status: _remittanceStatusFromRemote(row['status']?.toString()),
             cashierComment: row['cashier_notes']?.toString() ?? '',
             verifiedAt: row['verified_at'] != null
@@ -740,8 +1029,18 @@ class StationAppState extends ChangeNotifier {
   /// '08 Oct 2026' — mirrors SupabaseRepository date formatting
   String _formatRepaymentDate(DateTime d) {
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
     ];
     return '${d.day.toString().padLeft(2, '0')} ${months[d.month - 1]} ${d.year}';
   }
@@ -773,6 +1072,11 @@ class StationAppState extends ChangeNotifier {
 
   /// Record closing readings for current attendant shift
   void recordClosingReadings(Map<int, double> closingReadings) {
+    if (_currentStationCode.isEmpty ||
+        _nozzles.isEmpty ||
+        _nozzles.any((nozzle) => nozzle.pricePerLitre <= 0)) {
+      throw StateError('Station, pumps and retail prices must be configured.');
+    }
     final List<Map<String, dynamic>> readingsPayload = [];
 
     for (var entry in closingReadings.entries) {
@@ -780,6 +1084,8 @@ class StationAppState extends ChangeNotifier {
       if (idx != -1) {
         _nozzles[idx].closingReading = entry.value;
         readingsPayload.add({
+          'pumpId': _nozzles[idx].id,
+          'pumpName': _nozzles[idx].label,
           'nozzleNumber': entry.key,
           'openingReading': _nozzles[idx].openingReading,
           'closingReading': entry.value,
@@ -812,25 +1118,48 @@ class StationAppState extends ChangeNotifier {
     required List<String> evidencePhotos,
     List<InterimCashDrop>? drops,
     List<PosTransaction>? posTransactions,
-    double finalCashHandover = 0.0,
+    double? finalCashHandover,
   }) {
     final expectedSales = _nozzles.fold(0.0, (s, n) => s + n.salesValue);
-    final totalExpected = expectedSales;
+    final adjustments = currentShiftAdjustments;
+    if (adjustments.hasPending)
+      throw StateError('Resolve pending expenses and non-sale fuel first.');
+    for (final nozzle in nozzles) {
+      final fuelLitres = adjustments.entries
+          .where((e) =>
+              e.isApproved && e.isFuel && e.nozzleNumber == nozzle.nozzleNumber)
+          .fold(0.0, (sum, e) => sum + e.litres);
+      if (fuelLitres > nozzle.litresSold)
+        throw StateError('Non-sale fuel exceeds metered volume.');
+    }
+    final totalExpected = expectedSales - adjustments.approvedFuelValue;
+    if (totalExpected < 0)
+      throw StateError('Non-sale value exceeds metered sales.');
     final submissionId = SupabaseRepository.instance.generateUuid();
     final shiftId = currentShiftId;
 
-    final attendantDrops = drops ?? _cashDrops.where((d) => d.attendantId == _currentUser.id).toList();
-    final attendantPos = posTransactions ?? _posTransactions.where((p) => p.attendantId == _currentUser.id).toList();
+    final attendantDrops = drops ??
+        _cashDrops
+            .where(
+                (d) => d.attendantId == _currentUser.id && d.shiftId == shiftId)
+            .toList();
+    final attendantPos = posTransactions ??
+        _posTransactions
+            .where(
+                (p) => p.attendantId == _currentUser.id && p.shiftId == shiftId)
+            .toList();
 
     final sub = ShiftSubmission(
       id: submissionId,
       shiftId: shiftId,
       attendantName: _currentUser.displayName,
       attendantId: _currentUser.id,
-      shiftType: 'Morning',
+      shiftType: _shiftTypeNow(),
       submittedAt: DateTime.now(),
       nozzles: List.from(_nozzles),
       expectedSalesValue: totalExpected,
+      approvedPumpExpenses: adjustments.approvedExpenses,
+      approvedNonSaleFuel: adjustments.approvedFuelValue,
       cashDeclared: cash,
       posCardDeclared: posCard,
       posTransferDeclared: posTransfer,
@@ -839,7 +1168,7 @@ class StationAppState extends ChangeNotifier {
       evidencePhotos: evidencePhotos,
       cashDrops: attendantDrops,
       posTransactions: attendantPos,
-      finalCashHandover: finalCashHandover > 0 ? finalCashHandover : cash,
+      finalCashHandover: finalCashHandover ?? cash,
       status: 'Pending Verification',
     );
 
@@ -853,7 +1182,8 @@ class StationAppState extends ChangeNotifier {
           orElse: () => _tanks.first,
         );
         tank.bookStock -= n.litresSold;
-        _enqueueTankStock(tank);
+        // Server applies an atomic delta with the remittance snapshot. Sending
+        // this absolute local stock would overwrite approved calibration returns.
       }
     }
 
@@ -866,6 +1196,17 @@ class StationAppState extends ChangeNotifier {
         'stationCode': _currentStationCode,
         'attendantId': _currentUser.id,
         'expectedSalesValue': totalExpected,
+        'approvedPumpExpenses': sub.approvedPumpExpenses,
+        'approvedNonSaleFuel': sub.approvedNonSaleFuel,
+        'meteredStock': [
+          for (final n in sub.nozzles)
+            {
+              'tank_code': n.tankCode,
+              'nozzle_number': n.nozzleNumber,
+              'nozzle_id': n.id,
+              'litres': n.litresSold,
+            }
+        ],
         'cashDeclared': cash,
         'posCardDeclared': posCard,
         'posTransferDeclared': posTransfer,
@@ -878,7 +1219,8 @@ class StationAppState extends ChangeNotifier {
     // In-app alert for Cashier
     _notifService.postNotification(
       title: 'New Shift Remittance',
-      message: '${_currentUser.displayName} submitted Morning shift remittance (${CurrencyFormatter.formatNaira(totalExpected)}).',
+      message:
+          '${_currentUser.displayName} submitted Morning shift remittance (${CurrencyFormatter.formatNaira(totalExpected)}).',
       type: NotificationType.info,
       targetRole: UserRole.cashier,
       actionRouteName: '09 Verify Submission',
@@ -913,7 +1255,7 @@ class StationAppState extends ChangeNotifier {
       final adj = SalaryAdjustment(
         id: SupabaseRepository.instance.generateUuid(),
         attendantName: sub.attendantName,
-        station: 'Lekki Road',
+        station: _currentStationName,
         shiftRef: '${sub.shiftType} Shift (${sub.id})',
         amount: sub.variance,
         status: 'Pending Review',
@@ -937,7 +1279,8 @@ class StationAppState extends ChangeNotifier {
 
     _notifService.postNotification(
       title: 'Shift Remittance Verified',
-      message: 'Cashier verified ${sub.attendantName}\'s shift. ${CurrencyFormatter.formatNaira(sub.cashDeclared)} added to cash drawer.',
+      message:
+          'Cashier verified ${sub.attendantName}\'s shift. ${CurrencyFormatter.formatNaira(sub.cashDeclared)} added to cash drawer.',
       type: NotificationType.success,
       targetRole: UserRole.manager,
       actionRouteName: '10 Cash Count',
@@ -969,7 +1312,7 @@ class StationAppState extends ChangeNotifier {
     final flaggedAdj = SalaryAdjustment(
       id: SupabaseRepository.instance.generateUuid(),
       attendantName: sub.attendantName,
-      station: 'Lekki Road',
+      station: _currentStationName,
       shiftRef: '${sub.shiftType} Shift (${sub.id})',
       amount: sub.variance,
       status: 'Pending Review',
@@ -992,7 +1335,8 @@ class StationAppState extends ChangeNotifier {
 
     _notifService.postNotification(
       title: 'Shift Shortage Flagged',
-      message: 'Shortfall of ${CurrencyFormatter.formatVariance(sub.variance)} flagged on ${sub.attendantName}\'s shift. Awaiting Director review.',
+      message:
+          'Shortfall of ${CurrencyFormatter.formatVariance(sub.variance)} flagged on ${sub.attendantName}\'s shift. Awaiting Director review.',
       type: NotificationType.critical,
       targetRole: UserRole.director,
       actionRouteName: '19 Salary Deductions',
@@ -1012,6 +1356,10 @@ class StationAppState extends ChangeNotifier {
   }) {
     final customer = _creditCustomers.firstWhere((c) => c.id == customerId);
     final nozzle = _nozzles.firstWhere((n) => n.nozzleNumber == nozzleNumber);
+    if (_currentStationCode.isEmpty || nozzle.pricePerLitre <= 0) {
+      throw StateError(
+          'Configure a station and retail price before recording a credit sale.');
+    }
     final saleValue = litres * nozzle.pricePerLitre;
 
     // Update customer's outstanding balance
@@ -1030,10 +1378,13 @@ class StationAppState extends ChangeNotifier {
       0,
       ShiftCreditSaleRecord(
         id: 'CS-${DateTime.now().millisecondsSinceEpoch}',
+        shiftId: currentShiftId,
         attendantId: _currentUser.id,
         customerId: customerId,
         customerName: customer.name,
         nozzleNumber: nozzleNumber,
+        pumpId: nozzle.id,
+        pumpName: nozzle.label,
         litres: litres,
         amount: saleValue,
         vehiclePlate: vehiclePlate,
@@ -1051,6 +1402,10 @@ class StationAppState extends ChangeNotifier {
         'customerId': customerId,
         'customerName': customer.name,
         'nozzleNumber': nozzleNumber,
+        'pumpId': nozzle.id,
+        'pumpName': nozzle.label,
+        'stationCode': currentStationCode,
+        'shiftId': currentShiftId,
         'litres': litres,
         'totalAmount': saleValue,
         'vehicleReg': vehiclePlate,
@@ -1103,6 +1458,18 @@ class StationAppState extends ChangeNotifier {
     String? receiptUrl,
     bool requiresApproval = false,
   }) {
+    final policy = _operationsPolicy;
+    if (policy == null)
+      throw StateError(
+          'Operational policy is unavailable. Ask your administrator to configure it.');
+    if (!_currentUser.isActive ||
+        ![UserRole.cashier, UserRole.manager, UserRole.director]
+            .contains(_currentUser.role) ||
+        !amount.isFinite ||
+        amount <= 0 ||
+        !policy.expenseCategories.contains(category)) {
+      throw ArgumentError('Invalid or unauthorized expense');
+    }
     final expId = 'EXP-${DateTime.now().millisecondsSinceEpoch}';
     final isCashier = _currentUser.role == UserRole.cashier;
     final isDirector = _currentUser.role == UserRole.director;
@@ -1116,16 +1483,18 @@ class StationAppState extends ChangeNotifier {
       approver = _currentUser.displayName;
       approvedTime = DateTime.now();
     } else if (isCashier) {
-      if (requiresApproval || amount > 10000) {
+      if (requiresApproval || amount > policy.cashierApprovalLimit) {
         initialStatus = 'Pending Approval';
       } else {
         initialStatus = 'Approved';
-        approver = 'Pre-Approved by Manager';
+        approver = 'Automatic policy approval (revision ${policy.revision})';
         approvedTime = DateTime.now();
       }
-    } else { // Manager
-      if (amount > 50000) {
-        initialStatus = 'Pending Approval'; // High-value branch expense requires Admin/Director sign-off
+    } else {
+      // Manager
+      if (amount > policy.managerApprovalLimit) {
+        initialStatus =
+            'Pending Approval'; // High-value branch expense requires Admin/Director sign-off
       } else {
         initialStatus = 'Approved';
         approver = _currentUser.displayName;
@@ -1157,7 +1526,10 @@ class StationAppState extends ChangeNotifier {
         'id': expId,
         'category': category,
         'amount': amount,
-        'payment_source': (paymentSource == 'Cash Drawer' || paymentSource == 'sales_cash') ? 'sales_cash' : 'bank_transfer',
+        'payment_source':
+            (paymentSource == 'Cash Drawer' || paymentSource == 'sales_cash')
+                ? 'sales_cash'
+                : 'bank_transfer',
         'description': description,
         'status': initialStatus,
         'recorded_by': _currentUser.displayName,
@@ -1170,7 +1542,8 @@ class StationAppState extends ChangeNotifier {
     if (initialStatus == 'Pending Approval') {
       _notifService.postNotification(
         title: 'EXPENSE APPROVAL REQUIRED',
-        message: '${_currentUser.displayName} recorded ${CurrencyFormatter.formatNaira(amount)} for $category requiring approval.',
+        message:
+            '${_currentUser.displayName} recorded ${CurrencyFormatter.formatNaira(amount)} for $category requiring approval.',
         type: NotificationType.warning,
         actionRouteName: '17 Manager Dashboard',
       );
@@ -1179,11 +1552,20 @@ class StationAppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void approveExpense({
+  bool approveExpense({
     required String expenseId,
     String? approverNotes,
   }) {
     final idx = _expenses.indexWhere((e) => e.id == expenseId);
+    final policy = _operationsPolicy;
+    if (!_currentUser.isActive ||
+        policy == null ||
+        idx < 0 ||
+        !_expenses[idx].isPending ||
+        (_currentUser.role != UserRole.manager &&
+            _currentUser.role != UserRole.director) ||
+        (_currentUser.role == UserRole.manager &&
+            _expenses[idx].amount > policy.managerApprovalLimit)) return false;
     if (idx != -1) {
       _expenses[idx].status = 'Approved';
       _expenses[idx].approvedBy = _currentUser.displayName;
@@ -1202,32 +1584,49 @@ class StationAppState extends ChangeNotifier {
 
       _notifService.postNotification(
         title: 'EXPENSE APPROVED',
-        message: 'Expense of ${CurrencyFormatter.formatNaira(_expenses[idx].amount)} approved by ${_currentUser.displayName}.',
+        message:
+            'Expense of ${CurrencyFormatter.formatNaira(_expenses[idx].amount)} approved by ${_currentUser.displayName}.',
         type: NotificationType.info,
       );
 
       notifyListeners();
+      return true;
     }
+    return false;
   }
 
-  void rejectExpense({
+  bool rejectExpense({
     required String expenseId,
     required String reason,
   }) {
     final idx = _expenses.indexWhere((e) => e.id == expenseId);
+    final policy = _operationsPolicy;
+    if (!_currentUser.isActive ||
+        policy == null ||
+        idx < 0 ||
+        reason.trim().isEmpty ||
+        !_expenses[idx].isPending ||
+        (_currentUser.role != UserRole.manager &&
+            _currentUser.role != UserRole.director) ||
+        (_currentUser.role == UserRole.manager &&
+            _expenses[idx].amount > policy.managerApprovalLimit)) return false;
     if (idx != -1) {
       _expenses[idx].status = 'Rejected';
-      _expenses[idx].approvedBy = 'Rejected by ${_currentUser.displayName}: $reason';
+      _expenses[idx].approvedBy =
+          'Rejected by ${_currentUser.displayName}: $reason';
       _expenses[idx].approvedAt = DateTime.now();
 
       _notifService.postNotification(
         title: 'EXPENSE REJECTED',
-        message: 'Expense of ${CurrencyFormatter.formatNaira(_expenses[idx].amount)} rejected: $reason.',
+        message:
+            'Expense of ${CurrencyFormatter.formatNaira(_expenses[idx].amount)} rejected: $reason.',
         type: NotificationType.critical,
       );
 
       notifyListeners();
+      return true;
     }
+    return false;
   }
 
   /// Record Fuel Delivery (§3.7)
@@ -1239,6 +1638,7 @@ class StationAppState extends ChangeNotifier {
     required double dipBefore,
     required double dipAfter,
     required double purchasePrice,
+    List<String> waybillReferences = const [],
   }) {
     final received = (dipAfter > dipBefore) ? (dipAfter - dipBefore) : 0.0;
     final discrepancy = received - statedLitres;
@@ -1258,6 +1658,7 @@ class StationAppState extends ChangeNotifier {
         discrepancy: discrepancy,
         purchasePricePerLitre: purchasePrice,
         deliveredAt: DateTime.now(),
+        waybillReferences: List.unmodifiable(waybillReferences),
       ),
     );
 
@@ -1282,12 +1683,15 @@ class StationAppState extends ChangeNotifier {
         'received_litres': received,
         'discrepancy': discrepancy,
         'purchase_price': purchasePrice,
+        'waybill_references': waybillReferences,
+        'station_id': _currentStationId,
       },
     );
 
     _notifService.postNotification(
       title: 'Tanker Fuel Discharged',
-      message: '${CurrencyFormatter.formatLitres(received)} delivered to Tank $tankCode from $supplier (Waybill: $waybillNumber).',
+      message:
+          '${CurrencyFormatter.formatLitres(received)} delivered to Tank $tankCode from $supplier (Waybill: $waybillNumber).',
       type: NotificationType.info,
       targetRole: UserRole.director,
       actionRouteName: '13 Fuel Delivery (Waybill)',
@@ -1323,7 +1727,8 @@ class StationAppState extends ChangeNotifier {
     if (physicalDipLitres < tank.bookStock - 50) {
       _notifService.postNotification(
         title: 'Tank Stock Deficit Warning',
-        message: 'Tank $tankCode physical dip has deficit of ${(physicalDipLitres - tank.bookStock).toStringAsFixed(1)}L vs book stock.',
+        message:
+            'Tank $tankCode physical dip has deficit of ${(physicalDipLitres - tank.bookStock).toStringAsFixed(1)}L vs book stock.',
         type: NotificationType.warning,
         targetRole: UserRole.manager,
         actionRouteName: '12 Tank Dip Audit',
@@ -1340,24 +1745,15 @@ class StationAppState extends ChangeNotifier {
     required String reason,
     List<String> evidencePhotos = const [],
   }) {
-    final tank = _tanks.firstWhere((t) => t.code == tankCode);
-    tank.bookStock += litres;
-    tank.physicalDip += litres;
-    _enqueueTankStock(tank);
-
-    _syncService.enqueue(
-      actionType: SyncActionType.fuelReturn,
-      payload: {
-        'id': SupabaseRepository.instance.generateUuid(),
-        'tankCode': tankCode,
-        'litres': litres,
-        'reason': reason,
-        'attendantId': _currentUser.id,
-        'evidencePhotos': evidencePhotos,
-      },
-    );
-
-    notifyListeners();
+    final nozzle = nozzles.where((n) => n.tankCode == tankCode).firstOrNull;
+    if (nozzle == null)
+      throw StateError('A metered pump is required for a calibration return.');
+    recordShiftAdjustment(
+        kind: ShiftAdjustmentKind.calibrationReturn,
+        nozzleNumber: nozzle.nozzleNumber,
+        litres: litres,
+        reason: reason,
+        evidence: evidencePhotos);
   }
 
   /// Authorize Retail Price Change & Capture Meter Snapshots (§2.8, §2.9)
@@ -1390,7 +1786,8 @@ class StationAppState extends ChangeNotifier {
         'product': product,
         'new_price': newPrice,
         'reason': reason,
-        'meter_snapshots': meterSnapshots.map((k, v) => MapEntry(k.toString(), v)),
+        'meter_snapshots':
+            meterSnapshots.map((k, v) => MapEntry(k.toString(), v)),
         'authorized_at': DateTime.now().toIso8601String(),
       },
     );
@@ -1398,7 +1795,8 @@ class StationAppState extends ChangeNotifier {
     // High-priority broadcast to all staff
     _notifService.postNotification(
       title: 'PRICE CHANGE DIRECTIVE',
-      message: '$product retail price set to ${CurrencyFormatter.formatNaira(newPrice)}/L across all 5 branches.',
+      message:
+          '$product retail price set to ${CurrencyFormatter.formatNaira(newPrice)}/L at $_currentStationName.',
       type: NotificationType.critical,
       actionRouteName: '18 Retail Fuel Prices',
     );
@@ -1458,7 +1856,8 @@ class StationAppState extends ChangeNotifier {
   }) {
     // Find all adjustments for this attendant that are approved ('Salary Deduction Approved')
     final approvedAdjustments = _salaryAdjustments.where((adj) {
-      final nameMatches = adj.attendantName.trim().toLowerCase() == attendantName.trim().toLowerCase();
+      final nameMatches = adj.attendantName.trim().toLowerCase() ==
+          attendantName.trim().toLowerCase();
       final isApprovedShortage = adj.status == 'Salary Deduction Approved';
       return nameMatches && isApprovedShortage;
     }).toList();
@@ -1503,7 +1902,8 @@ class StationAppState extends ChangeNotifier {
 
     _notifService.postNotification(
       title: 'Monthly Payroll Settled ($monthYear)',
-      message: 'Attendant $attendantName settled. Base: ${CurrencyFormatter.formatNaira(baseSalary)} | Shortages: -${CurrencyFormatter.formatNaira(totalShortages)} | Net: ${CurrencyFormatter.formatNaira(netPayable)}',
+      message:
+          'Attendant $attendantName settled. Base: ${CurrencyFormatter.formatNaira(baseSalary)} | Shortages: -${CurrencyFormatter.formatNaira(totalShortages)} | Net: ${CurrencyFormatter.formatNaira(netPayable)}',
       type: NotificationType.success,
       targetRole: UserRole.director,
       actionRouteName: '19 Salary Ledger',
@@ -1518,16 +1918,19 @@ class StationAppState extends ChangeNotifier {
     required String monthYear,
     required String settledBy,
   }) {
-    final attendantStaff = _staff.where((s) => s.role == UserRole.attendant).toList();
+    final attendantStaff =
+        _staff.where((s) => s.role == UserRole.attendant).toList();
     final List<MonthlyPayrollSettlement> results = [];
 
     // Process attendants with a Director-configured base salary (no fabricated fallback)
     for (var att in attendantStaff) {
-      if (att.baseSalary <= 0) continue; // Awaiting Director — base salary not set yet
+      if (att.baseSalary <= 0)
+        continue; // Awaiting Director — base salary not set yet
       final settlement = processMonthlyPayrollSettlement(
         attendantId: att.id,
         attendantName: att.displayName,
-        stationName: att.stationName.isNotEmpty ? att.stationName : _currentStationName,
+        stationName:
+            att.stationName.isNotEmpty ? att.stationName : _currentStationName,
         monthYear: monthYear,
         baseSalary: att.baseSalary,
         settledBy: settledBy,
@@ -1551,6 +1954,7 @@ class StationAppState extends ChangeNotifier {
     final repo = SupabaseRepository.instance;
     final dep = await repo.recordBankDeposit(
       stationCode: _currentStationCode,
+      stationName: _currentStationName,
       amount: amount,
       bankName: bankName,
       bearerName: bearerName,
@@ -1574,7 +1978,8 @@ class StationAppState extends ChangeNotifier {
 
       _notifService.postNotification(
         title: 'Bank Remittance Handed Over',
-        message: '$bearerName handed over ${CurrencyFormatter.formatNaira(amount)} for deposit into $bankName. Awaiting Director alert match.',
+        message:
+            '$bearerName handed over ${CurrencyFormatter.formatNaira(amount)} for deposit into $bankName. Awaiting Director alert match.',
         type: NotificationType.warning,
         actionRouteName: '20 Bank Deposits',
       );
@@ -1585,67 +1990,44 @@ class StationAppState extends ChangeNotifier {
   }
 
   /// Director confirms bank deposit against commercial bank credit alert (§4.3, §5.5)
-  Future<bool> confirmBankDeposit(String depositId, [String? directorNotes]) async {
-    final repo = SupabaseRepository.instance;
-    final ok = await repo.confirmBankDeposit(
-      depositId: depositId,
-      directorId: _currentUser.id,
-      directorNotes: directorNotes,
-    );
-
-    final idx = _deposits.indexWhere((d) => d.id == depositId);
-    if (idx != -1) {
-      _deposits[idx].isConfirmed = true;
-      _deposits[idx].status = 'confirmed';
-      _deposits[idx].confirmedAt = DateTime.now();
-      _deposits[idx].confirmedBy = _currentUser.displayName;
-      _deposits[idx].directorNotes = directorNotes;
-
-      _syncService.enqueue(
-        actionType: SyncActionType.bankDepositConfirmation,
-        payload: {
-          'id': depositId,
-          'confirmed_at': _deposits[idx].confirmedAt!.toIso8601String(),
-          'director_notes': directorNotes,
-        },
-      );
-
-      _notifService.postNotification(
-        title: 'Bank Deposit Confirmed',
-        message: 'Director confirmed commercial bank credit alert for deposit $depositId (${CurrencyFormatter.formatNaira(_deposits[idx].amount)}).',
-        type: NotificationType.success,
-        actionRouteName: '17 Manager Dashboard',
-      );
-
-      notifyListeners();
-    }
-    return ok;
+  Future<bool> confirmBankDeposit(String depositId,
+      [String? directorNotes]) async {
+    if (_currentUser.role != UserRole.director || !_currentUser.isActive)
+      return false;
+    final index = _deposits.indexWhere((d) => d.id == depositId);
+    if (index < 0) return false;
+    final deposit = _deposits[index];
+    if (deposit.isConfirmed) return true;
+    final ok = await SupabaseRepository.instance.confirmBankDeposit(
+        depositId: depositId,
+        directorId: _currentUser.id,
+        directorNotes: directorNotes);
+    if (!ok) return false;
+    deposit.isConfirmed = true;
+    deposit.status = 'confirmed';
+    deposit.confirmedAt = DateTime.now();
+    deposit.confirmedBy = _currentUser.displayName;
+    deposit.directorNotes = directorNotes;
+    notifyListeners();
+    return true;
   }
 
-  /// Director flags a discrepancy on a bank deposit (§4.3, §5.5)
-  Future<bool> flagBankDepositDiscrepancy(String depositId, String discrepancyNotes) async {
-    final repo = SupabaseRepository.instance;
-    final ok = await repo.flagBankDepositDiscrepancy(
-      depositId: depositId,
-      directorId: _currentUser.id,
-      discrepancyNotes: discrepancyNotes,
-    );
-
-    final idx = _deposits.indexWhere((d) => d.id == depositId);
-    if (idx != -1) {
-      _deposits[idx].status = 'discrepancy';
-      _deposits[idx].directorNotes = discrepancyNotes;
-
-      _notifService.postNotification(
-        title: 'Bank Deposit Discrepancy Flagged',
-        message: 'Director flagged discrepancy on deposit of ${CurrencyFormatter.formatNaira(_deposits[idx].amount)}: $discrepancyNotes',
-        type: NotificationType.warning,
-        actionRouteName: '17 Manager Dashboard',
-      );
-
-      notifyListeners();
-    }
-    return ok;
+  Future<bool> flagBankDepositDiscrepancy(
+      String depositId, String discrepancyNotes) async {
+    if (_currentUser.role != UserRole.director ||
+        !_currentUser.isActive ||
+        discrepancyNotes.trim().isEmpty) return false;
+    final index = _deposits.indexWhere((d) => d.id == depositId);
+    if (index < 0) return false;
+    final ok = await SupabaseRepository.instance.flagBankDepositDiscrepancy(
+        depositId: depositId,
+        directorId: _currentUser.id,
+        discrepancyNotes: discrepancyNotes.trim());
+    if (!ok) return false;
+    _deposits[index].status = 'discrepancy';
+    _deposits[index].directorNotes = discrepancyNotes.trim();
+    notifyListeners();
+    return true;
   }
 
   /// Cash count calculations
@@ -1714,7 +2096,8 @@ class StationAppState extends ChangeNotifier {
   double get totalPhysicalCashExpenses {
     return _expenses
         .where((e) =>
-            (e.paymentSource == 'sales_cash' || e.paymentSource == 'Cash Drawer') &&
+            (e.paymentSource == 'sales_cash' ||
+                e.paymentSource == 'Cash Drawer') &&
             e.status != 'Rejected')
         .fold(0.0, (sum, e) => sum + e.amount);
   }
@@ -1726,7 +2109,8 @@ class StationAppState extends ChangeNotifier {
   /// Total cash drawer expenses that are pending approval
   double get totalPendingCashExpenses {
     return pendingExpenses
-        .where((e) => e.paymentSource == 'sales_cash' || e.paymentSource == 'Cash Drawer')
+        .where((e) =>
+            e.paymentSource == 'sales_cash' || e.paymentSource == 'Cash Drawer')
         .fold(0.0, (sum, e) => sum + e.amount);
   }
 
@@ -1742,9 +2126,14 @@ class StationAppState extends ChangeNotifier {
 
   /// Interim cash drops that have been acknowledged but whose shift is NOT yet verified
   double get totalUnverifiedInterimDrops {
-    final verifiedShiftIds = _submissions.where((s) => s.status == 'Verified').map((s) => s.id).toSet();
+    final verifiedShiftIds = _submissions
+        .where((s) => s.status == 'Verified')
+        .map((s) => s.id)
+        .toSet();
     return _cashDrops
-        .where((d) => d.isAcknowledged && (d.shiftId == null || !verifiedShiftIds.contains(d.shiftId)))
+        .where((d) =>
+            d.isAcknowledged &&
+            (d.shiftId == null || !verifiedShiftIds.contains(d.shiftId)))
         .fold(0.0, (sum, d) => sum + d.amount);
   }
 
@@ -1829,65 +2218,78 @@ class StationAppState extends ChangeNotifier {
 
   /// Add a pump nozzle from Station Setup
   Future<String> createNozzle({
-    required int nozzleNumber,
+    required String displayName,
     required String productCode,
     required String tankCode,
     required double latestMeterReading,
+    String? requestId,
   }) async {
-    if (nozzleNumber <= 0 ||
-        productCode.trim().isEmpty ||
-        tankCode.trim().isEmpty ||
-        latestMeterReading < 0) {
+    final repo = SupabaseRepository.instance;
+    final owner = _syncService.captureOwner;
+    if (!currentUser.isActive ||
+        currentUser.role != UserRole.director ||
+        repo.authUserId == null ||
+        !repo.isConnected ||
+        currentStationCode.isEmpty ||
+        !latestMeterReading.isFinite ||
+        latestMeterReading < 0) return 'failed';
+    String name;
+    try {
+      name = NozzleItem.validateName(displayName);
+    } on FormatException {
       return 'failed';
     }
-
-    final repo = SupabaseRepository.instance;
-    final id = repo.generateUuid();
-    final nozzle = NozzleItem(
-      nozzleNumber: nozzleNumber,
-      productName: productCode,
-      tankCode: tankCode,
-      openingReading: latestMeterReading,
-      pricePerLitre: productCode == 'PMS' ? _pmsPrice : _agoPrice,
-      isOpeningConfirmed: false,
-    );
-
-    if (repo.isConnected) {
-      final ok = await repo.createNozzle(
+    final id = requestId ?? repo.generateUuid();
+    final row = await repo.createNozzle(
         id: id,
-        nozzleNumber: nozzleNumber,
+        displayName: name,
         productCode: productCode,
         tankCode: tankCode,
         latestMeterReading: latestMeterReading,
-        stationCode: _currentStationCode,
-      );
-      if (ok) {
-        _nozzles.add(nozzle);
-        notifyListeners();
-        return 'created';
-      }
-    }
-
-    try {
-      await _syncService.enqueue(
-        actionType: SyncActionType.nozzleCreate,
-        payload: {
-          'id': id,
-          'nozzle_number': nozzleNumber,
-          'latest_meter_reading': latestMeterReading,
-          'product_code': productCode,
-          'tank_code': tankCode,
-          'station_code': _currentStationCode,
-        },
-      );
-    } catch (_) {
+        stationCode: currentStationCode);
+    if (row == null || row['id'] != id || !_syncService.isCurrentOwner(owner))
       return 'failed';
-    }
-
-    _nozzles.add(nozzle);
+    final point = NozzleItem(
+        id: id,
+        displayName: row['display_name'] as String,
+        nozzleNumber: (row['nozzle_number'] as num).toInt(),
+        productName: productCode,
+        tankCode: tankCode,
+        openingReading: (row['latest_meter_reading'] as num).toDouble(),
+        pricePerLitre: productCode == 'PMS' ? _pmsPrice : _agoPrice);
+    _nozzles.removeWhere((n) => n.id == id);
+    _nozzles.add(point);
     notifyListeners();
-    return 'queued';
+    return 'created';
   }
+
+  Future<bool> renamePump(String id, String name) async {
+    if (!currentUser.isActive || currentUser.role != UserRole.director)
+      return false;
+    final owner = _syncService.captureOwner;
+    final label = await SupabaseRepository.instance
+        .renameNozzle(id, currentStationCode, name);
+    if (label == null || !_syncService.isCurrentOwner(owner)) return false;
+    final index = _nozzles.indexWhere((n) => n.id == id);
+    if (index < 0) return false;
+    final old = _nozzles[index];
+    _nozzles[index] = NozzleItem(
+        id: old.id,
+        displayName: label,
+        nozzleNumber: old.nozzleNumber,
+        productName: old.productName,
+        tankCode: old.tankCode,
+        openingReading: old.openingReading,
+        closingReading: old.closingReading,
+        pricePerLitre: old.pricePerLitre,
+        isOpeningConfirmed: old.isOpeningConfirmed);
+    notifyListeners();
+    return true;
+  }
+
+  String pumpLabel(int number) =>
+      nozzles.where((n) => n.nozzleNumber == number).firstOrNull?.label ??
+      'Pump$number';
 
   /// Onboard a credit customer from Station Setup
   Future<String> createCreditCustomer({
@@ -1895,6 +2297,8 @@ class StationAppState extends ChangeNotifier {
     required String contactPerson,
     required int paymentTermsDays,
   }) async {
+    if (!_currentUser.isActive || _currentUser.role != UserRole.director)
+      return 'failed';
     if (companyName.trim().isEmpty || paymentTermsDays < 0) return 'failed';
 
     final repo = SupabaseRepository.instance;
@@ -1972,17 +2376,20 @@ class StationAppState extends ChangeNotifier {
       switchedBy: _currentUser.id,
     );
 
-    // Update local nozzles and tanks
+    if (!success) return false;
+    // Update local equipment by permanent UUID, never by a parsed display name.
     for (final nozzleStr in switchReadings.keys) {
-      final nozzleNum = int.tryParse(nozzleStr.replaceAll(RegExp(r'[^0-9]'), ''));
-      if (nozzleNum != null) {
-        final idx = _nozzles.indexWhere((n) => n.nozzleNumber == nozzleNum);
+      if (nozzleStr.isNotEmpty) {
+        final idx = _nozzles.indexWhere((n) => n.id == nozzleStr);
         if (idx != -1) {
           _nozzles[idx] = NozzleItem(
+            id: _nozzles[idx].id,
+            displayName: _nozzles[idx].displayName,
             nozzleNumber: _nozzles[idx].nozzleNumber,
             productName: _nozzles[idx].productName,
             tankCode: toTankCode,
-            openingReading: switchReadings[nozzleStr] ?? _nozzles[idx].openingReading,
+            openingReading:
+                switchReadings[nozzleStr] ?? _nozzles[idx].openingReading,
             pricePerLitre: _nozzles[idx].pricePerLitre,
             isOpeningConfirmed: true,
           );
@@ -1994,13 +2401,15 @@ class StationAppState extends ChangeNotifier {
     for (final t in _tanks) {
       if (t.code == fromTankCode) t.isActiveSupply = false;
       if (t.code == toTankCode) t.isActiveSupply = true;
-      if (t.code == fromTankCode && fromTankDip != null) t.physicalDip = fromTankDip;
+      if (t.code == fromTankCode && fromTankDip != null)
+        t.physicalDip = fromTankDip;
       if (t.code == toTankCode && toTankDip != null) t.physicalDip = toTankDip;
     }
 
     _notifService.postNotification(
       title: 'Manifold Changeover Applied',
-      message: 'Switched from $fromTankCode to $toTankCode for $productCode at $_currentStationName.',
+      message:
+          'Switched from $fromTankCode to $toTankCode for $productCode at $_currentStationName.',
       type: NotificationType.info,
       actionRouteName: '17 Manager Dashboard',
     );
@@ -2014,49 +2423,84 @@ class StationAppState extends ChangeNotifier {
     final repo = SupabaseRepository.instance;
     _hasInterlockedTanks = hasInterlockedTanks;
     notifyListeners();
-    return await repo.updateStationInterlockStatus(_currentStationCode, hasInterlockedTanks);
+    return await repo.updateStationInterlockStatus(
+        _currentStationCode, hasInterlockedTanks);
   }
 
   /// Director / Admin: Update tank interlock twin flag
-  Future<bool> updateTankInterlockConfig(String tankCode, bool isInterlocked) async {
+  Future<bool> updateTankInterlockConfig(
+      String tankCode, bool isInterlocked) async {
     final repo = SupabaseRepository.instance;
-    final tank = _tanks.firstWhere((t) => t.code == tankCode, orElse: () => _tanks[0]);
+    final tank =
+        _tanks.firstWhere((t) => t.code == tankCode, orElse: () => _tanks[0]);
     tank.isInterlocked = isInterlocked;
     notifyListeners();
     return await repo.updateTankInterlock(tankCode, isInterlocked);
   }
 
   /// Director / Admin: Remap nozzle to supplying tank
-  Future<bool> assignNozzleSupplyingTank(int nozzleNumber, String targetTankCode) async {
-    final repo = SupabaseRepository.instance;
-    final idx = _nozzles.indexWhere((n) => n.nozzleNumber == nozzleNumber);
-    if (idx != -1) {
-      _nozzles[idx] = NozzleItem(
-        nozzleNumber: _nozzles[idx].nozzleNumber,
-        productName: _nozzles[idx].productName,
+  Future<bool> assignNozzleSupplyingTank(
+      int nozzleNumber, String targetTankCode) async {
+    if (!currentUser.isActive || currentUser.role != UserRole.director)
+      return false;
+    final index = _nozzles.indexWhere((n) => n.nozzleNumber == nozzleNumber);
+    if (index < 0 || _nozzles[index].id.isEmpty) return false;
+    final old = _nozzles[index];
+    final owner = _syncService.captureOwner;
+    final saved = await SupabaseRepository.instance
+        .updateNozzleSupplyingTank(old.id, targetTankCode, currentStationCode);
+    if (!saved || !_syncService.isCurrentOwner(owner)) return false;
+    _nozzles[index] = NozzleItem(
+        id: old.id,
+        displayName: old.displayName,
+        nozzleNumber: old.nozzleNumber,
+        productName: old.productName,
         tankCode: targetTankCode,
-        openingReading: _nozzles[idx].openingReading,
-        pricePerLitre: _nozzles[idx].pricePerLitre,
-        isOpeningConfirmed: _nozzles[idx].isOpeningConfirmed,
-      );
-    }
-    // Reconcile active supply on tanks
+        openingReading: old.openingReading,
+        closingReading: old.closingReading,
+        pricePerLitre: old.pricePerLitre,
+        isOpeningConfirmed: old.isOpeningConfirmed);
     final activeCodes = _nozzles.map((n) => n.tankCode).toSet();
     for (final t in _tanks) {
       t.isActiveSupply = activeCodes.contains(t.code);
     }
-
     notifyListeners();
-    return await repo.updateNozzleSupplyingTank(nozzleNumber, targetTankCode);
+    return true;
   }
 
   /// Switch the active station context (e.g., when Director navigates between stations)
-  void switchStation(Station station) {
+  void switchStation(Station station, {bool refresh = true}) {
+    if (_isSyncingWithRemote || station.code == _currentStationCode) return;
+    _currentStationId = station.id;
+    _syncService.bindOwner(
+        profileId: _currentUser.id,
+        authUserId: SupabaseRepository.instance.authUserId,
+        stationId: station.id);
+    _pmsPrice = 0;
+    _agoPrice = 0;
+    _nozzles.clear();
+    _tanks.clear();
+    _creditCustomers.clear();
+    _submissions.clear();
+    _expenses.clear();
+    _deliveries.clear();
+    _salaryAdjustments.clear();
+    _payrollSettlements.clear();
+    _deposits.clear();
+    _cashDrops.clear();
+    _posTransactions.clear();
+    _creditSalesRecords.clear();
+    _shiftAdjustments.clear();
+    _openingCash = 0;
+    _cashCounts.updateAll((key, value) => 0);
+    _currentShiftId = null;
+    _shiftSessionRowCreated = false;
+    resetShiftProgress();
     _currentStationCode = station.code;
     _currentStationName = station.name;
     _hasInterlockedTanks = station.hasInterlockedTanks;
     notifyListeners();
-    syncWithSupabase();
+    if (refresh) syncWithSupabase();
   }
 
   /// Director / Admin: Register and onboard a new branch station (§1)
@@ -2069,6 +2513,11 @@ class StationAppState extends ChangeNotifier {
     bool hasInterlockedTanks = false,
   }) async {
     final repo = SupabaseRepository.instance;
+    final profileId = currentUser.id;
+    final authId = repo.authUserId;
+    if (!currentUser.isActive ||
+        currentUser.role != UserRole.director ||
+        authId == null) return null;
     final st = await repo.createStation(
       code: code,
       name: name,
@@ -2077,6 +2526,9 @@ class StationAppState extends ChangeNotifier {
       managerName: managerName,
       hasInterlockedTanks: hasInterlockedTanks,
     );
+    if (authId != repo.authUserId ||
+        currentUser.id != profileId ||
+        !currentUser.isActive) return null;
     if (st != null) {
       _stations.removeWhere((s) => s.id == st.id || s.code == st.code);
       _stations.add(st);
@@ -2105,7 +2557,8 @@ class StationAppState extends ChangeNotifier {
     String? suretyAddress,
     double baseSalary = 0.0,
   }) async {
-    final actualSalary = currentUser.role == UserRole.director ? baseSalary : 0.0;
+    final actualSalary =
+        currentUser.role == UserRole.director ? baseSalary : 0.0;
     final repo = SupabaseRepository.instance;
     final newProfile = await repo.createStaffProfile(
       fullName: fullName,
@@ -2138,7 +2591,8 @@ class StationAppState extends ChangeNotifier {
       return false; // Strictly restricted
     }
     final repo = SupabaseRepository.instance;
-    final ok = await repo.updateStaffSalary(profileId: profileId, baseSalary: baseSalary);
+    final ok = await repo.updateStaffSalary(
+        profileId: profileId, baseSalary: baseSalary);
     if (ok) {
       final idx = _staff.indexWhere((s) => s.id == profileId);
       if (idx != -1) {
@@ -2179,7 +2633,8 @@ class StationAppState extends ChangeNotifier {
     required bool isActive,
   }) async {
     final repo = SupabaseRepository.instance;
-    final ok = await repo.toggleStaffStatus(profileId: profileId, isActive: isActive);
+    final ok =
+        await repo.toggleStaffStatus(profileId: profileId, isActive: isActive);
     if (ok) {
       final idx = _staff.indexWhere((s) => s.id == profileId);
       if (idx != -1) {
@@ -2241,7 +2696,8 @@ class StationAppState extends ChangeNotifier {
       // Post high-priority notification to Cashier
       _notifService.postNotification(
         title: 'Incoming Interim Cash Drop',
-        message: '${_currentUser.displayName} submitted ₦${amount.toStringAsFixed(0)} cash drop for acknowledgement.',
+        message:
+            '${_currentUser.displayName} submitted ₦${amount.toStringAsFixed(0)} cash drop for acknowledgement.',
         type: NotificationType.warning,
         actionRouteName: '16 Cashier Verification',
       );
@@ -2267,7 +2723,8 @@ class StationAppState extends ChangeNotifier {
 
       _notifService.postNotification(
         title: 'Cash Drop Acknowledged',
-        message: 'Cashier ${_currentUser.displayName} confirmed receipt of ₦${_cashDrops[idx].amount.toStringAsFixed(0)}.',
+        message:
+            'Cashier ${_currentUser.displayName} confirmed receipt of ₦${_cashDrops[idx].amount.toStringAsFixed(0)}.',
         type: NotificationType.success,
         actionRouteName: 'Attendant Home',
       );
@@ -2319,4 +2776,3 @@ class StationAppState extends ChangeNotifier {
     return tx;
   }
 }
-

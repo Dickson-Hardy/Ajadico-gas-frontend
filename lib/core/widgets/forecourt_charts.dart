@@ -16,7 +16,8 @@ class Forecourt7DaySalesChart extends StatefulWidget {
   });
 
   @override
-  State<Forecourt7DaySalesChart> createState() => _Forecourt7DaySalesChartState();
+  State<Forecourt7DaySalesChart> createState() =>
+      _Forecourt7DaySalesChartState();
 }
 
 class DailySalesPoint {
@@ -54,11 +55,14 @@ class _Forecourt7DaySalesChartState extends State<Forecourt7DaySalesChart> {
         decoration: BoxDecoration(
           color: isDark ? AppColors.darkCard : AppColors.card,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: isDark ? AppColors.darkLine : AppColors.line),
+          border:
+              Border.all(color: isDark ? AppColors.darkLine : AppColors.line),
         ),
         child: Column(
           children: [
-            Icon(Icons.show_chart_outlined, size: 36, color: isDark ? AppColors.darkMuted : AppColors.muted),
+            Icon(Icons.show_chart_outlined,
+                size: 36,
+                color: isDark ? AppColors.darkMuted : AppColors.muted),
             const SizedBox(height: 10),
             Text(
               'No sales history yet',
@@ -69,7 +73,7 @@ class _Forecourt7DaySalesChartState extends State<Forecourt7DaySalesChart> {
             ),
             const SizedBox(height: 6),
             Text(
-              'The 7-day trend fills in automatically from verified shift sales once data is synced from Supabase.',
+              'Verified shift records appear here when available.',
               style: AppTypography.caption(
                 fontSize: 12,
                 color: isDark ? AppColors.darkMuted : AppColors.muted,
@@ -116,7 +120,8 @@ class _Forecourt7DaySalesChartState extends State<Forecourt7DaySalesChart> {
                           color: AppColors.ok.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Icon(Icons.show_chart, size: 18, color: AppColors.ok),
+                        child: const Icon(Icons.show_chart,
+                            size: 18, color: AppColors.ok),
                       ),
                       const SizedBox(width: 8),
                       Text(
@@ -159,7 +164,9 @@ class _Forecourt7DaySalesChartState extends State<Forecourt7DaySalesChart> {
                   onTapDown: (details) {
                     final width = constraints.maxWidth;
                     final step = width / data.length;
-                    final index = (details.localPosition.dx / step).floor().clamp(0, data.length - 1);
+                    final index = (details.localPosition.dx / step)
+                        .floor()
+                        .clamp(0, data.length - 1);
                     setState(() {
                       _selectedIndex = _selectedIndex == index ? null : index;
                     });
@@ -188,18 +195,27 @@ class _Forecourt7DaySalesChartState extends State<Forecourt7DaySalesChart> {
               return GestureDetector(
                 onTap: () => setState(() => _selectedIndex = isSel ? null : i),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                   decoration: BoxDecoration(
-                    color: isSel ? (isDark ? AppColors.emerald.withValues(alpha: 0.2) : AppColors.okSurface) : Colors.transparent,
+                    color: isSel
+                        ? (isDark
+                            ? AppColors.emerald.withValues(alpha: 0.2)
+                            : AppColors.okSurface)
+                        : Colors.transparent,
                     borderRadius: BorderRadius.circular(6),
-                    border: isSel ? Border.all(color: AppColors.ok, width: 1) : null,
+                    border: isSel
+                        ? Border.all(color: AppColors.ok, width: 1)
+                        : null,
                   ),
                   child: Text(
                     data[i].dayLabel,
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: isSel ? FontWeight.bold : FontWeight.w500,
-                      color: isSel ? AppColors.ok : (isDark ? AppColors.darkMuted : AppColors.muted),
+                      color: isSel
+                          ? AppColors.ok
+                          : (isDark ? AppColors.darkMuted : AppColors.muted),
                     ),
                   ),
                 ),
@@ -213,32 +229,44 @@ class _Forecourt7DaySalesChartState extends State<Forecourt7DaySalesChart> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF141F32) : AppColors.lightBackground,
+                color: isDark
+                    ? const Color(0xFF141F32)
+                    : AppColors.lightBackground,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: isDark ? AppColors.darkLine : AppColors.line),
+                border: Border.all(
+                    color: isDark ? AppColors.darkLine : AppColors.line),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
                     '${data[_selectedIndex!].dayLabel} Performance:',
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 13),
                   ),
                   Row(
                     children: [
                       Text(
                         'PMS: ${CurrencyFormatter.formatLitres(data[_selectedIndex!].pmsLitres)}',
-                        style: TextStyle(fontSize: 12, color: isDark ? AppColors.emerald : AppColors.okInk, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: isDark ? AppColors.emerald : AppColors.okInk,
+                            fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(width: 8),
                       Text(
                         'AGO: ${CurrencyFormatter.formatLitres(data[_selectedIndex!].agoLitres)}',
-                        style: TextStyle(fontSize: 12, color: isDark ? AppColors.accent : AppColors.bank, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: isDark ? AppColors.accent : AppColors.bank,
+                            fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        CurrencyFormatter.formatNaira(data[_selectedIndex!].revenue),
-                        style: AppTypography.monoNumeric(fontSize: 13, fontWeight: FontWeight.bold),
+                        CurrencyFormatter.formatNaira(
+                            data[_selectedIndex!].revenue),
+                        style: AppTypography.monoNumeric(
+                            fontSize: 13, fontWeight: FontWeight.bold),
                       ),
                     ],
                   ),
@@ -335,8 +363,10 @@ class _ForecourtSalesPainter extends CustomPainter {
       } else {
         // Smooth Bezier interpolation
         final prevX = (i - 1) * stepX;
-        final prevPmsY = size.height - ((data[i - 1].pmsLitres / maxVal) * size.height);
-        final prevAgoY = size.height - ((data[i - 1].agoLitres / maxVal) * size.height);
+        final prevPmsY =
+            size.height - ((data[i - 1].pmsLitres / maxVal) * size.height);
+        final prevAgoY =
+            size.height - ((data[i - 1].agoLitres / maxVal) * size.height);
 
         final ctrlX = (prevX + x) / 2;
         pmsPath.cubicTo(ctrlX, prevPmsY, ctrlX, pmsY, x, pmsY);
@@ -405,7 +435,8 @@ class _ForecourtSalesPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ForecourtSalesPainter oldDelegate) {
-    return oldDelegate.selectedIndex != selectedIndex || oldDelegate.isDark != isDark;
+    return oldDelegate.selectedIndex != selectedIndex ||
+        oldDelegate.isDark != isDark;
   }
 }
 
@@ -431,7 +462,8 @@ class TankDepletionTrendCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final fillRatio = capacity > 0 ? (physicalDip / capacity).clamp(0.0, 1.0) : 0.0;
+    final fillRatio =
+        capacity > 0 ? (physicalDip / capacity).clamp(0.0, 1.0) : 0.0;
     final ullage = (capacity - physicalDip).clamp(0.0, capacity);
     final variance = physicalDip - bookStock;
     final isLow = fillRatio <= reorderThreshold;
@@ -453,7 +485,8 @@ class TankDepletionTrendCard extends StatelessWidget {
               Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: color.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(6),
@@ -470,7 +503,8 @@ class TankDepletionTrendCard extends StatelessWidget {
                   if (isLow) ...[
                     const SizedBox(width: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
                         color: AppColors.badSurface,
                         borderRadius: BorderRadius.circular(4),
@@ -478,7 +512,10 @@ class TankDepletionTrendCard extends StatelessWidget {
                       ),
                       child: const Text(
                         'LOW STOCK',
-                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.bad),
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.bad),
                       ),
                     ),
                   ],
@@ -489,7 +526,9 @@ class TankDepletionTrendCard extends StatelessWidget {
                 style: AppTypography.monoNumeric(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: isLow ? AppColors.bad : (isDark ? AppColors.darkInk : AppColors.ink),
+                  color: isLow
+                      ? AppColors.bad
+                      : (isDark ? AppColors.darkInk : AppColors.ink),
                 ),
               ),
             ],
@@ -503,7 +542,8 @@ class TankDepletionTrendCard extends StatelessWidget {
               Container(
                 height: 14,
                 decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF141F32) : AppColors.background,
+                  color:
+                      isDark ? const Color(0xFF141F32) : AppColors.background,
                   borderRadius: BorderRadius.circular(7),
                 ),
               ),
@@ -542,27 +582,44 @@ class TankDepletionTrendCard extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Physical Dip', style: AppTypography.caption(color: isDark ? AppColors.darkMuted : AppColors.muted)),
-                  Text(CurrencyFormatter.formatLitres(physicalDip), style: AppTypography.monoNumeric(fontSize: 13, fontWeight: FontWeight.bold)),
+                  Text('Physical Dip',
+                      style: AppTypography.caption(
+                          color:
+                              isDark ? AppColors.darkMuted : AppColors.muted)),
+                  Text(CurrencyFormatter.formatLitres(physicalDip),
+                      style: AppTypography.monoNumeric(
+                          fontSize: 13, fontWeight: FontWeight.bold)),
                 ],
               ),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Tanker Ullage Space', style: AppTypography.caption(color: isDark ? AppColors.darkMuted : AppColors.muted)),
-                  Text(CurrencyFormatter.formatLitres(ullage), style: AppTypography.monoNumeric(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.ok)),
+                  Text('Tanker Ullage Space',
+                      style: AppTypography.caption(
+                          color:
+                              isDark ? AppColors.darkMuted : AppColors.muted)),
+                  Text(CurrencyFormatter.formatLitres(ullage),
+                      style: AppTypography.monoNumeric(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.ok)),
                 ],
               ),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text('Dip Variance', style: AppTypography.caption(color: isDark ? AppColors.darkMuted : AppColors.muted)),
+                  Text('Dip Variance',
+                      style: AppTypography.caption(
+                          color:
+                              isDark ? AppColors.darkMuted : AppColors.muted)),
                   Text(
                     '${variance >= 0 ? "+" : ""}${variance.toStringAsFixed(0)} L',
                     style: AppTypography.monoNumeric(
                       fontSize: 13,
                       fontWeight: FontWeight.bold,
-                      color: variance < -50 ? AppColors.bad : (variance > 50 ? AppColors.ok : AppColors.muted),
+                      color: variance < -50
+                          ? AppColors.bad
+                          : (variance > 50 ? AppColors.ok : AppColors.muted),
                     ),
                   ),
                 ],

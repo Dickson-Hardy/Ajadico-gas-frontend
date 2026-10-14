@@ -23,9 +23,10 @@ class ExpenseEntryScreen extends StatefulWidget {
   State<ExpenseEntryScreen> createState() => _ExpenseEntryScreenState();
 }
 
-class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> with UnsavedWorkAware {
+class _ExpenseEntryScreenState extends State<ExpenseEntryScreen>
+    with UnsavedWorkAware {
   final state = StationAppState.instance;
-  String _category = 'Generator Maintenance & Servicing';
+  String? _category;
   ExpensePaymentSource _paymentSource = ExpensePaymentSource.salesCash;
   final TextEditingController _amountController = TextEditingController();
   final TextEditingController _descriptionController = TextEditingController();
@@ -34,19 +35,14 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> with UnsavedWor
   bool _isPreApproved = false;
   List<CompressedImageResult> _receiptPhotos = [];
 
-  final List<String> _categories = [
-    'Generator Maintenance & Servicing',
-    'Station Cleaning & Forecourt Care',
-    'Utilities (NEPA / Water)',
-    'Stationery & POS Paper Rolls',
-    'Local Security / Guard Allowance',
-    'Minor Pump / Hose Repairs',
-    'Other Operational Expenses',
-  ];
+  List<String> get _categories =>
+      state.operationsPolicy?.expenseCategories ?? const [];
 
   @override
   bool get hasUnsavedWork =>
-      _amountController.text.trim().isNotEmpty || _descriptionController.text.trim().isNotEmpty;
+      _amountController.text.trim().isNotEmpty ||
+      _descriptionController.text.trim().isNotEmpty ||
+      _receiptPhotos.isNotEmpty;
 
   @override
   void initState() {
@@ -71,7 +67,8 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> with UnsavedWor
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Discard expense entry?'),
-        content: const Text('This expense has not been saved yet. Leaving now discards what you typed.'),
+        content: const Text(
+            'This expense has not been saved yet. Leaving now discards what you typed.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -96,21 +93,36 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> with UnsavedWor
   }
 
   void _submit() {
+    final policy = state.operationsPolicy;
+    if (policy == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'Operational policy is unavailable. Contact your administrator.')));
+      return;
+    }
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    final amount = double.tryParse(_amountController.text.replaceAll(',', '').trim()) ?? 0.0;
+    final amount =
+        double.tryParse(_amountController.text.replaceAll(',', '').trim()) ??
+            0.0;
 
     final isCashier = state.currentUser.role == UserRole.cashier;
-    final needsApproval = isCashier ? !_isPreApproved : (amount > 50000);
+    final needsApproval = isCashier
+        ? (!_isPreApproved || amount > policy.cashierApprovalLimit)
+        : (amount > policy.managerApprovalLimit);
 
     setState(() => _isSubmitting = true);
     try {
       state.recordExpense(
-        category: _category,
+        category: _category!,
         amount: amount,
-        paymentSource: _paymentSource == ExpensePaymentSource.salesCash ? 'Cash Drawer' : 'Direct Bank Transfer',
+        paymentSource: _paymentSource == ExpensePaymentSource.salesCash
+            ? 'Cash Drawer'
+            : 'Direct Bank Transfer',
         description: _descriptionController.text.trim(),
-        receiptUrl: _receiptPhotos.isNotEmpty ? _receiptPhotos.first.fileName : null,
+        receiptUrl: _receiptPhotos.isNotEmpty
+            ? _receiptPhotos.first.remoteStorageUrl
+            : null,
         requiresApproval: needsApproval,
       );
 
@@ -132,7 +144,8 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> with UnsavedWor
           const SnackBar(
             backgroundColor: AppColors.bad,
             behavior: SnackBarBehavior.floating,
-            content: Text('Could not save this expense. Please review the entries and retry.'),
+            content: Text(
+                'Could not save this expense. Please review the entries and retry.'),
           ),
         );
       }
@@ -155,7 +168,7 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> with UnsavedWor
           children: [
             Text(
               state.currentUser.role == UserRole.cashier
-                  ? 'Record Safe Expense Disbursal'
+                  ? 'Record expense'
                   : 'Record Branch Expense',
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
@@ -163,7 +176,7 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> with UnsavedWor
               state.currentUser.role == UserRole.cashier
                   ? '${state.currentUser.displayName} · Station Cash Safe'
                   : '${state.currentUser.displayName} · Manager / Admin Entry',
-              style: const TextStyle(fontSize: 13, color: Colors.white70),
+              style: const TextStyle(fontSize: 13, color: AppColors.muted),
             ),
           ],
         ),
@@ -190,7 +203,11 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> with UnsavedWor
                   style: TextStyle(fontSize: 15, color: AppColors.muted),
                 ),
                 const SizedBox(height: 16),
-
+                if (state.operationsPolicy == null)
+                  const Padding(
+                      padding: EdgeInsets.only(bottom: 16),
+                      child: Text(
+                          'Operational policy is unavailable. Contact your administrator before recording expenses.')),
                 if (state.currentUser.role == UserRole.cashier) ...[
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -199,12 +216,16 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> with UnsavedWor
                           ? AppColors.ok.withValues(alpha: 0.08)
                           : AppColors.warn.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: _isPreApproved ? AppColors.ok : AppColors.warn),
+                      border: Border.all(
+                          color:
+                              _isPreApproved ? AppColors.ok : AppColors.warn),
                     ),
                     child: Row(
                       children: [
                         Icon(
-                          _isPreApproved ? Icons.verified_user : Icons.pending_actions,
+                          _isPreApproved
+                              ? Icons.verified_user
+                              : Icons.pending_actions,
                           color: _isPreApproved ? AppColors.ok : AppColors.warn,
                           size: 26,
                         ),
@@ -214,28 +235,34 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> with UnsavedWor
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                _isPreApproved ? 'Pre-Approved by Station Manager' : 'Requires Manager / Admin Approval',
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.ink),
+                                _isPreApproved
+                                    ? 'Automatic approval within policy limit'
+                                    : 'Requires Manager / Admin Approval',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                    color: AppColors.ink),
                               ),
                               Text(
                                 _isPreApproved
-                                    ? 'Cashier disburses funds based on verbal or written manager instruction.'
+                                    ? 'Expenses above the configured limit still require formal approval.'
                                     : 'Expense will appear in Manager Dashboard queue for formal review & sign-off.',
-                                style: const TextStyle(fontSize: 12, color: AppColors.slate),
+                                style: const TextStyle(
+                                    fontSize: 12, color: AppColors.slate),
                               ),
                             ],
                           ),
                         ),
                         Switch(
                           value: _isPreApproved,
-                          onChanged: (val) => setState(() => _isPreApproved = val),
+                          onChanged: (val) =>
+                              setState(() => _isPreApproved = val),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 14),
                 ],
-
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
@@ -245,24 +272,39 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> with UnsavedWor
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Expense Category', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                          const Text('Expense Category',
+                              style: TextStyle(
+                                  fontSize: 14, color: AppColors.muted)),
                           const SizedBox(height: 6),
                           DropdownButtonFormField<String>(
-                            initialValue: _category,
-                            items: _categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                            initialValue: _categories.contains(_category)
+                                ? _category
+                                : null,
+                            validator: (value) => value == null
+                                ? 'Select an expense category.'
+                                : null,
+                            items: _categories
+                                .map((c) =>
+                                    DropdownMenuItem(value: c, child: Text(c)))
+                                .toList(),
                             onChanged: (v) => setState(() => _category = v!),
                           ),
                           const SizedBox(height: 16),
-
-                          const Text('Amount (₦)', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                          const Text('Amount (₦)',
+                              style: TextStyle(
+                                  fontSize: 14, color: AppColors.muted)),
                           const SizedBox(height: 6),
                           TextFormField(
                             controller: _amountController,
                             keyboardType: TextInputType.number,
-                            autovalidateMode: AutovalidateMode.onUserInteraction,
+                            autovalidateMode:
+                                AutovalidateMode.onUserInteraction,
                             validator: (v) {
-                              final amount = double.tryParse((v ?? '').replaceAll(',', '').trim()) ?? 0.0;
-                              if (amount <= 0) return 'Enter a valid expense amount greater than ₦0.';
+                              final amount = double.tryParse(
+                                      (v ?? '').replaceAll(',', '').trim()) ??
+                                  0.0;
+                              if (amount <= 0)
+                                return 'Enter a valid expense amount greater than ₦0.';
                               return null;
                             },
                             decoration: const InputDecoration(
@@ -271,22 +313,26 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> with UnsavedWor
                             ),
                           ),
                           const SizedBox(height: 16),
-
-                          const Text('Payment Source', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                          const Text('Payment Source',
+                              style: TextStyle(
+                                  fontSize: 14, color: AppColors.muted)),
                           const SizedBox(height: 6),
                           LayoutBuilder(
                             builder: (context, constraints) {
-                              Widget tileA = const RadioListTile<ExpensePaymentSource>(
+                              Widget tileA =
+                                  const RadioListTile<ExpensePaymentSource>(
                                 value: ExpensePaymentSource.salesCash,
                                 title: Text('Sales Cash (Deducts from drawer)'),
                               );
-                              Widget tileB = const RadioListTile<ExpensePaymentSource>(
+                              Widget tileB =
+                                  const RadioListTile<ExpensePaymentSource>(
                                 value: ExpensePaymentSource.bankTransfer,
                                 title: Text('Direct Bank Transfer'),
                               );
                               final Widget group = constraints.maxWidth < 520
                                   ? Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [tileA, tileB],
                                     )
                                   : Row(
@@ -298,27 +344,33 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> with UnsavedWor
                               return RadioGroup<ExpensePaymentSource>(
                                 groupValue: _paymentSource,
                                 onChanged: (val) {
-                                  if (val != null) setState(() => _paymentSource = val);
+                                  if (val != null)
+                                    setState(() => _paymentSource = val);
                                 },
                                 child: group,
                               );
                             },
                           ),
                           const SizedBox(height: 12),
-
-                          const Text('Description & Vendor', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                          const Text('Description & Vendor',
+                              style: TextStyle(
+                                  fontSize: 14, color: AppColors.muted)),
                           const SizedBox(height: 6),
                           TextFormField(
                             controller: _descriptionController,
-                            autovalidateMode: AutovalidateMode.onUserInteraction,
-                            validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter a description for the expense.' : null,
-                            decoration: const InputDecoration(hintText: 'Detailed explanation of purchase and vendor name...'),
+                            autovalidateMode:
+                                AutovalidateMode.onUserInteraction,
+                            validator: (v) => (v == null || v.trim().isEmpty)
+                                ? 'Enter a description for the expense.'
+                                : null,
+                            decoration: const InputDecoration(
+                                hintText:
+                                    'Detailed explanation of purchase and vendor name...'),
                             maxLines: 2,
                           ),
                           const SizedBox(height: 16),
-
                           EvidencePhotoPicker(
-                            title: 'Receipt / Invoice Photo (<150KB)',
+                            title: 'Receipt / Invoice Photo',
                             photoType: 'expense_receipt',
                             stationName: state.currentStationName,
                             staffName: state.currentUser.displayName,
@@ -353,12 +405,15 @@ class _ExpenseEntryScreenState extends State<ExpenseEntryScreen> with UnsavedWor
               Expanded(
                 flex: 2,
                 child: ElevatedButton(
-                  onPressed: _isSubmitting ? null : _submit,
+                  onPressed: _isSubmitting || state.operationsPolicy == null
+                      ? null
+                      : _submit,
                   child: _isSubmitting
                       ? const SizedBox(
                           height: 20,
                           width: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
                         )
                       : const Text('Save expense entry'),
                 ),

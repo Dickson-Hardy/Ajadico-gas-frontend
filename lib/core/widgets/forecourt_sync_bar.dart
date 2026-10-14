@@ -10,7 +10,7 @@ class ForecourtSyncBar extends StatelessWidget {
 
   const ForecourtSyncBar({
     super.key,
-    this.stationName = 'Lekki Road Station',
+    this.stationName = 'Station unavailable',
     this.showStationName = true,
   });
 
@@ -36,17 +36,24 @@ class ForecourtSyncBar extends StatelessWidget {
           bannerBg = AppColors.warnSurface;
           textColor = AppColors.warn;
           statusIcon = Icons.wifi_off_rounded;
-          statusText = 'OFFLINE MODE (Forecourt Outbox: $pending items queued)';
+          statusText = 'Offline · $pending records queued';
         } else if (isSyncing) {
           bannerBg = AppColors.lightBackground;
           textColor = AppColors.bank;
           statusIcon = Icons.sync_rounded;
-          statusText = 'SYNCING: ${syncService.statusInfo.activeItemTitle ?? "Transmitting records..."}';
+          statusText =
+              'Syncing: ${syncService.statusInfo.activeItemTitle ?? "Saving records"}';
         } else if (failed > 0) {
           bannerBg = AppColors.badSurface;
           textColor = AppColors.bad;
           statusIcon = Icons.error_outline_rounded;
           statusText = '$failed item(s) failed sync. Tap to retry.';
+        } else if (syncService.heldCount > 0) {
+          bannerBg = AppColors.warnSurface;
+          textColor = AppColors.warn;
+          statusIcon = Icons.lock_outline;
+          statusText =
+              '${syncService.heldCount} records held · Original account sign-in required';
         } else if (pending > 0) {
           bannerBg = AppColors.warnSurface;
           textColor = AppColors.warn;
@@ -56,7 +63,7 @@ class ForecourtSyncBar extends StatelessWidget {
           bannerBg = AppColors.okSurface;
           textColor = AppColors.ok;
           statusIcon = Icons.cloud_done_rounded;
-          statusText = 'ONLINE & CLOUD SYNCED';
+          statusText = 'No queued records';
         }
 
         Widget banner = Container(
@@ -64,7 +71,8 @@ class ForecourtSyncBar extends StatelessWidget {
           decoration: BoxDecoration(
             color: bannerBg,
             border: Border(
-              bottom: BorderSide(color: textColor.withValues(alpha: 0.2), width: 1),
+              bottom:
+                  BorderSide(color: textColor.withValues(alpha: 0.2), width: 1),
             ),
           ),
           child: Row(
@@ -74,7 +82,8 @@ class ForecourtSyncBar extends StatelessWidget {
                 SizedBox(
                   width: 14,
                   height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: textColor),
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: textColor),
                 )
               else
                 Icon(statusIcon, size: 16, color: textColor),
@@ -98,7 +107,8 @@ class ForecourtSyncBar extends StatelessWidget {
                     ),
                     if (showStationName)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: AppColors.ink.withValues(alpha: 0.08),
                           borderRadius: BorderRadius.circular(4),
@@ -130,7 +140,9 @@ class ForecourtSyncBar extends StatelessWidget {
                     Icon(
                       Icons.timer_outlined,
                       size: 14,
-                      color: securityManager.secondsRemaining <= 15 ? AppColors.bad : AppColors.slate,
+                      color: securityManager.secondsRemaining <= 15
+                          ? AppColors.bad
+                          : AppColors.slate,
                     ),
                     const SizedBox(width: 3),
                     Text(
@@ -138,7 +150,9 @@ class ForecourtSyncBar extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
-                        color: securityManager.secondsRemaining <= 15 ? AppColors.bad : AppColors.slate,
+                        color: securityManager.secondsRemaining <= 15
+                            ? AppColors.bad
+                            : AppColors.slate,
                       ),
                     ),
                   ],
@@ -150,21 +164,31 @@ class ForecourtSyncBar extends StatelessWidget {
               // Sync / Retry button if items pending or failed
               if (pending > 0 || failed > 0)
                 TextButton(
-                  onPressed: () {
-                    if (failed > 0) {
-                      syncService.retryFailedItems();
-                    } else {
-                      syncService.triggerSync();
-                    }
-                  },
+                  onPressed: !isOnline ||
+                          syncService.heldCount == syncService.queue.length
+                      ? null
+                      : () {
+                          if (failed > 0) {
+                            syncService.retryFailedItems();
+                          } else {
+                            syncService.triggerSync();
+                          }
+                        },
                   style: TextButton.styleFrom(
                     backgroundColor: textColor,
                     foregroundColor: Colors.white,
                     minimumSize: const Size(48, 48),
                     padding: const EdgeInsets.symmetric(horizontal: 12),
-                    textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    textStyle: const TextStyle(
+                        fontFamily: 'Roboto',
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold),
                   ),
-                  child: Text(failed > 0 ? 'Retry' : 'Sync Now'),
+                  child: Text(syncService.heldCount == syncService.queue.length
+                      ? 'Held'
+                      : failed > 0
+                          ? 'Retry'
+                          : 'Sync now'),
                 ),
             ],
           ),

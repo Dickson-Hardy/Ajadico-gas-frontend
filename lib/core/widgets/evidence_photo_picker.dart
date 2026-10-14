@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../constants/app_colors.dart';
 import '../services/camera_compression_service.dart';
+import '../offline/offline_sync_service.dart';
+import '../network/supabase_repository.dart';
 import '../../state/station_app_state.dart';
 
 /// Interactive Forecourt Photo Evidence Picker with real-time compression audit
@@ -44,6 +46,9 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
 
   Future<void> _captureAndCompress() async {
     if (_photos.length >= widget.maxPhotos) return;
+    final sync = OfflineSyncService.instance;
+    final owner = sync.captureOwner;
+    final stationId = StationAppState.instance.currentStationId;
 
     setState(() => _isProcessing = true);
 
@@ -59,6 +64,7 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
         return;
       }
       final rawBytes = await shot.readAsBytes();
+      if (!mounted || !sync.isCurrentOwner(owner)) return;
 
       final service = CameraCompressionService.instance;
       final compressed = await service.processAndCompressPhoto(
@@ -72,9 +78,11 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
       final uploaded = await service.uploadEvidence(
         image: compressed,
         bucketName: widget.bucketName,
-        stationId: StationAppState.instance.currentStationCode,
+        stationId: stationId,
+        owner: owner,
       );
 
+      if (!mounted || !sync.isCurrentOwner(owner)) return;
       setState(() {
         _photos.add(uploaded);
         _isProcessing = false;
@@ -91,6 +99,8 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
           content: Text('Could not capture evidence photo: $e'),
         ),
       );
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
     }
   }
 
@@ -117,33 +127,21 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
       );
     }
 
-    final remoteUrl = photo.remoteStorageUrl;
-    if (remoteUrl != null && remoteUrl.trim().isNotEmpty) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(6),
-        child: Image.network(
-          remoteUrl,
-          width: double.infinity,
-          height: thumbHeight,
-          fit: BoxFit.cover,
-          loadingBuilder: (context, child, progress) {
-            if (progress == null) return child;
-            return Container(
-              width: double.infinity,
-              height: thumbHeight,
-              color: AppColors.lightBackground,
-              child: const Center(
-                child: SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
-                ),
-              ),
-            );
-          },
-          errorBuilder: (context, error, stackTrace) => _thumbnailPlaceholder(),
-        ),
-      );
+    final reference = photo.remoteStorageUrl;
+    if (reference != null && reference.isNotEmpty) {
+      return FutureBuilder<String?>(
+          future: SupabaseRepository.instance.resolveEvidenceUrl(reference),
+          builder: (context, snapshot) {
+            final url = snapshot.data;
+            if (url == null) return _thumbnailPlaceholder();
+            return ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: Image.network(url,
+                    width: double.infinity,
+                    height: thumbHeight,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => _thumbnailPlaceholder()));
+          });
     }
 
     return _thumbnailPlaceholder();
@@ -157,7 +155,8 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
         color: AppColors.lightBackground,
         borderRadius: BorderRadius.circular(6),
       ),
-      child: const Icon(Icons.photo_library_outlined, size: 22, color: AppColors.slate),
+      child: const Icon(Icons.photo_library_outlined,
+          size: 22, color: AppColors.slate),
     );
   }
 
@@ -171,7 +170,8 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
             Flexible(
               child: Row(
                 children: [
-                  const Icon(Icons.camera_alt_outlined, size: 18, color: AppColors.primary),
+                  const Icon(Icons.camera_alt_outlined,
+                      size: 18, color: AppColors.primary),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -190,7 +190,10 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
             const SizedBox(width: 8),
             Text(
               '${_photos.length}/${widget.maxPhotos}',
-              style: const TextStyle(fontSize: 12, color: AppColors.slate, fontWeight: FontWeight.w600),
+              style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.slate,
+                  fontWeight: FontWeight.w600),
             ),
           ],
         ),
@@ -225,12 +228,16 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
                                 SizedBox(
                                   width: 24,
                                   height: 24,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2, color: AppColors.primary),
                                 ),
                                 SizedBox(height: 8),
                                 Text(
                                   'Compressing...',
-                                  style: TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w600),
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: AppColors.primary,
+                                      fontWeight: FontWeight.w600),
                                 ),
                               ],
                             ),
@@ -241,17 +248,22 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
                               CircleAvatar(
                                 radius: 18,
                                 backgroundColor: AppColors.lightEmerald,
-                                child: Icon(Icons.add_a_photo, color: AppColors.primary, size: 18),
+                                child: Icon(Icons.add_a_photo,
+                                    color: AppColors.primary, size: 18),
                               ),
                               SizedBox(height: 6),
                               Text(
                                 'Take Photo',
-                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.primary),
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.primary),
                               ),
                               SizedBox(height: 2),
                               Text(
                                 '< 150KB Target',
-                                style: TextStyle(fontSize: 12, color: AppColors.slate),
+                                style: TextStyle(
+                                    fontSize: 12, color: AppColors.slate),
                               ),
                             ],
                           ),
@@ -281,7 +293,8 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 5, vertical: 2),
                               decoration: BoxDecoration(
                                 color: photo.isUploaded
                                     ? AppColors.emerald.withValues(alpha: 0.2)
@@ -292,9 +305,13 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Icon(
-                                    photo.isUploaded ? Icons.cloud_done : Icons.cloud_queue,
+                                    photo.isUploaded
+                                        ? Icons.cloud_done
+                                        : Icons.cloud_queue,
                                     size: 14,
-                                    color: photo.isUploaded ? AppColors.emerald : AppColors.amber,
+                                    color: photo.isUploaded
+                                        ? AppColors.emerald
+                                        : AppColors.amber,
                                   ),
                                   const SizedBox(width: 3),
                                   Text(
@@ -302,7 +319,9 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
                                     style: TextStyle(
                                       fontSize: 12,
                                       fontWeight: FontWeight.w800,
-                                      color: photo.isUploaded ? AppColors.emerald : AppColors.amber,
+                                      color: photo.isUploaded
+                                          ? AppColors.emerald
+                                          : AppColors.amber,
                                     ),
                                   ),
                                 ],
@@ -339,10 +358,10 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
                                   photo.watermarkStamp ?? 'Watermarked',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: AppColors.slate,
-                                    ),
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.slate,
+                                  ),
                                 ),
                               ],
                             ),
@@ -368,7 +387,8 @@ class _EvidencePhotoPickerState extends State<EvidencePhotoPicker> {
                                     color: AppColors.bad,
                                     shape: BoxShape.circle,
                                   ),
-                                  child: const Icon(Icons.close, color: Colors.white, size: 14),
+                                  child: const Icon(Icons.close,
+                                      color: Colors.white, size: 14),
                                 ),
                               ),
                             ),

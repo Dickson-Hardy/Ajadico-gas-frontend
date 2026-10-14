@@ -33,6 +33,7 @@ enum SyncActionType {
   tankCreate,
   nozzleCreate,
   creditCustomerCreate,
+  shiftAdjustment,
 }
 
 /// Represents an idempotent forecourt transaction queued for database synchronization
@@ -41,6 +42,9 @@ class SyncQueueItem {
   final SyncActionType actionType;
   final Map<String, dynamic> payload;
   final DateTime createdAt;
+  final String? ownerProfileId;
+  final String? ownerAuthUserId;
+  final String? ownerStationId;
   SyncItemStatus status;
   int retryCount;
   String? lastError;
@@ -51,6 +55,9 @@ class SyncQueueItem {
     required this.actionType,
     required this.payload,
     required this.createdAt,
+    this.ownerProfileId,
+    this.ownerAuthUserId,
+    this.ownerStationId,
     this.status = SyncItemStatus.pending,
     this.retryCount = 0,
     this.lastError,
@@ -63,6 +70,9 @@ class SyncQueueItem {
       'actionType': actionType.name,
       'payload': payload,
       'createdAt': createdAt.toIso8601String(),
+      'ownerProfileId': ownerProfileId,
+      'ownerAuthUserId': ownerAuthUserId,
+      'ownerStationId': ownerStationId,
       'status': status.name,
       'retryCount': retryCount,
       'lastError': lastError,
@@ -79,6 +89,9 @@ class SyncQueueItem {
       ),
       payload: Map<String, dynamic>.from(json['payload'] as Map),
       createdAt: DateTime.parse(json['createdAt'] as String),
+      ownerProfileId: json['ownerProfileId'] as String?,
+      ownerAuthUserId: json['ownerAuthUserId'] as String?,
+      ownerStationId: json['ownerStationId'] as String?,
       status: SyncItemStatus.values.firstWhere(
         (e) => e.name == json['status'],
         orElse: () => SyncItemStatus.pending,
@@ -91,8 +104,22 @@ class SyncQueueItem {
     );
   }
 
+  /// Legacy ownerless items are retained, never assigned to the next user.
+  bool belongsTo(String? profileId, String? authUserId, String? stationId) =>
+      profileId != null &&
+      profileId.isNotEmpty &&
+      authUserId != null &&
+      authUserId.isNotEmpty &&
+      stationId != null &&
+      stationId.isNotEmpty &&
+      ownerProfileId == profileId &&
+      ownerAuthUserId == authUserId &&
+      ownerStationId == stationId;
+
   String get humanTitle {
     switch (actionType) {
+      case SyncActionType.shiftAdjustment:
+        return 'Pump expense / non-sale fuel';
       case SyncActionType.closingReadings:
         return 'Meter Closing Readings';
       case SyncActionType.remittanceSubmission:

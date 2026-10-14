@@ -63,13 +63,15 @@ class CompressedImageResult {
 /// Pipeline for capturing, compressing, watermarking, and uploading forecourt photos
 /// BRD §4.3 (POS card slips & receipts) & §3.7 (Tanker waybills & dip stick audit)
 class CameraCompressionService {
-  static final CameraCompressionService instance = CameraCompressionService._internal();
+  static final CameraCompressionService instance =
+      CameraCompressionService._internal();
   CameraCompressionService._internal();
 
   /// Real capture pipeline: processes actual camera bytes (already platform-compressed
   /// by the picker at capture time) and records their true sizes. No fabricated data.
   Future<CompressedImageResult> processAndCompressPhoto({
-    required String photoType, // 'pos_slip', 'bank_transfer', 'waybill', 'tank_dip'
+    required String
+        photoType, // 'pos_slip', 'bank_transfer', 'waybill', 'tank_dip'
     required String stationName,
     required String staffName,
     required Uint8List rawBytes,
@@ -80,7 +82,8 @@ class CameraCompressionService {
     }
 
     final now = DateTime.now();
-    final localId = 'IMG-${now.millisecondsSinceEpoch}-${Random().nextInt(9999).toString().padLeft(4, '0')}';
+    final localId =
+        'IMG-${now.millisecondsSinceEpoch}-${Random().nextInt(9999).toString().padLeft(4, '0')}';
     final fileName = explicitFileName ?? '${photoType}_$localId.jpg';
 
     // True sizes of the actual image being stored (platform compresses at capture).
@@ -88,7 +91,8 @@ class CameraCompressionService {
     final compressedBytes = rawBytes.length;
 
     // Audit stamp overlay metadata (Watermark for anti-fraud)
-    final watermarkStamp = 'AJADICO $stationName | $staffName | ${now.toIso8601String().substring(0, 19).replaceAll('T', ' ')} | $photoType';
+    final watermarkStamp =
+        'AJADICO $stationName | $staffName | ${now.toIso8601String().substring(0, 19).replaceAll('T', ' ')} | $photoType';
 
     final result = CompressedImageResult(
       localId: localId,
@@ -111,21 +115,28 @@ class CameraCompressionService {
     required CompressedImageResult image,
     required String bucketName, // 'remittance-evidence' or 'delivery-waybills'
     required String stationId,
+    QueueOwner? owner,
   }) async {
     final syncService = OfflineSyncService.instance;
     final repo = SupabaseRepository.instance;
+    final originatingOwner = owner ?? syncService.captureOwner;
+    if (!syncService.isCurrentOwner(originatingOwner)) {
+      throw StateError('Session changed during capture. Retake the evidence.');
+    }
+    final sessionRepo = repo.snapshotForAuthenticatedSession();
 
-    final storagePath = '$stationId/${image.capturedAt.toIso8601String().substring(0, 10)}/${image.fileName}';
+    final storagePath =
+        '$stationId/${image.capturedAt.toIso8601String().substring(0, 10)}/${image.fileName}';
 
-    if (syncService.isOnline && repo.isConnected) {
+    if (syncService.isOnline && sessionRepo != null) {
       try {
-        final publicUrl = await repo.uploadStorageFile(
+        final publicUrl = await sessionRepo.uploadStorageFile(
           bucket: bucketName,
           path: storagePath,
           fileBytes: image.imageBytes!,
         );
 
-        if (publicUrl != null) {
+        if (publicUrl != null && syncService.isCurrentOwner(originatingOwner)) {
           return CompressedImageResult(
             localId: image.localId,
             fileName: image.fileName,
@@ -143,13 +154,17 @@ class CameraCompressionService {
         // Upload failed → fall through to offline outbox with real bytes
       } catch (e) {
         // Fall back to offline queue
+      } finally {
+        await sessionRepo.closeSessionSnapshot();
       }
     }
+    if (!syncService.isOnline) await sessionRepo?.closeSessionSnapshot();
 
     // Offline outbox queue fallback — carries the real image bytes so the
     // later sync can perform the actual Storage upload (no metadata-only records)
     await syncService.enqueue(
       actionType: SyncActionType.evidencePhotoUpload,
+      owner: originatingOwner,
       payload: {
         'bucket': bucketName,
         'path': storagePath,

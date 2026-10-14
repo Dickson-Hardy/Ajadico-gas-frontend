@@ -4,9 +4,10 @@ import 'package:intl/intl.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/forecourt_sync_bar.dart';
-import '../../core/widgets/status_chip.dart';
 import '../../models/user_profile.dart';
 import '../../state/station_app_state.dart';
+import '../../core/widgets/shift_adjustment_ledger.dart';
+import '../../models/shift_adjustment.dart';
 
 class AttendantHomeScreen extends StatefulWidget {
   final UserProfile user;
@@ -15,6 +16,7 @@ class AttendantHomeScreen extends StatefulWidget {
   final VoidCallback onOpenRemittance;
   final VoidCallback? onOpenCreditSale;
   final VoidCallback? onOpenFuelReturn;
+  final VoidCallback? onOpenPumpExpense;
 
   const AttendantHomeScreen({
     super.key,
@@ -24,6 +26,7 @@ class AttendantHomeScreen extends StatefulWidget {
     required this.onOpenRemittance,
     this.onOpenCreditSale,
     this.onOpenFuelReturn,
+    this.onOpenPumpExpense,
   });
 
   @override
@@ -55,31 +58,27 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
       SnackBar(
         backgroundColor: AppColors.ok,
         behavior: SnackBarBehavior.floating,
-        content: Text('Nozzle $nozzleNumber opening meter confirmed.'),
+        content:
+            Text('${state.pumpLabel(nozzleNumber)} opening meter confirmed.'),
       ),
     );
   }
 
-  void _openCashDropDialog() {
+  Future<void> _openCashDropDialog() async {
     final amountCtrl = TextEditingController();
     final notesCtrl = TextEditingController();
-    final acknowledgedDrops = state.totalAttendantAcknowledgedDrops(widget.user.id);
+    final acknowledgedDrops =
+        state.totalAttendantAcknowledgedDrops(widget.user.id);
     final pendingDrops = state.totalAttendantPendingDrops(widget.user.id);
     final totalDropped = acknowledgedDrops + pendingDrops;
 
-    showDialog(
+    final route = DialogRoute<void>(
       context: context,
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setDlgState) {
             return AlertDialog(
-              title: const Row(
-                children: [
-                  Icon(Icons.payments, color: AppColors.ok),
-                  SizedBox(width: 8),
-                  Text('Hand Over Interim Cash Drop', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-                ],
-              ),
+              title: const Text('Add cash submission'),
               content: SizedBox(
                 width: MediaQuery.of(context).size.width < 480
                     ? MediaQuery.of(context).size.width - 80
@@ -94,7 +93,8 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                         decoration: BoxDecoration(
                           color: AppColors.ok.withValues(alpha: 0.08),
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: AppColors.ok.withValues(alpha: 0.2)),
+                          border: Border.all(
+                              color: AppColors.ok.withValues(alpha: 0.2)),
                         ),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -103,12 +103,21 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Total Drops Handed Over This Shift', style: TextStyle(fontSize: 12, color: AppColors.muted)),
+                                  Text('Total Drops Handed Over This Shift',
+                                      style: TextStyle(
+                                          fontSize: 12,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurfaceVariant)),
                                   Text(
                                     pendingDrops > 0
                                         ? '${CurrencyFormatter.formatNaira(acknowledgedDrops)} acknowledged · ${CurrencyFormatter.formatNaira(pendingDrops)} pending'
                                         : 'All previously handed drops acknowledged',
-                                    style: const TextStyle(fontSize: 12, color: AppColors.slate),
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant),
                                   ),
                                 ],
                               ),
@@ -116,7 +125,10 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                             const SizedBox(width: 8),
                             Text(
                               CurrencyFormatter.formatNaira(totalDropped),
-                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ok),
+                              style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.ok),
                             ),
                           ],
                         ),
@@ -124,13 +136,16 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                       const SizedBox(height: 16),
                       TextField(
                         controller: amountCtrl,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))
+                        ],
                         decoration: const InputDecoration(
                           labelText: 'Drop Amount (₦) *',
                           hintText: 'e.g. 100,000',
                           prefixText: '₦ ',
-                          border: OutlineInputBorder(),
+                          border: const OutlineInputBorder(),
                           isDense: true,
                         ),
                         onChanged: (_) => setDlgState(() {}),
@@ -140,53 +155,66 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                         spacing: 6,
                         runSpacing: 6,
                         children: [
-                          _buildQuickAddButton('+₦20,000', 20000, amountCtrl, setDlgState),
-                          _buildQuickAddButton('+₦50,000', 50000, amountCtrl, setDlgState),
-                          _buildQuickAddButton('+₦100,000', 100000, amountCtrl, setDlgState),
-                          _buildQuickAddButton('+₦200,000', 200000, amountCtrl, setDlgState),
+                          _buildQuickAddButton(
+                              '+₦20,000', 20000, amountCtrl, setDlgState),
+                          _buildQuickAddButton(
+                              '+₦50,000', 50000, amountCtrl, setDlgState),
+                          _buildQuickAddButton(
+                              '+₦100,000', 100000, amountCtrl, setDlgState),
+                          _buildQuickAddButton(
+                              '+₦200,000', 200000, amountCtrl, setDlgState),
                         ],
                       ),
-                    const SizedBox(height: 14),
-                    TextField(
-                      controller: notesCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Notes / Denomination Breakdown (Optional)',
-                        hintText: 'e.g. Drop #2, 100x ₦1,000 notes',
-                        border: OutlineInputBorder(),
-                        isDense: true,
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: notesCtrl,
+                        decoration: const InputDecoration(
+                          labelText:
+                              'Notes / Denomination Breakdown (Optional)',
+                          hintText: 'e.g. Drop #2, 100x ₦1,000 notes',
+                          border: const OutlineInputBorder(),
+                          isDense: true,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancel'),
-              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
                 ElevatedButton.icon(
                   onPressed: () async {
-                    final amt = double.tryParse(amountCtrl.text.replaceAll(',', '').trim()) ?? 0.0;
+                    final amt = double.tryParse(
+                            amountCtrl.text.replaceAll(',', '').trim()) ??
+                        0.0;
                     if (amt <= 0) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text('Please enter a valid drop amount.'),
+                          content:
+                              const Text('Please enter a valid drop amount.'),
                           backgroundColor: AppColors.bad,
                         ),
                       );
                       return;
                     }
                     Navigator.pop(ctx);
-                    await state.recordInterimCashDrop(
+                    final saved = await state.recordInterimCashDrop(
                       amount: amt,
-                      notes: notesCtrl.text.trim().isEmpty ? null : notesCtrl.text.trim(),
+                      notes: notesCtrl.text.trim().isEmpty
+                          ? null
+                          : notesCtrl.text.trim(),
                     );
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          backgroundColor: AppColors.ok,
-                          content: Text('Interim cash drop of ${CurrencyFormatter.formatNaira(amt)} submitted to Cashier.'),
+                          backgroundColor:
+                              saved == null ? AppColors.bad : AppColors.ok,
+                          content: Text(saved == null
+                              ? 'Could not record submission. Please try again.'
+                              : 'Cash submission recorded locally; awaiting cashier confirmation.'),
                         ),
                       );
                     }
@@ -204,6 +232,10 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
         );
       },
     );
+    await Navigator.of(context).push(route);
+    await route.completed;
+    amountCtrl.dispose();
+    notesCtrl.dispose();
   }
 
   void _confirmLogout() {
@@ -246,7 +278,9 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
     return OutlinedButton(
       onPressed: () {
         setDlgState(() {
-          final current = double.tryParse(controller.text.replaceAll(',', '').trim()) ?? 0.0;
+          final current =
+              double.tryParse(controller.text.replaceAll(',', '').trim()) ??
+                  0.0;
           controller.text = (current + amount).toStringAsFixed(0);
         });
       },
@@ -260,26 +294,20 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
     );
   }
 
-  void _openLogPosDialog() {
+  Future<void> _openLogPosDialog() async {
     String channel = 'pos_card';
     final amountCtrl = TextEditingController();
-    final terminalCtrl = TextEditingController(text: 'Moniepoint POS 1');
+    final terminalCtrl = TextEditingController();
     final refCtrl = TextEditingController();
     final vehicleCtrl = TextEditingController();
 
-    showDialog(
+    final route = DialogRoute<void>(
       context: context,
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setDlgState) {
             return AlertDialog(
-              title: const Row(
-                children: [
-                  Icon(Icons.point_of_sale, color: AppColors.pos),
-                  SizedBox(width: 8),
-                  Text('Log In-Between POS / Transfer Sale', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-                ],
-              ),
+              title: const Text('Add POS / transfer'),
               content: SizedBox(
                 width: 460,
                 child: SingleChildScrollView(
@@ -287,22 +315,35 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'Record card swipe or customer bank transfer directly at pump.',
-                        style: TextStyle(fontSize: 12, color: AppColors.muted),
+                        style: TextStyle(
+                            fontSize: 12,
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant),
                       ),
                       const SizedBox(height: 14),
                       DropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: channel,
                         decoration: const InputDecoration(
                           labelText: 'Payment Channel *',
-                          border: OutlineInputBorder(),
+                          border: const OutlineInputBorder(),
                           isDense: true,
                         ),
                         items: const [
-                          DropdownMenuItem(value: 'pos_card', child: Text('POS Card Payment (Debit Card)')),
-                          DropdownMenuItem(value: 'pos_transfer', child: Text('POS Transfer (Terminal Dynamic Account)')),
-                          DropdownMenuItem(value: 'bank_transfer', child: Text('Direct Station Bank Transfer')),
+                          DropdownMenuItem(
+                              value: 'pos_card',
+                              child:
+                                  const Text('POS Card Payment (Debit Card)')),
+                          DropdownMenuItem(
+                              value: 'pos_transfer',
+                              child: const Text(
+                                  'POS Transfer (Terminal Dynamic Account)')),
+                          DropdownMenuItem(
+                              value: 'bank_transfer',
+                              child:
+                                  const Text('Direct Station Bank Transfer')),
                         ],
                         onChanged: (val) {
                           if (val != null) setDlgState(() => channel = val);
@@ -311,12 +352,13 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                       const SizedBox(height: 12),
                       TextField(
                         controller: amountCtrl,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
                         decoration: const InputDecoration(
                           labelText: 'Amount Paid (₦) *',
                           hintText: 'e.g. 25,000',
                           prefixText: '₦ ',
-                          border: OutlineInputBorder(),
+                          border: const OutlineInputBorder(),
                           isDense: true,
                         ),
                       ),
@@ -327,8 +369,12 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                             child: TextField(
                               controller: terminalCtrl,
                               decoration: InputDecoration(
-                                labelText: channel == 'bank_transfer' ? 'Bank Account / Name' : 'POS Terminal Name *',
-                                hintText: channel == 'bank_transfer' ? 'Zenith Station Acc' : 'Moniepoint POS 1',
+                                labelText: channel == 'bank_transfer'
+                                    ? 'Bank Account / Name'
+                                    : 'POS Terminal Name *',
+                                hintText: channel == 'bank_transfer'
+                                    ? 'Receiving bank and account'
+                                    : 'Actual terminal identifier',
                                 border: const OutlineInputBorder(),
                                 isDense: true,
                               ),
@@ -341,7 +387,7 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                               decoration: const InputDecoration(
                                 labelText: 'RRN / Approval Ref',
                                 hintText: 'e.g. 001928374',
-                                border: OutlineInputBorder(),
+                                border: const OutlineInputBorder(),
                                 isDense: true,
                               ),
                             ),
@@ -354,7 +400,7 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                         decoration: const InputDecoration(
                           labelText: 'Customer Vehicle Plate (Optional)',
                           hintText: 'e.g. AAA-123-XY',
-                          border: OutlineInputBorder(),
+                          border: const OutlineInputBorder(),
                           isDense: true,
                         ),
                       ),
@@ -369,29 +415,40 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
                 ),
                 ElevatedButton.icon(
                   onPressed: () async {
-                    final amt = double.tryParse(amountCtrl.text.replaceAll(',', '').trim()) ?? 0.0;
+                    final amt = double.tryParse(
+                            amountCtrl.text.replaceAll(',', '').trim()) ??
+                        0.0;
                     if (amt <= 0) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text('Please enter a valid amount.'),
+                          content: const Text('Please enter a valid amount.'),
                           backgroundColor: AppColors.bad,
                         ),
                       );
                       return;
                     }
                     Navigator.pop(ctx);
-                    await state.recordPosTransaction(
+                    final saved = await state.recordPosTransaction(
                       paymentChannel: channel,
                       amount: amt,
-                      terminalName: terminalCtrl.text.trim().isEmpty ? null : terminalCtrl.text.trim(),
-                      referenceNumber: refCtrl.text.trim().isEmpty ? null : refCtrl.text.trim(),
-                      customerVehicle: vehicleCtrl.text.trim().isEmpty ? null : vehicleCtrl.text.trim(),
+                      terminalName: terminalCtrl.text.trim().isEmpty
+                          ? null
+                          : terminalCtrl.text.trim(),
+                      referenceNumber: refCtrl.text.trim().isEmpty
+                          ? null
+                          : refCtrl.text.trim(),
+                      customerVehicle: vehicleCtrl.text.trim().isEmpty
+                          ? null
+                          : vehicleCtrl.text.trim(),
                     );
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          backgroundColor: AppColors.ok,
-                          content: Text('POS sale of ${CurrencyFormatter.formatNaira(amt)} logged successfully.'),
+                          backgroundColor:
+                              saved == null ? AppColors.bad : AppColors.ok,
+                          content: Text(saved == null
+                              ? 'Could not record payment. Please try again.'
+                              : 'Payment recorded locally.'),
                         ),
                       );
                     }
@@ -409,704 +466,288 @@ class _AttendantHomeScreenState extends State<AttendantHomeScreen> {
         );
       },
     );
+    await Navigator.of(context).push(route);
+    await route.completed;
+    amountCtrl.dispose();
+    terminalCtrl.dispose();
+    refCtrl.dispose();
+    vehicleCtrl.dispose();
   }
+
+  Widget _section(String title, List<Widget> children) => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text(title, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            ...children,
+          ]),
+        ),
+      );
+
+  Widget _line(String label, String value) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 5),
+        child: Wrap(
+            spacing: 12,
+            runSpacing: 4,
+            alignment: WrapAlignment.spaceBetween,
+            children: [
+              Text(label),
+              Text(value, style: const TextStyle(fontWeight: FontWeight.w600))
+            ]),
+      );
 
   @override
   Widget build(BuildContext context) {
-    final nozzles = state.nozzles;
-    final unconfirmedCount = nozzles.where((n) => !n.isOpeningConfirmed).length;
-
+    final colors = Theme.of(context).colorScheme;
+    final shiftId = state.currentShiftId;
+    final drops = state.cashDrops
+        .where((d) => d.attendantId == widget.user.id && d.shiftId == shiftId)
+        .toList()
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    final payments = state.posTransactions
+        .where((p) => p.attendantId == widget.user.id && p.shiftId == shiftId)
+        .toList()
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    final credits = state.creditSalesRecords
+        .where((c) => c.attendantId == widget.user.id && c.shiftId == shiftId)
+        .toList();
+    final submitted = state.submissions
+        .where((s) => s.attendantId == widget.user.id && s.shiftId == shiftId);
+    final handover = submitted.isEmpty ? null : submitted.first;
+    final totalDrops = drops.fold(0.0, (sum, d) => sum + d.amount);
+    final confirmed = drops
+        .where((d) => d.isAcknowledged)
+        .fold(0.0, (sum, d) => sum + d.amount);
+    final pending = totalDrops - confirmed;
+    final nonCash = payments.fold(0.0, (sum, p) => sum + p.amount);
+    final credit = credits.fold(0.0, (sum, c) => sum + c.amount);
+    final readingsComplete = state.nozzles.isNotEmpty &&
+        state.nozzles
+            .every((n) => n.closingReading != null && n.isOpeningConfirmed);
+    final sales = state.currentForecourtSalesValue;
+    final adjustments = ShiftAdjustmentTotals(
+        state.adjustmentsForShift(shiftId, widget.user.id));
+    final expected =
+        handover?.expectedSalesValue ?? sales - adjustments.approvedFuelValue;
+    final amount = handover == null
+        ? totalDrops + nonCash + credit + adjustments.approvedExpenses
+        : handover.totalMoneyDeclared +
+            handover.creditSalesDeclared +
+            handover.approvedPumpExpenses;
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Attendant Forecourt Home', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text(
-              '${widget.user.displayName} · Forecourt On Duty · ${DateFormat('EEE dd MMM · h:mm a').format(DateTime.now())}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12, color: Colors.white70),
-            ),
-          ],
-        ),
+        title: const Text('My Shift'),
         actions: [
-          if (widget.onOpenCreditSale != null)
-            IconButton(
-              icon: const Icon(Icons.assignment_outlined),
-              tooltip: 'Record Fleet Credit Sale',
-              onPressed: widget.onOpenCreditSale,
-            ),
-          if (widget.onOpenFuelReturn != null)
-            IconButton(
-              icon: const Icon(Icons.replay_circle_filled_outlined),
-              tooltip: 'Calibration Pour-back',
-              onPressed: widget.onOpenFuelReturn,
-            ),
           IconButton(
-            icon: Icon(state.isDarkMode ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
-            tooltip: state.isDarkMode ? 'Daylight Mode' : 'Night Shift Mode',
-            onPressed: () => state.toggleTheme(),
-          ),
+              tooltip: state.isDarkMode ? 'Light mode' : 'Dark mode',
+              onPressed: state.toggleTheme,
+              icon: Icon(state.isDarkMode
+                  ? Icons.light_mode_outlined
+                  : Icons.dark_mode_outlined)),
           IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Log out',
-            onPressed: _confirmLogout,
-          ),
+              tooltip: 'Sign out',
+              onPressed: _confirmLogout,
+              icon: const Icon(Icons.logout)),
         ],
       ),
-      body: Column(
-        children: [
-          // Forecourt Network, Hardware, and Offline Sync Outbox status
-          ForecourtSyncBar(stationName: '${state.currentStationName} · Forecourt Island'),
-
-          Expanded(
+      body: Column(children: [
+        ForecourtSyncBar(stationName: state.currentStationName),
+        Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 820),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Welcome, ${widget.user.displayName.split(" ")[0]}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.w800,
-                                    color: AppColors.ink,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                const Text(
-                                  'Carry-forward opening readings & shift operations.',
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(fontSize: 13, color: AppColors.slate),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Flexible(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: AppColors.primary.withValues(alpha: 0.08),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
-                              ),
-                              child: Text(
-                                'PMS: ${CurrencyFormatter.formatNaira(state.pmsPrice)}/L | AGO: ${CurrencyFormatter.formatNaira(state.agoPrice)}/L',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.primary),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Assigned Nozzles Grid
-                      LayoutBuilder(
-                        builder: (context, constraints) {
-                          final isNarrow = constraints.maxWidth < 600;
-                          return Wrap(
-                            spacing: 12,
-                            runSpacing: 12,
-                            children: nozzles.map((nozzle) {
-                              return SizedBox(
-                                width: isNarrow ? double.infinity : (constraints.maxWidth - 24) / 3,
-                                child: Card(
-                                  elevation: 1,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(16),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Expanded(
-                                              child: Text(
-                                                'Nozzle ${nozzle.nozzleNumber} · ${nozzle.productName}',
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 15,
-                                                  color: AppColors.ink,
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            SizedBox(
-                                              height: 48,
-                                              child: InkWell(
-                                                borderRadius: BorderRadius.circular(20),
-                                                onTap: nozzle.isOpeningConfirmed
-                                                    ? null
-                                                    : () => _confirmNozzle(nozzle.nozzleNumber),
-                                                child: Padding(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                                                  child: Center(
-                                                    child: StatusChip(
-                                                      label: nozzle.isOpeningConfirmed
-                                                          ? 'Confirmed'
-                                                          : 'Confirm opening',
-                                                      type: nozzle.isOpeningConfirmed
-                                                          ? ChipType.ok
-                                                          : ChipType.warn,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          'Opening: ${CurrencyFormatter.formatLitres(nozzle.openingReading)} · Tank ${nozzle.tankCode}',
-                                          style: const TextStyle(fontSize: 13, color: AppColors.slate),
-                                        ),
-                                        if (nozzle.closingReading != null) ...[
-                                          const SizedBox(height: 6),
-                                          Text(
-                                            'Closing: ${CurrencyFormatter.formatLitres(nozzle.closingReading!)} (Sold: ${CurrencyFormatter.formatLitres(nozzle.litresSold)})',
-                                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.ok),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }).toList(),
-                          );
-                        },
-                      ),
-
-                      const SizedBox(height: 14),
-
-                      // Forecourt Drops & Intra-Shift Collections Card
-                      Card(
-                        elevation: 2,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          side: const BorderSide(
-                            color: AppColors.border,
-                            width: 1.0,
-                          ),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(18),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Expanded(
-                                    child: Row(
-                                      children: [
-                                        Container(
-                                          padding: const EdgeInsets.all(8),
-                                          decoration: BoxDecoration(
-                                            color: AppColors.ok.withValues(alpha: 0.12),
-                                            borderRadius: BorderRadius.circular(8),
-                                          ),
-                                          child: const Icon(Icons.account_balance_wallet, color: AppColors.ok, size: 20),
-                                        ),
-                                        const SizedBox(width: 10),
-                                        const Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                'Forecourt Drops & Non-Cash Collections',
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
-                                              ),
-                                              Text(
-                                                'Interim cash drops to safe & POS card/transfer logger',
-                                                maxLines: 2,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: TextStyle(fontSize: 12, color: AppColors.slate),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 16),
-
-                              // Quick metrics grid
-                              LayoutBuilder(
-                                builder: (context, constraints) {
-                                  final isMobile = constraints.maxWidth < 600;
-                                  final acknowledgedDrops = state.totalAttendantAcknowledgedDrops(widget.user.id);
-                                  final pendingDrops = state.totalAttendantPendingDrops(widget.user.id);
-                                  final totalDrops = acknowledgedDrops + pendingDrops;
-
-                                  return Wrap(
-                                    spacing: 10,
-                                    runSpacing: 10,
-                                    children: [
-                                      _buildPouchMetricBox(
-                                        'Total Cash Drops',
-                                        CurrencyFormatter.formatNaira(totalDrops),
-                                        AppColors.ok,
-                                        Icons.archive_outlined,
-                                        isMobile ? (constraints.maxWidth - 10) / 2 : (constraints.maxWidth - 30) / 4,
-                                        subtitle: pendingDrops > 0
-                                            ? '${CurrencyFormatter.formatNaira(pendingDrops)} awaiting sign-off'
-                                            : 'All acknowledged',
-                                      ),
-                                      _buildPouchMetricBox(
-                                        'Acknowledged by Vault',
-                                        CurrencyFormatter.formatNaira(acknowledgedDrops),
-                                        AppColors.primary,
-                                        Icons.verified_outlined,
-                                        isMobile ? (constraints.maxWidth - 10) / 2 : (constraints.maxWidth - 30) / 4,
-                                        subtitle: 'Signed off in cashier safe',
-                                      ),
-                                      _buildPouchMetricBox(
-                                        'POS / Card Slips',
-                                        CurrencyFormatter.formatNaira(state.totalAttendantPosCard(widget.user.id)),
-                                        AppColors.pos,
-                                        Icons.credit_card,
-                                        isMobile ? (constraints.maxWidth - 10) / 2 : (constraints.maxWidth - 30) / 4,
-                                      ),
-                                      _buildPouchMetricBox(
-                                        'Transfers Logged',
-                                        CurrencyFormatter.formatNaira(state.totalAttendantPosTransfer(widget.user.id) + state.totalAttendantBankTransfer(widget.user.id)),
-                                        AppColors.accent,
-                                        Icons.swap_horiz,
-                                        isMobile ? (constraints.maxWidth - 10) / 2 : (constraints.maxWidth - 30) / 4,
-                                      ),
-                                    ],
-                                  );
-                                },
-                              ),
-                              const SizedBox(height: 16),
-
-                              // Intra-shift Action Buttons
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: ElevatedButton.icon(
-                                      onPressed: _openCashDropDialog,
-                                      icon: const Icon(Icons.arrow_circle_up, size: 18),
-                                      label: const Text('Drop Cash to Cashier'),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: AppColors.ok,
-                                        foregroundColor: Colors.white,
-                                        padding: const EdgeInsets.symmetric(vertical: 12),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: ElevatedButton.icon(
-                                      onPressed: _openLogPosDialog,
-                                      icon: const Icon(Icons.point_of_sale, size: 18),
-                                      label: const Text('Log POS / Bank Transfer'),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: AppColors.pos,
-                                        foregroundColor: Colors.white,
-                                        padding: const EdgeInsets.symmetric(vertical: 12),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-
-                              // Recent Drops & POS Slips Activity
-                              if (state.cashDrops.where((d) => d.attendantId == widget.user.id).isNotEmpty ||
-                                  state.posTransactions.where((p) => p.attendantId == widget.user.id).isNotEmpty) ...[
-                                const SizedBox(height: 16),
-                                const Divider(height: 1),
-                                const SizedBox(height: 12),
-                                const Text(
-                                  "Today's Shift Submissions & POS Slips:",
-                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.slate),
-                                ),
-                                const SizedBox(height: 8),
-                                ...state.cashDrops
-                                    .where((d) => d.attendantId == widget.user.id)
-                                    .take(3)
-                                    .map((drop) {
-                                  return Padding(
-                                    padding: const EdgeInsets.only(bottom: 6),
-                                    child: Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Expanded(
-                                          child: Row(
-                                            children: [
-                                              const Icon(Icons.arrow_upward, size: 14, color: AppColors.ok),
-                                              const SizedBox(width: 6),
-                                              Flexible(
-                                                child: Text(
-                                                  'Cash Drop: ${CurrencyFormatter.formatNaira(drop.amount)}',
-                                                  maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
-                                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.ink),
-                                                ),
-                                              ),
-                                              if (drop.notes != null) ...[
-                                                const SizedBox(width: 6),
-                                                Flexible(
-                                                  child: Text(
-                                                    '(${drop.notes})',
-                                                    maxLines: 1,
-                                                    overflow: TextOverflow.ellipsis,
-                                                    style: const TextStyle(fontSize: 12, color: AppColors.muted),
-                                                  ),
-                                                ),
-                                              ],
-                                            ],
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        StatusChip(
-                                          label: drop.isAcknowledged ? 'Acknowledged' : 'Awaiting Cashier',
-                                          type: drop.isAcknowledged ? ChipType.ok : ChipType.warn,
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                }),
-                                ...state.posTransactions
-                                    .where((p) => p.attendantId == widget.user.id)
-                                    .take(3)
-                                    .map((pos) {
-                                  return Padding(
-                                    padding: const EdgeInsets.only(bottom: 6),
-                                    child: Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Expanded(
-                                          child: Row(
-                                            children: [
-                                              const Icon(Icons.credit_card, size: 14, color: AppColors.pos),
-                                              const SizedBox(width: 6),
-                                              Flexible(
-                                                child: Text(
-                                                  '${pos.channelDisplayName}: ${CurrencyFormatter.formatNaira(pos.amount)}',
-                                                  maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
-                                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.ink),
-                                                ),
-                                              ),
-                                              if (pos.referenceNumber != null) ...[
-                                                const SizedBox(width: 6),
-                                                Flexible(
-                                                  child: Text(
-                                                    'Ref: ${pos.referenceNumber}',
-                                                    maxLines: 1,
-                                                    overflow: TextOverflow.ellipsis,
-                                                    style: const TextStyle(fontSize: 12, color: AppColors.muted),
-                                                  ),
-                                                ),
-                                              ],
-                                            ],
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          pos.terminalName ?? 'POS',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(fontSize: 12, color: AppColors.slate, fontStyle: FontStyle.italic),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                }),
-                              ] else ...[
-                                const SizedBox(height: 14),
-                                const Divider(height: 1),
-                                const SizedBox(height: 10),
-                                Row(
-                                  children: [
-                                    const Icon(Icons.info_outline, size: 14, color: AppColors.muted),
-                                    const SizedBox(width: 6),
-                                    Expanded(
-                                      child: Text(
-                                        'No interim drops or POS slips recorded yet for this shift.',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(fontSize: 12, color: AppColors.slate, fontStyle: FontStyle.italic),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 14),
-
-                      // Forecourt Island Fleet & Calibration Actions (§3.4, §4.8)
-                      Card(
-                        elevation: 1,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        child: Padding(
-                          padding: const EdgeInsets.all(18),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Row(
-                                children: [
-                                  Icon(Icons.local_gas_station_rounded, color: AppColors.ink, size: 20),
-                                  SizedBox(width: 8),
-                                  Text(
-                                    'Fleet Credit & Calibration Actions',
-                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 4),
-                              const Text(
-                                'Record authorized fleet dispensing on signed requisitions or meter calibration pour-backs.',
-                                style: TextStyle(fontSize: 12, color: AppColors.slate),
-                              ),
-                              const SizedBox(height: 14),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: widget.onOpenCreditSale,
-                                      icon: const Icon(Icons.assignment_outlined, size: 18),
-                                      label: const Text('Fleet Credit Sale'),
-                                      style: OutlinedButton.styleFrom(
-                                        padding: const EdgeInsets.symmetric(vertical: 12),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: widget.onOpenFuelReturn,
-                                      icon: const Icon(Icons.replay_circle_filled_outlined, size: 18),
-                                      label: const Text('Calibration Pour-Back'),
-                                      style: OutlinedButton.styleFrom(
-                                        padding: const EdgeInsets.symmetric(vertical: 12),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 14),
-
-                      // Shift Checklist Card
-                      Card(
-                        elevation: 1,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        child: Padding(
-                          padding: const EdgeInsets.all(18),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Shift Operational Checklist',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.ink,
-                                ),
-                              ),
-                              const Divider(color: AppColors.border),
-                              _buildChecklistRow(
-                                'Confirm opening readings',
-                                unconfirmedCount == 0
-                                    ? const StatusChip(label: 'All Confirmed', type: ChipType.ok)
-                                    : StatusChip(label: '$unconfirmedCount left to confirm', type: ChipType.warn),
-                              ),
-                              _buildChecklistRow(
-                                'Submit closing readings',
-                                state.closingReadingsSubmitted
-                                    ? const StatusChip(label: 'Submitted', type: ChipType.ok)
-                                    : const StatusChip(label: 'Not started', type: ChipType.draft),
-                              ),
-                              _buildChecklistRow(
-                                'Submit remittance declaration',
-                                state.remittanceSubmitted
-                                    ? const StatusChip(label: 'Submitted', type: ChipType.ok)
-                                    : const StatusChip(label: 'Draft', type: ChipType.draft),
-                              ),
-                              _buildChecklistRow(
-                                'Active credit customers',
-                                Text(
-                                  '${state.creditCustomers.where((c) => c.outstanding > 0).length}',
-                                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.ink),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
+          padding: const EdgeInsets.all(16),
+          child: Center(
+              child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 900),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(widget.user.displayName,
+                      style: Theme.of(context).textTheme.headlineSmall),
+                  const SizedBox(height: 4),
+                  Text(
+                      '${state.currentStationName} · ${DateFormat('EEE, d MMM yyyy').format(DateTime.now())}',
+                      style: TextStyle(color: colors.onSurfaceVariant)),
+                  const SizedBox(height: 8),
+                  Text(
+                      'Readings, submissions and final handover for this shift.',
+                      style: TextStyle(color: colors.onSurfaceVariant)),
+                  const SizedBox(height: 16),
+                  _section('1. Pump readings & sales', [
+                    if (state.nozzles.isEmpty)
+                      const Text(
+                          'No assigned pumps. Ask your manager to configure this shift.'),
+                    for (final nozzle in state.nozzles) ...[
+                      Text('${nozzle.label} · ${nozzle.productName}',
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                      _line('Opening meter',
+                          '${nozzle.openingReading.toStringAsFixed(2)} L'),
+                      _line(
+                          'Closing meter',
+                          nozzle.closingReading == null
+                              ? 'Not recorded'
+                              : '${nozzle.closingReading!.toStringAsFixed(2)} L'),
+                      if (!nozzle.isOpeningConfirmed)
+                        OutlinedButton(
+                            onPressed: () =>
+                                _confirmNozzle(nozzle.nozzleNumber),
+                            child: const Text('Confirm opening reading')),
+                      if (nozzle.closingReading != null)
+                        Text(
+                            '${nozzle.litresSold.toStringAsFixed(2)} L × ${CurrencyFormatter.formatNaira(nozzle.pricePerLitre, includeDecimals: true)}/L = ${CurrencyFormatter.formatNaira(nozzle.salesValue, includeDecimals: true)}'),
+                      const Divider(height: 24),
                     ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-      bottomNavigationBar: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        decoration: const BoxDecoration(
-          color: AppColors.cardSurface,
-          border: Border(top: BorderSide(color: AppColors.border)),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              flex: 2,
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.speed, size: 20, color: Colors.white),
-                onPressed: widget.onOpenClosingReadings,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                label: const Text('Enter Closing Readings', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.receipt_long, size: 18, color: AppColors.ink),
-                onPressed: widget.onOpenRemittance,
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                label: const Text('Remittance', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.ink)),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: OutlinedButton(
-                onPressed: _confirmLogout,
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                child: const Text('Log out', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.ink)),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildChecklistRow(String title, Widget trailing) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(
-            child: Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 14, color: AppColors.ink),
-            ),
-          ),
-          const SizedBox(width: 8),
-          trailing,
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPouchMetricBox(
-    String label,
-    String value,
-    Color color,
-    IconData icon,
-    double width, {
-    String? subtitle,
-  }) {
-    return Container(
-      width: width,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, size: 14, color: color),
-              const SizedBox(width: 5),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12, color: AppColors.slate, fontWeight: FontWeight.w600),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-              // Sky accent fails AA on light cards; bank blue is its AA twin.
-              color: Theme.of(context).brightness == Brightness.dark || color != AppColors.accent ? color : AppColors.bank,
-            ),
-          ),
-          if (subtitle != null) ...[
-            const SizedBox(height: 2),
-            Text(
-              subtitle,
-              maxLines: 1,
-              style: const TextStyle(fontSize: 12, color: AppColors.muted),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ],
-      ),
+                    _line(
+                        'Metered sales',
+                        readingsComplete
+                            ? CurrencyFormatter.formatNaira(sales)
+                            : 'Awaiting complete readings'),
+                    OutlinedButton.icon(
+                        onPressed: handover != null
+                            ? null
+                            : widget.onOpenClosingReadings,
+                        icon: const Icon(Icons.speed),
+                        label: const Text('Record closing readings')),
+                  ]),
+                  _section('2. Cash submissions', [
+                    if (drops.isEmpty)
+                      const Text('No cash submitted during this shift yet.'),
+                    for (var i = 0; i < drops.length; i++) ...[
+                      _line(
+                          'Submission ${i + 1} · ${DateFormat('HH:mm').format(drops[i].createdAt.toLocal())}',
+                          CurrencyFormatter.formatNaira(drops[i].amount)),
+                      Text(
+                          drops[i].isAcknowledged
+                              ? 'Confirmed by cashier'
+                              : 'Awaiting cashier confirmation',
+                          style: TextStyle(color: colors.onSurfaceVariant)),
+                      if (drops[i].notes?.isNotEmpty ?? false)
+                        Text(drops[i].notes!),
+                      const Divider(height: 20),
+                    ],
+                    _line('Total cash submitted',
+                        CurrencyFormatter.formatNaira(totalDrops)),
+                    if (pending > 0)
+                      _line('Awaiting confirmation',
+                          CurrencyFormatter.formatNaira(pending)),
+                    OutlinedButton.icon(
+                        onPressed:
+                            handover != null ? null : _openCashDropDialog,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add cash submission')),
+                  ]),
+                  _section('3. Other payments & credit', [
+                    if (payments.isEmpty && credits.isEmpty)
+                      const Text('No other payments recorded.'),
+                    for (final payment in payments)
+                      _line(
+                          '${payment.channelDisplayName} · ${DateFormat('HH:mm').format(payment.createdAt.toLocal())}',
+                          CurrencyFormatter.formatNaira(payment.amount)),
+                    for (final sale in credits)
+                      _line('Credit · ${sale.customerName}',
+                          CurrencyFormatter.formatNaira(sale.amount)),
+                    Wrap(spacing: 8, runSpacing: 8, children: [
+                      OutlinedButton(
+                          onPressed:
+                              handover != null ? null : _openLogPosDialog,
+                          child: const Text('Add POS / transfer')),
+                      OutlinedButton(
+                          onPressed:
+                              handover != null ? null : widget.onOpenCreditSale,
+                          child: const Text('Add credit sale')),
+                    ]),
+                  ]),
+                  _section('4. Expenses & non-sale fuel', [
+                    const Text(
+                        'Only approved entries affect reconciliation. Fuel use is separate from cash spending.'),
+                    const SizedBox(height: 12),
+                    ShiftAdjustmentLedger(entries: adjustments.entries),
+                    Wrap(spacing: 8, runSpacing: 8, children: [
+                      OutlinedButton(
+                          onPressed: handover != null
+                              ? null
+                              : widget.onOpenPumpExpense,
+                          child: const Text('Add pump expense')),
+                      OutlinedButton(
+                          onPressed:
+                              handover != null ? null : widget.onOpenFuelReturn,
+                          child: const Text('Fuel return / internal use')),
+                    ]),
+                  ]),
+                  _section('5. Final cash handover', [
+                    const Text(
+                        'The remaining sales cash handed to the cashier at the end of this shift. Do not include earlier submissions again.'),
+                    const SizedBox(height: 8),
+                    _line(
+                        'Final cash handed over',
+                        handover == null
+                            ? 'Not submitted'
+                            : CurrencyFormatter.formatNaira(
+                                handover.finalCashHandover)),
+                    if (handover != null) Text(handover.status),
+                    FilledButton.icon(
+                        onPressed: handover != null ||
+                                !state.closingReadingsSubmitted ||
+                                pending > 0 ||
+                                adjustments.hasPending
+                            ? null
+                            : widget.onOpenRemittance,
+                        icon: const Icon(Icons.fact_check_outlined),
+                        label: const Text('Review & submit final handover')),
+                    if (handover == null && !state.closingReadingsSubmitted)
+                      const Text(
+                          'Save closing readings before the final handover.'),
+                    if (pending > 0)
+                      const Text(
+                          'The cashier must confirm earlier cash submissions before you finalize.'),
+                    if (adjustments.hasPending)
+                      const Text(
+                          'Resolve pending expenses and non-sale fuel entries before final handover.'),
+                  ]),
+                  _section('Shift reconciliation', [
+                    _line(
+                        'Gross metered value',
+                        readingsComplete
+                            ? CurrencyFormatter.formatNaira(sales)
+                            : 'Not ready'),
+                    _line(
+                        'Approved non-sale fuel',
+                        CurrencyFormatter.formatNaira(
+                            handover?.approvedNonSaleFuel ??
+                                adjustments.approvedFuelValue)),
+                    _line(
+                        'Expected collectible sales',
+                        readingsComplete
+                            ? CurrencyFormatter.formatNaira(expected)
+                            : 'Not ready'),
+                    _line(
+                        'Approved cash expenses',
+                        CurrencyFormatter.formatNaira(
+                            handover?.approvedPumpExpenses ??
+                                adjustments.approvedExpenses)),
+                    _line(
+                        handover == null
+                            ? 'Recorded so far'
+                            : 'Total accounted for',
+                        CurrencyFormatter.formatNaira(amount)),
+                    if (readingsComplete)
+                      _line(
+                          handover == null
+                              ? 'Still to account for'
+                              : 'Difference',
+                          CurrencyFormatter.formatNaira(
+                              handover == null
+                                  ? expected - amount
+                                  : handover.variance,
+                              includeDecimals: true)),
+                    const Text(
+                        'Cash submissions + final handover + POS / transfers + credit sales + approved cash expenses. Approved non-sale fuel is excluded from collectible sales.'),
+                  ]),
+                ]),
+          )),
+        )),
+      ]),
     );
   }
 }

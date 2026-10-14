@@ -3,6 +3,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/navigation/shell_back_guard.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/status_chip.dart';
+import '../../core/widgets/operations_workspace.dart';
 import '../../models/station.dart';
 import '../../models/user_profile.dart';
 import '../../state/station_app_state.dart';
@@ -10,7 +11,7 @@ import '../../state/station_app_state.dart';
 /// Staff & Attendant Management Screen (BRD v3 §2.1, §2.2, §2.3, §4.7)
 ///
 /// Features:
-/// - Zero Demo Data: strictly binds to live database records or genuine empty states.
+/// Staff records are loaded from the configured database.
 /// - Full Onboarding Fields: Name, Display Name, Role, Station, Phone,
 ///   Residential Address, Shortee / Guarantor Name, Shortee Phone & Address, and 4-digit PIN.
 /// - Role Boundaries:
@@ -29,10 +30,12 @@ class StaffManagementScreen extends StatefulWidget {
   State<StaffManagementScreen> createState() => _StaffManagementScreenState();
 }
 
-class _StaffManagementScreenState extends State<StaffManagementScreen> with UnsavedWorkAware {
+class _StaffManagementScreenState extends State<StaffManagementScreen>
+    with UnsavedWorkAware {
   final state = StationAppState.instance;
 
   String _searchQuery = '';
+  final _searchController = TextEditingController();
   UserRole? _filterRole;
   String _filterStation = 'All';
   bool _isProcessing = false;
@@ -63,6 +66,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
 
   @override
   void dispose() {
+    _searchController.dispose();
     ShellBackGuard.unregister(this);
     state.removeListener(_onStateChanged);
     super.dispose();
@@ -77,16 +81,25 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
   List<UserProfile> get _filteredStaff {
     return state.staff.where((s) {
       if (_filterRole != null && s.role != _filterRole) return false;
-      if (_filterStation != 'All' && !s.stationName.contains(_filterStation)) return false;
+      if (_filterStation != 'All' && !s.stationName.contains(_filterStation))
+        return false;
       if (_searchQuery.isNotEmpty) {
         final query = _searchQuery.toLowerCase();
         final matchesName = s.fullName.toLowerCase().contains(query);
         final matchesDisplay = s.displayName.toLowerCase().contains(query);
         final matchesPhone = s.phone?.toLowerCase().contains(query) ?? false;
-        final matchesAddress = s.address?.toLowerCase().contains(query) ?? false;
-        final matchesSurety = s.suretyName?.toLowerCase().contains(query) ?? false;
-        final matchesSuretyPhone = s.suretyPhone?.toLowerCase().contains(query) ?? false;
-        if (!matchesName && !matchesDisplay && !matchesPhone && !matchesAddress && !matchesSurety && !matchesSuretyPhone) {
+        final matchesAddress =
+            s.address?.toLowerCase().contains(query) ?? false;
+        final matchesSurety =
+            s.suretyName?.toLowerCase().contains(query) ?? false;
+        final matchesSuretyPhone =
+            s.suretyPhone?.toLowerCase().contains(query) ?? false;
+        if (!matchesName &&
+            !matchesDisplay &&
+            !matchesPhone &&
+            !matchesAddress &&
+            !matchesSurety &&
+            !matchesSuretyPhone) {
           return false;
         }
       }
@@ -94,272 +107,377 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
     }).toList();
   }
 
+  void _openStaffDetails(UserProfile staff) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      builder: (ctx) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  const Expanded(
+                      child: Text('Staff profile',
+                          style: TextStyle(
+                              fontSize: 20, fontWeight: FontWeight.w600))),
+                  IconButton(
+                      tooltip: 'Close profile',
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close)),
+                ]),
+                const SizedBox(height: 12),
+                _buildStaffCard(staff),
+              ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _staffActions(UserProfile staff) => PopupMenuButton<String>(
+        tooltip: 'Actions for ${staff.fullName}',
+        onSelected: (action) {
+          switch (action) {
+            case 'details':
+              _openStaffDetails(staff);
+              break;
+            case 'salary':
+              _openEditSalaryDialog(staff);
+              break;
+            case 'pin':
+              _openResetPinDialog(staff);
+              break;
+            case 'status':
+              _toggleStaffStatus(staff);
+              break;
+          }
+        },
+        itemBuilder: (context) => [
+          const PopupMenuItem(value: 'details', child: Text('View profile')),
+          if (_isDirector)
+            const PopupMenuItem(
+                value: 'salary', child: Text('Edit base salary')),
+          const PopupMenuItem(value: 'pin', child: Text('Reset PIN')),
+          PopupMenuItem(
+              value: 'status',
+              child: Text(
+                  staff.isActive ? 'Deactivate access' : 'Reactivate access')),
+        ],
+        icon: const Icon(Icons.more_horiz, size: 20),
+      );
+
   @override
   Widget build(BuildContext context) {
     final staffList = _filteredStaff;
-    final totalAttendants = state.staff.where((s) => s.role == UserRole.attendant).length;
-    final totalCashiers = state.staff.where((s) => s.role == UserRole.cashier).length;
-    final totalManagers = state.staff.where((s) => s.role == UserRole.manager).length;
-    final totalActive = state.staff.where((s) => s.isActive).length;
-
+    final colors = Theme.of(context).colorScheme;
+    final activeCount = state.staff.where((s) => s.isActive).length;
+    final attendantCount =
+        state.staff.where((s) => s.role == UserRole.attendant).length;
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          tooltip: 'Back',
-          onPressed: widget.onBack,
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Staff & Attendant Management',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            Text(
-              _isDirector
-                  ? 'Executive Director · Full Access & Payroll'
-                  : 'Branch Manager · Staff Onboarding & Forecourt PINs',
-              style: const TextStyle(fontSize: 12, color: Colors.white70),
-            ),
-          ],
-        ),
+        automaticallyImplyLeading: false,
+        title: const Text('People & access'),
         actions: [
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Padding(
-              padding: const EdgeInsets.only(right: 12),
-              child: ElevatedButton.icon(
-                onPressed: _isProcessing ? null : _openOnboardStaffDialog,
-                icon: _isProcessing
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Icon(Icons.person_add, size: 18),
-                label: Text(_isProcessing ? 'Processing...' : 'Onboard New Staff'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.bank,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(48, 48),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                ),
-              ),
-            ),
-          ),
+          IconButton(
+              tooltip: 'Add staff member',
+              onPressed: _isProcessing ? null : _openOnboardStaffDialog,
+              icon: const Icon(Icons.person_add_outlined)),
+          const SizedBox(width: 12),
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1000),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // KPI Summary Strip
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
+        padding: const EdgeInsets.all(24),
+        child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1240),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildMetricChip('Total Registered Staff', '${state.staff.length}', AppColors.ink, Icons.badge),
-                    _buildMetricChip('Pump Attendants', '$totalAttendants', AppColors.primary, Icons.local_gas_station),
-                    _buildMetricChip('Cashiers', '$totalCashiers', AppColors.pos, Icons.point_of_sale),
-                    _buildMetricChip('Branch Managers', '$totalManagers', AppColors.amber, Icons.manage_accounts),
-                    _buildMetricChip('Active On Duty', '$totalActive', AppColors.ok, Icons.check_circle_outline),
-                  ],
-                ),
-                const SizedBox(height: 20),
-
-                // Search & Filter Toolbar
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
+                    Text('Staff directory',
+                        style: Theme.of(context).textTheme.headlineMedium),
+                    const SizedBox(height: 6),
+                    Text(
+                        'Manage station assignments, sign-in access and staff profiles.',
+                        style: TextStyle(
+                            fontSize: 13, color: colors.onSurfaceVariant)),
+                    const SizedBox(height: 24),
+                    LayoutBuilder(builder: (context, constraints) {
+                      final columns = constraints.maxWidth >= 800
+                          ? 4
+                          : constraints.maxWidth >= 300
+                              ? 2
+                              : 1;
+                      final width =
+                          (constraints.maxWidth - (columns - 1) * 12) / columns;
+                      final metrics = [
+                        WorkspaceMetric(
+                            label: 'Registered staff',
+                            value: '${state.staff.length}',
+                            detail: 'Profiles in the loaded directory'),
+                        WorkspaceMetric(
+                            label: 'Active access',
+                            value: '$activeCount',
+                            detail: 'Enabled staff accounts'),
+                        WorkspaceMetric(
+                            label: 'Pump attendants',
+                            value: '$attendantCount',
+                            detail: 'Forecourt staff'),
+                        WorkspaceMetric(
+                            label: 'Inactive access',
+                            value: '${state.staff.length - activeCount}',
+                            detail: 'Disabled staff accounts'),
+                      ];
+                      return Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children: metrics
+                              .map((m) => SizedBox(width: width, child: m))
+                              .toList());
+                    }),
+                    const SizedBox(height: 24),
+                    Container(
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                          color: colors.surface,
+                          border: Border.all(color: colors.outlineVariant),
+                          borderRadius: BorderRadius.circular(8)),
+                      child: LayoutBuilder(builder: (context, constraints) {
+                        final controls = [
+                          SizedBox(
+                              width: constraints.maxWidth < 700
+                                  ? constraints.maxWidth
+                                  : 320,
                               child: TextField(
+                                controller: _searchController,
                                 decoration: InputDecoration(
-                                  prefixIcon: const Icon(Icons.search, color: AppColors.muted),
-                                  hintText: 'Search by name, phone, address, or shortee (guarantor)...',
-                                  isDense: true,
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: const BorderSide(color: AppColors.border),
-                                  ),
+                                  prefixIcon:
+                                      const Icon(Icons.search, size: 19),
+                                  hintText: 'Search name, phone or guarantor',
+                                  suffixIcon: _searchQuery.isEmpty
+                                      ? null
+                                      : IconButton(
+                                          tooltip: 'Clear search',
+                                          onPressed: () {
+                                            _searchController.clear();
+                                            setState(() => _searchQuery = '');
+                                          },
+                                          icon:
+                                              const Icon(Icons.close, size: 17),
+                                        ),
                                 ),
-                                onChanged: (val) => setState(() => _searchQuery = val.trim()),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            if (_isDirector) ...[
-                              Builder(
-                                builder: (context) {
-                                  final stationOptions = ['All', ..._activeStations.map((s) => s.name)];
-                                  final currentVal = stationOptions.contains(_filterStation) ? _filterStation : 'All';
-                                  return DropdownButton<String>(
-                                    value: currentVal,
-                                    underline: const SizedBox(),
-                                    items: stationOptions.map((name) {
-                                      return DropdownMenuItem(
-                                        value: name,
-                                        child: Text(name == 'All' ? 'All Stations' : name),
-                                      );
-                                    }).toList(),
-                                    onChanged: (val) {
-                                      if (val != null) setState(() => _filterStation = val);
-                                    },
-                                  );
-                                },
-                              ),
-                              const SizedBox(width: 8),
-                            ],
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        // Role Filter Tabs
-                        SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
-                            children: [
-                              _buildRoleFilterChip(null, 'All Roles (${state.staff.length})'),
-                              const SizedBox(width: 8),
-                              _buildRoleFilterChip(UserRole.attendant, 'Attendants ($totalAttendants)'),
-                              const SizedBox(width: 8),
-                              _buildRoleFilterChip(UserRole.cashier, 'Cashiers ($totalCashiers)'),
-                              const SizedBox(width: 8),
-                              _buildRoleFilterChip(UserRole.manager, 'Managers ($totalManagers)'),
-                              const SizedBox(width: 8),
-                              _buildRoleFilterChip(
-                                UserRole.director,
-                                'HQ Directors (${state.staff.where((s) => s.role == UserRole.director).length})',
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+                                onChanged: (value) =>
+                                    setState(() => _searchQuery = value.trim()),
+                              )),
+                          SizedBox(
+                              width: constraints.maxWidth < 460
+                                  ? constraints.maxWidth
+                                  : 180,
+                              child: DropdownButtonFormField<UserRole?>(
+                                key: ValueKey(_filterRole),
+                                initialValue: _filterRole,
+                                decoration:
+                                    const InputDecoration(labelText: 'Role'),
+                                items: [
+                                  const DropdownMenuItem<UserRole?>(
+                                      value: null, child: Text('All roles')),
+                                  ...UserRole.values.map((role) =>
+                                      DropdownMenuItem<UserRole?>(
+                                          value: role,
+                                          child: Text(_roleLabel(role)))),
+                                ],
+                                onChanged: (role) =>
+                                    setState(() => _filterRole = role),
+                              )),
+                          if (_isDirector)
+                            SizedBox(
+                                width: constraints.maxWidth < 460
+                                    ? constraints.maxWidth
+                                    : 210,
+                                child: DropdownButtonFormField<String>(
+                                  key: ValueKey(_filterStation),
+                                  initialValue: _activeStations
+                                          .any((s) => s.name == _filterStation)
+                                      ? _filterStation
+                                      : 'All',
+                                  isExpanded: true,
+                                  decoration: const InputDecoration(
+                                      labelText: 'Station'),
+                                  items: [
+                                    const DropdownMenuItem(
+                                        value: 'All',
+                                        child: Text('All stations')),
+                                    ..._activeStations.map((s) =>
+                                        DropdownMenuItem(
+                                            value: s.name,
+                                            child: Text(s.name,
+                                                overflow:
+                                                    TextOverflow.ellipsis))),
+                                  ],
+                                  onChanged: (value) => setState(
+                                      () => _filterStation = value ?? 'All'),
+                                )),
+                          ElevatedButton.icon(
+                              onPressed: _isProcessing
+                                  ? null
+                                  : _openOnboardStaffDialog,
+                              icon: const Icon(Icons.add, size: 17),
+                              label: const Text('Add staff member')),
+                        ];
+                        return Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: controls);
+                      }),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // List of Staff Cards or Zero State
-                if (staffList.isEmpty)
-                  Container(
-                    padding: const EdgeInsets.all(40),
-                    alignment: Alignment.center,
-                    child: Column(
-                      children: [
-                        const Icon(Icons.people_outline, size: 56, color: AppColors.muted),
-                        const SizedBox(height: 12),
-                        Text(
-                          state.staff.isEmpty
-                              ? 'Zero Registered Staff'
-                              : 'No staff profiles match this filter',
-                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          state.staff.isEmpty
-                              ? 'No staff members have been onboarded yet. Onboard attendants and cashiers with their residential address, shortee (guarantor), and PIN.'
-                              : 'Try clearing your search query or role filter.',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(fontSize: 14, color: AppColors.muted),
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton.icon(
-                          onPressed: _openOnboardStaffDialog,
-                          icon: const Icon(Icons.person_add),
-                          label: const Text('Onboard New Staff'),
-                        ),
-                      ],
+                    const SizedBox(height: 20),
+                    WorkspaceSection(
+                      title: 'Staff records',
+                      subtitle: '${staffList.length} matching profiles',
+                      child: staffList.isEmpty
+                          ? Padding(
+                              padding: const EdgeInsets.all(36),
+                              child: Column(children: [
+                                Icon(Icons.people_outline,
+                                    size: 32, color: colors.onSurfaceVariant),
+                                const SizedBox(height: 12),
+                                Text(
+                                    state.staff.isEmpty
+                                        ? 'Add your first staff member'
+                                        : 'No matching staff',
+                                    style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600)),
+                                const SizedBox(height: 8),
+                                Text(
+                                    state.staff.isEmpty
+                                        ? 'Create a profile with station assignment and sign-in access.'
+                                        : 'Try another name, role or station.',
+                                    textAlign: TextAlign.center,
+                                    style:
+                                        Theme.of(context).textTheme.bodySmall),
+                                const SizedBox(height: 16),
+                                if (state.staff.isEmpty)
+                                  OutlinedButton(
+                                      onPressed: _openOnboardStaffDialog,
+                                      child: const Text('Add staff member'))
+                                else
+                                  TextButton(
+                                      onPressed: () {
+                                        _searchController.clear();
+                                        setState(() {
+                                          _searchQuery = '';
+                                          _filterRole = null;
+                                          _filterStation = 'All';
+                                        });
+                                      },
+                                      child: const Text('Clear all filters')),
+                              ]),
+                            )
+                          : LayoutBuilder(builder: (context, constraints) {
+                              if (constraints.maxWidth < 700) {
+                                return Column(children: [
+                                  for (var i = 0;
+                                      i < staffList.length;
+                                      i++) ...[
+                                    if (i > 0)
+                                      Divider(
+                                          height: 1,
+                                          color: colors.outlineVariant),
+                                    ListTile(
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                              horizontal: 18, vertical: 8),
+                                      title: Text(staffList[i].fullName,
+                                          style: const TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w600)),
+                                      subtitle: Text(
+                                          '${_roleLabel(staffList[i].role)} · ${staffList[i].isActive ? 'Active' : 'Inactive'}\n${staffList[i].stationName}',
+                                          style: TextStyle(
+                                              fontSize: 12,
+                                              color: colors.onSurfaceVariant)),
+                                      trailing: _staffActions(staffList[i]),
+                                      onTap: () =>
+                                          _openStaffDetails(staffList[i]),
+                                    ),
+                                  ],
+                                ]);
+                              }
+                              return SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: DataTable(
+                                    columns: [
+                                      const DataColumn(label: Text('NAME')),
+                                      const DataColumn(label: Text('ROLE')),
+                                      const DataColumn(label: Text('STATION')),
+                                      const DataColumn(label: Text('ACCESS')),
+                                      if (_isDirector)
+                                        const DataColumn(
+                                            label: Text('BASE SALARY'),
+                                            numeric: true),
+                                      const DataColumn(label: Text('ACTIONS')),
+                                    ],
+                                    rows: staffList
+                                        .map((staff) => DataRow(cells: [
+                                              DataCell(
+                                                  Text(staff.fullName,
+                                                      style: const TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w600)),
+                                                  onTap: () =>
+                                                      _openStaffDetails(staff)),
+                                              DataCell(
+                                                  Text(_roleLabel(staff.role))),
+                                              DataCell(Text(staff.stationName)),
+                                              DataCell(StatusChip(
+                                                  label: staff.isActive
+                                                      ? 'Active'
+                                                      : 'Inactive',
+                                                  type: staff.isActive
+                                                      ? ChipType.ok
+                                                      : ChipType.draft)),
+                                              if (_isDirector)
+                                                DataCell(Text(CurrencyFormatter
+                                                    .formatNaira(
+                                                        staff.baseSalary))),
+                                              DataCell(_staffActions(staff)),
+                                            ]))
+                                        .toList(),
+                                  ));
+                            }),
                     ),
-                  )
-                else
-                  ListView.separated(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: staffList.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 12),
-                    itemBuilder: (context, index) {
-                      final staff = staffList[index];
-                      return _buildStaffCard(staff);
-                    },
-                  ),
-              ],
-            ),
-          ),
-        ),
+                    const SizedBox(height: 24),
+                  ]),
+            )),
       ),
     );
   }
 
-  Widget _buildMetricChip(String label, String value, Color color, IconData icon) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.cardSurface,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 18, color: color),
-          const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  // Amber fails AA on light cards; warnInk is its AA twin.
-                  color: Theme.of(context).brightness == Brightness.dark || color != AppColors.amber ? color : AppColors.warnInk,
-                ),
-              ),
-              Text(
-                label,
-                style: const TextStyle(fontSize: 12, color: AppColors.muted),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRoleFilterChip(UserRole? role, String label) {
-    final isSelected = _filterRole == role;
-    return ChoiceChip(
-      label: Text(label),
-      selected: isSelected,
-      onSelected: (val) {
-        setState(() => _filterRole = val ? role : null);
-      },
-      selectedColor: AppColors.primary.withValues(alpha: 0.15),
-      labelStyle: TextStyle(
-        fontSize: 12,
-        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-        color: isSelected ? AppColors.primary : AppColors.ink,
-      ),
-    );
-  }
+  String _roleLabel(UserRole role) => switch (role) {
+        UserRole.attendant => 'Attendant',
+        UserRole.cashier => 'Cashier',
+        UserRole.manager => 'Manager',
+        UserRole.director => 'Director',
+      };
 
   Widget _buildStaffCard(UserProfile staff) {
-    final roleColor = _getRoleColor(staff.role, Theme.of(context).brightness == Brightness.dark);
+    final roleColor = _getRoleColor(
+        staff.role, Theme.of(context).brightness == Brightness.dark);
 
     return Card(
       elevation: 1,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: staff.isActive ? AppColors.border : AppColors.border.withValues(alpha: 0.5),
+          color: staff.isActive
+              ? AppColors.border
+              : AppColors.border.withValues(alpha: 0.5),
         ),
       ),
       child: Padding(
@@ -398,7 +516,9 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: staff.isActive ? AppColors.ink : AppColors.muted,
+                                color: staff.isActive
+                                    ? AppColors.ink
+                                    : AppColors.muted,
                               ),
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -407,7 +527,8 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                           Flexible(
                             child: Text(
                               '(${staff.displayName})',
-                              style: const TextStyle(fontSize: 13, color: AppColors.muted),
+                              style: const TextStyle(
+                                  fontSize: 13, color: AppColors.muted),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
@@ -425,7 +546,8 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
                               color: roleColor.withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(6),
@@ -442,34 +564,43 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Icon(Icons.location_on_outlined, size: 14, color: AppColors.muted),
+                              const Icon(Icons.location_on_outlined,
+                                  size: 14, color: AppColors.muted),
                               const SizedBox(width: 4),
-                              Text(staff.stationName, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+                              Text(staff.stationName,
+                                  style: const TextStyle(
+                                      fontSize: 12, color: AppColors.muted)),
                             ],
                           ),
                           if (staff.phone != null && staff.phone!.isNotEmpty)
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(Icons.phone_outlined, size: 14, color: AppColors.muted),
+                                const Icon(Icons.phone_outlined,
+                                    size: 14, color: AppColors.muted),
                                 const SizedBox(width: 4),
-                                Text(staff.phone!, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+                                Text(staff.phone!,
+                                    style: const TextStyle(
+                                        fontSize: 12, color: AppColors.muted)),
                               ],
                             ),
                         ],
                       ),
 
                       // Staff Residential Address
-                      if (staff.address != null && staff.address!.isNotEmpty) ...[
+                      if (staff.address != null &&
+                          staff.address!.isNotEmpty) ...[
                         const SizedBox(height: 6),
                         Row(
                           children: [
-                            const Icon(Icons.home_outlined, size: 14, color: AppColors.slate),
+                            const Icon(Icons.home_outlined,
+                                size: 14, color: AppColors.slate),
                             const SizedBox(width: 4),
                             Expanded(
                               child: Text(
                                 'Address: ${staff.address}',
-                                style: const TextStyle(fontSize: 12, color: AppColors.slate),
+                                style: const TextStyle(
+                                    fontSize: 12, color: AppColors.slate),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
@@ -480,7 +611,8 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                       // Guarantor / Shortee Section
                       const SizedBox(height: 8),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 6),
                         decoration: BoxDecoration(
                           color: AppColors.lightBackground,
                           borderRadius: BorderRadius.circular(6),
@@ -488,26 +620,36 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.verified_user_outlined, size: 15, color: AppColors.slate),
+                            const Icon(Icons.verified_user_outlined,
+                                size: 15, color: AppColors.slate),
                             const SizedBox(width: 6),
                             Text(
                               'Shortee (Guarantor): ',
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.ink),
+                              style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.ink),
                             ),
-                            if (staff.suretyName != null && staff.suretyName!.isNotEmpty) ...[
+                            if (staff.suretyName != null &&
+                                staff.suretyName!.isNotEmpty) ...[
                               Flexible(
                                 child: Text(
                                   '${staff.suretyName} (${staff.suretyPhone ?? "No phone"})',
-                                  style: const TextStyle(fontSize: 12, color: AppColors.ink, fontWeight: FontWeight.w500),
+                                  style: const TextStyle(
+                                      fontSize: 12,
+                                      color: AppColors.ink,
+                                      fontWeight: FontWeight.w500),
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                              if (staff.suretyAddress != null && staff.suretyAddress!.isNotEmpty) ...[
+                              if (staff.suretyAddress != null &&
+                                  staff.suretyAddress!.isNotEmpty) ...[
                                 const SizedBox(width: 6),
                                 Flexible(
                                   child: Text(
                                     '· ${staff.suretyAddress}',
-                                    style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                                    style: const TextStyle(
+                                        fontSize: 12, color: AppColors.muted),
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
@@ -515,7 +657,10 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                             ] else ...[
                               const Text(
                                 'Not recorded',
-                                style: TextStyle(fontSize: 12, color: AppColors.muted, fontStyle: FontStyle.italic),
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.muted,
+                                    fontStyle: FontStyle.italic),
                               ),
                             ],
                           ],
@@ -525,21 +670,29 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                       // BASE SALARY ROW (Director vs Manager Strict Separation §4.7)
                       const SizedBox(height: 6),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 6),
                         decoration: BoxDecoration(
-                          color: _isDirector ? AppColors.okSurface : AppColors.lightBackground,
+                          color: _isDirector
+                              ? AppColors.okSurface
+                              : AppColors.lightBackground,
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(
-                            color: _isDirector ? const Color(0xFFBBF7D0) : AppColors.border,
+                            color: _isDirector
+                                ? const Color(0xFFBBF7D0)
+                                : AppColors.border,
                           ),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(
-                              _isDirector ? Icons.payments_outlined : Icons.lock_outline,
+                              _isDirector
+                                  ? Icons.payments_outlined
+                                  : Icons.lock_outline,
                               size: 15,
-                              color: _isDirector ? AppColors.ok : AppColors.muted,
+                              color:
+                                  _isDirector ? AppColors.ok : AppColors.muted,
                             ),
                             const SizedBox(width: 6),
                             Text(
@@ -547,7 +700,9 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
-                                color: _isDirector ? AppColors.ink : AppColors.muted,
+                                color: _isDirector
+                                    ? AppColors.ink
+                                    : AppColors.muted,
                               ),
                             ),
                             if (_isDirector) ...[
@@ -562,7 +717,8 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                               const SizedBox(width: 8),
                               TextButton.icon(
                                 onPressed: () => _openEditSalaryDialog(staff),
-                                icon: const Icon(Icons.edit, size: 14, color: AppColors.primary),
+                                icon: const Icon(Icons.edit,
+                                    size: 14, color: AppColors.primary),
                                 label: const Text(
                                   'Edit',
                                   style: TextStyle(
@@ -573,7 +729,8 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                                 ),
                                 style: TextButton.styleFrom(
                                   minimumSize: const Size(48, 48),
-                                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                                  padding:
+                                      const EdgeInsets.symmetric(horizontal: 6),
                                   visualDensity: VisualDensity.standard,
                                 ),
                               ),
@@ -606,7 +763,8 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                   label: const Text('Reset PIN'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: AppColors.ink,
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     textStyle: const TextStyle(fontSize: 12),
                   ),
                 ),
@@ -615,11 +773,13 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                 OutlinedButton(
                   onPressed: () => _toggleStaffStatus(staff),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: staff.isActive ? AppColors.cherry : AppColors.ok,
+                    foregroundColor:
+                        staff.isActive ? AppColors.cherry : AppColors.ok,
                     side: BorderSide(
                       color: staff.isActive ? AppColors.cherry : AppColors.ok,
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     textStyle: const TextStyle(fontSize: 12),
                   ),
                   child: Text(staff.isActive ? 'Deactivate' : 'Activate'),
@@ -635,7 +795,8 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                   const SizedBox(height: 12),
                   const Divider(height: 1),
                   const SizedBox(height: 8),
-                  Align(alignment: Alignment.centerRight, child: actionsSection),
+                  Align(
+                      alignment: Alignment.centerRight, child: actionsSection),
                 ],
               );
             }
@@ -695,9 +856,10 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
     final salaryCtrl = TextEditingController();
 
     UserRole selectedRole = UserRole.attendant;
-    String selectedStationCode = _activeStations.any((s) => s.code == state.currentStationCode)
-        ? state.currentStationCode
-        : _activeStations.first.code;
+    String selectedStationCode =
+        _activeStations.any((s) => s.code == state.currentStationCode)
+            ? state.currentStationCode
+            : _activeStations.first.code;
     bool obscurePin = true;
 
     final controllers = [
@@ -735,7 +897,9 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                 children: [
                   const Icon(Icons.person_add, color: AppColors.primary),
                   const SizedBox(width: 10),
-                  const Text('Onboard New Staff Member', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Text('Onboard New Staff Member',
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 ],
               ),
               content: SizedBox(
@@ -744,285 +908,307 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                   child: Form(
                     key: formKey,
                     child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Register a new forecourt staff profile with role credentials, address, shortee (guarantor), and kiosk PIN.',
-                        style: TextStyle(fontSize: 12, color: AppColors.muted),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Full Name
-                      TextField(
-                        controller: fullNameCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Full Legal Name *',
-                          hintText: 'e.g. Babatunde Lawal',
-                          isDense: true,
-                          border: OutlineInputBorder(),
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Register a new forecourt staff profile with role credentials, address, shortee (guarantor), and kiosk PIN.',
+                          style:
+                              TextStyle(fontSize: 12, color: AppColors.muted),
                         ),
-                        onChanged: (val) {
-                          // Auto-suggest Display Name (e.g. Babatunde L.)
-                          final parts = val.trim().split(' ');
-                          if (parts.length >= 2 && displayNameCtrl.text.isEmpty) {
-                            setDialogState(() {
-                              displayNameCtrl.text = '${parts[0]} ${parts[1][0]}.';
-                            });
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 12),
+                        const SizedBox(height: 16),
 
-                      // Display Name & Role in Row
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: displayNameCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Display Name *',
-                                hintText: 'e.g. Baba L.',
-                                isDense: true,
-                                border: OutlineInputBorder(),
-                              ),
-                            ),
+                        // Full Name
+                        TextField(
+                          controller: fullNameCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Full Legal Name *',
+                            hintText: 'e.g. Babatunde Lawal',
+                            isDense: true,
+                            border: OutlineInputBorder(),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: DropdownButtonFormField<UserRole>(
-                              initialValue: selectedRole,
-                              decoration: const InputDecoration(
-                                labelText: 'Assigned Role *',
-                                isDense: true,
-                                border: OutlineInputBorder(),
-                              ),
-                              items: [
-                                const DropdownMenuItem(
-                                  value: UserRole.attendant,
-                                  child: Text('Pump Attendant'),
-                                ),
-                                const DropdownMenuItem(
-                                  value: UserRole.cashier,
-                                  child: Text('Cashier'),
-                                ),
-                                const DropdownMenuItem(
-                                  value: UserRole.manager,
-                                  child: Text('Branch Manager'),
-                                ),
-                                if (_isDirector)
-                                  const DropdownMenuItem(
-                                    value: UserRole.director,
-                                    child: Text('Director / HQ Admin'),
-                                  ),
-                              ],
-                              onChanged: (val) {
-                                if (val != null) {
-                                  markDirty();
-                                  setDialogState(() => selectedRole = val);
-                                }
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-
-                      // Station & Phone in Row
-                      Row(
-                        children: [
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              initialValue: selectedStationCode,
-                              decoration: const InputDecoration(
-                                labelText: 'Assigned Station *',
-                                isDense: true,
-                                border: OutlineInputBorder(),
-                              ),
-                              items: _activeStations.map((st) {
-                                return DropdownMenuItem(
-                                  value: st.code,
-                                  child: Text(st.name, overflow: TextOverflow.ellipsis),
-                                );
-                              }).toList(),
-                              onChanged: (val) {
-                                if (val != null) {
-                                  markDirty();
-                                  setDialogState(() => selectedStationCode = val);
-                                }
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextFormField(
-                              controller: phoneCtrl,
-                              keyboardType: TextInputType.phone,
-                              decoration: const InputDecoration(
-                                labelText: 'Staff Phone Number *',
-                                hintText: '08012345678',
-                                isDense: true,
-                                border: OutlineInputBorder(),
-                              ),
-                              validator: (val) {
-                                final v = (val ?? '').trim();
-                                if (v.isEmpty) return 'Phone number is required.';
-                                if (RegExp(r'^\d{7,15}$').hasMatch(v)) return null;
-                                return 'Enter a valid phone number.';
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-
-                      // Staff Residential Home Address
-                      TextField(
-                        controller: addressCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Staff Residential Address *',
-                          hintText: 'e.g. 14 Adeleke Street, Lekki Phase 1, Lagos',
-                          isDense: true,
-                          border: OutlineInputBorder(),
+                          onChanged: (val) {
+                            // Auto-suggest Display Name (e.g. Babatunde L.)
+                            final parts = val.trim().split(' ');
+                            if (parts.length >= 2 &&
+                                displayNameCtrl.text.isEmpty) {
+                              setDialogState(() {
+                                displayNameCtrl.text =
+                                    '${parts[0]} ${parts[1][0]}.';
+                              });
+                            }
+                          },
                         ),
-                      ),
-                      const SizedBox(height: 16),
+                        const SizedBox(height: 12),
 
-                      // SHORTEE / GUARANTOR SECTION (§2.2)
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF8FAFC),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: AppColors.border),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        // Display Name & Role in Row
+                        Row(
                           children: [
-                            const Row(
-                              children: [
-                                Icon(Icons.verified_user_outlined, size: 16, color: AppColors.primary),
-                                SizedBox(width: 6),
-                                Text(
-                                  'Shortee / Guarantor Information',
-                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.ink),
+                            Expanded(
+                              child: TextField(
+                                controller: displayNameCtrl,
+                                decoration: const InputDecoration(
+                                  labelText: 'Display Name *',
+                                  hintText: 'e.g. Baba L.',
+                                  isDense: true,
+                                  border: OutlineInputBorder(),
                                 ),
-                              ],
+                              ),
                             ),
-                            const SizedBox(height: 4),
-                            const Text(
-                              'The guarantor legally stands for pump shortages, cash discrepancies, or absconding.',
-                              style: TextStyle(fontSize: 12, color: AppColors.muted),
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: suretyNameCtrl,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Shortee Full Name *',
-                                      hintText: 'e.g. Chief Emeka Okafor',
-                                      isDense: true,
-                                      border: OutlineInputBorder(),
-                                    ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: DropdownButtonFormField<UserRole>(
+                                initialValue: selectedRole,
+                                decoration: const InputDecoration(
+                                  labelText: 'Assigned Role *',
+                                  isDense: true,
+                                  border: OutlineInputBorder(),
+                                ),
+                                items: [
+                                  const DropdownMenuItem(
+                                    value: UserRole.attendant,
+                                    child: Text('Pump Attendant'),
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: TextField(
-                                    controller: suretyPhoneCtrl,
-                                    keyboardType: TextInputType.phone,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Shortee Phone Number *',
-                                      hintText: '08031234567',
-                                      isDense: true,
-                                      border: OutlineInputBorder(),
-                                    ),
+                                  const DropdownMenuItem(
+                                    value: UserRole.cashier,
+                                    child: Text('Cashier'),
                                   ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            TextField(
-                              controller: suretyAddressCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Shortee Residential / Office Address',
-                                hintText: 'e.g. 22 Broad Street, Lagos Island',
-                                isDense: true,
-                                border: OutlineInputBorder(),
+                                  const DropdownMenuItem(
+                                    value: UserRole.manager,
+                                    child: Text('Branch Manager'),
+                                  ),
+                                  if (_isDirector)
+                                    const DropdownMenuItem(
+                                      value: UserRole.director,
+                                      child: Text('Director / HQ Admin'),
+                                    ),
+                                ],
+                                onChanged: (val) {
+                                  if (val != null) {
+                                    markDirty();
+                                    setDialogState(() => selectedRole = val);
+                                  }
+                                },
                               ),
                             ),
                           ],
                         ),
-                      ),
-                      const SizedBox(height: 14),
+                        const SizedBox(height: 12),
 
-                      // 4-Digit Tablet PIN
-                      TextField(
-                        controller: pinCtrl,
-                        keyboardType: TextInputType.number,
-                        maxLength: 4,
-                        obscureText: obscurePin,
-                        decoration: InputDecoration(
-                          labelText: '4-Digit Tablet Login PIN *',
-                          hintText: '####',
-                          isDense: true,
-                          counterText: '',
-                          border: const OutlineInputBorder(),
-                          suffixIcon: IconButton(
-                            icon: Icon(obscurePin ? Icons.visibility : Icons.visibility_off),
-                            onPressed: () => setDialogState(() => obscurePin = !obscurePin),
-                          ),
+                        // Station & Phone in Row
+                        Row(
+                          children: [
+                            Expanded(
+                              child: DropdownButtonFormField<String>(
+                                initialValue: selectedStationCode,
+                                decoration: const InputDecoration(
+                                  labelText: 'Assigned Station *',
+                                  isDense: true,
+                                  border: OutlineInputBorder(),
+                                ),
+                                items: _activeStations.map((st) {
+                                  return DropdownMenuItem(
+                                    value: st.code,
+                                    child: Text(st.name,
+                                        overflow: TextOverflow.ellipsis),
+                                  );
+                                }).toList(),
+                                onChanged: (val) {
+                                  if (val != null) {
+                                    markDirty();
+                                    setDialogState(
+                                        () => selectedStationCode = val);
+                                  }
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: TextFormField(
+                                controller: phoneCtrl,
+                                keyboardType: TextInputType.phone,
+                                decoration: const InputDecoration(
+                                  labelText: 'Staff Phone Number *',
+                                  hintText: 'Staff phone number',
+                                  isDense: true,
+                                  border: OutlineInputBorder(),
+                                ),
+                                validator: (val) {
+                                  final v = (val ?? '').trim();
+                                  if (v.isEmpty)
+                                    return 'Phone number is required.';
+                                  if (RegExp(r'^\d{7,15}$').hasMatch(v))
+                                    return null;
+                                  return 'Enter a valid phone number.';
+                                },
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                      const SizedBox(height: 12),
+                        const SizedBox(height: 12),
 
-                      // BASE SALARY SECTION (Role Sensitive)
-                      if (_isDirector) ...[
-                        TextFormField(
-                          controller: salaryCtrl,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        // Staff Residential Home Address
+                        TextField(
+                          controller: addressCtrl,
                           decoration: const InputDecoration(
-                            labelText: 'Monthly Base Salary (₦) [Director Only] *',
-                            hintText: 'e.g. 75000',
+                            labelText: 'Staff Residential Address *',
+                            hintText: 'Full residential address',
                             isDense: true,
-                            prefixText: '₦ ',
                             border: OutlineInputBorder(),
                           ),
-                          validator: (val) {
-                            final v = (val ?? '').trim();
-                            if (v.isEmpty) return 'Monthly base salary is required.';
-                            final parsed = double.tryParse(v);
-                            if (parsed == null || parsed <= 0) {
-                              return 'Enter an amount greater than ₦0.';
-                            }
-                            return null;
-                          },
                         ),
-                      ] else ...[
+                        const SizedBox(height: 16),
+
+                        // SHORTEE / GUARANTOR SECTION (§2.2)
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF1F5F9),
+                            color: const Color(0xFFF8FAFC),
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(color: AppColors.border),
                           ),
-                          child: const Row(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Icon(Icons.shield_outlined, size: 20, color: AppColors.muted),
-                              SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  'Base salary is strictly authorized by Corporate HQ (Managing Director). New staff profile will start with ₦0.00 until approved by Director.',
-                                  style: TextStyle(fontSize: 12, color: AppColors.muted),
+                              const Row(
+                                children: [
+                                  Icon(Icons.verified_user_outlined,
+                                      size: 16, color: AppColors.primary),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'Shortee / Guarantor Information',
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                        color: AppColors.ink),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                'The guarantor legally stands for pump shortages, cash discrepancies, or absconding.',
+                                style: TextStyle(
+                                    fontSize: 12, color: AppColors.muted),
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: TextField(
+                                      controller: suretyNameCtrl,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Shortee Full Name *',
+                                        hintText: 'e.g. Chief Emeka Okafor',
+                                        isDense: true,
+                                        border: OutlineInputBorder(),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: TextField(
+                                      controller: suretyPhoneCtrl,
+                                      keyboardType: TextInputType.phone,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Shortee Phone Number *',
+                                        hintText: 'Guarantor phone number',
+                                        isDense: true,
+                                        border: OutlineInputBorder(),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              TextField(
+                                controller: suretyAddressCtrl,
+                                decoration: const InputDecoration(
+                                  labelText:
+                                      'Shortee Residential / Office Address',
+                                  hintText:
+                                      'e.g. 22 Broad Street, Lagos Island',
+                                  isDense: true,
+                                  border: OutlineInputBorder(),
                                 ),
                               ),
                             ],
                           ),
                         ),
+                        const SizedBox(height: 14),
+
+                        // 4-Digit Tablet PIN
+                        TextField(
+                          controller: pinCtrl,
+                          keyboardType: TextInputType.number,
+                          maxLength: 4,
+                          obscureText: obscurePin,
+                          decoration: InputDecoration(
+                            labelText: '4-Digit Tablet Login PIN *',
+                            hintText: '####',
+                            isDense: true,
+                            counterText: '',
+                            border: const OutlineInputBorder(),
+                            suffixIcon: IconButton(
+                              icon: Icon(obscurePin
+                                  ? Icons.visibility
+                                  : Icons.visibility_off),
+                              onPressed: () => setDialogState(
+                                  () => obscurePin = !obscurePin),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // BASE SALARY SECTION (Role Sensitive)
+                        if (_isDirector) ...[
+                          TextFormField(
+                            controller: salaryCtrl,
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true),
+                            decoration: const InputDecoration(
+                              labelText:
+                                  'Monthly Base Salary (₦) [Director Only] *',
+                              hintText: 'e.g. 75000',
+                              isDense: true,
+                              prefixText: '₦ ',
+                              border: OutlineInputBorder(),
+                            ),
+                            validator: (val) {
+                              final v = (val ?? '').trim();
+                              if (v.isEmpty)
+                                return 'Monthly base salary is required.';
+                              final parsed = double.tryParse(v);
+                              if (parsed == null || parsed <= 0) {
+                                return 'Enter an amount greater than ₦0.';
+                              }
+                              return null;
+                            },
+                          ),
+                        ] else ...[
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF1F5F9),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: const Row(
+                              children: [
+                                Icon(Icons.shield_outlined,
+                                    size: 20, color: AppColors.muted),
+                                SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    'Base salary is strictly authorized by Corporate HQ (Managing Director). New staff profile will start with ₦0.00 until approved by Director.',
+                                    style: TextStyle(
+                                        fontSize: 12, color: AppColors.muted),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
                     ),
                   ),
                 ),
@@ -1035,7 +1221,8 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                         context: context,
                         builder: (dctx) => AlertDialog(
                           title: const Text('Discard onboarding form?'),
-                          content: const Text('This staff profile has unsaved entries. Closing now discards them.'),
+                          content: const Text(
+                              'This staff profile has unsaved entries. Closing now discards them.'),
                           actions: [
                             TextButton(
                               onPressed: () => Navigator.pop(dctx, false),
@@ -1072,29 +1259,38 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                           final suretyName = suretyNameCtrl.text.trim();
                           final suretyPhone = suretyPhoneCtrl.text.trim();
                           final suretyAddress = suretyAddressCtrl.text.trim();
-                          final salary = double.tryParse(salaryCtrl.text.trim()) ?? 0.0;
+                          final salary =
+                              double.tryParse(salaryCtrl.text.trim()) ?? 0.0;
 
                           if (fullName.isEmpty || displayName.isEmpty) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Please provide full legal name and display name.')),
+                              const SnackBar(
+                                  content: Text(
+                                      'Please provide full legal name and display name.')),
                             );
                             return;
                           }
                           if (pin.length != 4 || int.tryParse(pin) == null) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Tablet login PIN must be exactly 4 digits.')),
+                              const SnackBar(
+                                  content: Text(
+                                      'Tablet login PIN must be exactly 4 digits.')),
                             );
                             return;
                           }
                           if (address.isEmpty) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Please enter staff residential address.')),
+                              const SnackBar(
+                                  content: Text(
+                                      'Please enter staff residential address.')),
                             );
                             return;
                           }
                           if (suretyName.isEmpty || suretyPhone.isEmpty) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Please enter shortee (guarantor) name and phone number.')),
+                              const SnackBar(
+                                  content: Text(
+                                      'Please enter shortee (guarantor) name and phone number.')),
                             );
                             return;
                           }
@@ -1114,7 +1310,9 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                               address: address,
                               suretyName: suretyName,
                               suretyPhone: suretyPhone,
-                              suretyAddress: suretyAddress.isNotEmpty ? suretyAddress : null,
+                              suretyAddress: suretyAddress.isNotEmpty
+                                  ? suretyAddress
+                                  : null,
                               baseSalary: salary,
                             );
 
@@ -1129,7 +1327,9 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                             if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
-                                  backgroundColor: created != null ? AppColors.ok : AppColors.cherry,
+                                  backgroundColor: created != null
+                                      ? AppColors.ok
+                                      : AppColors.cherry,
                                   content: Text(
                                     created != null
                                         ? 'Staff profile onboarded successfully for ${created.fullName}.'
@@ -1154,7 +1354,8 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                       ? const SizedBox(
                           width: 18,
                           height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
                         )
                       : const Text('Save & Register'),
                 ),
@@ -1176,7 +1377,8 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
   void _openEditSalaryDialog(UserProfile staff) {
     if (!_isDirector) return;
 
-    final salaryCtrl = TextEditingController(text: staff.baseSalary.toStringAsFixed(2));
+    final salaryCtrl =
+        TextEditingController(text: staff.baseSalary.toStringAsFixed(2));
 
     showDialog(
       context: context,
@@ -1195,7 +1397,8 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
             children: [
               Text(
                 'Staff: ${staff.fullName} (${staff.role.name.toUpperCase()})',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                style:
+                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
               ),
               const SizedBox(height: 4),
               Text(
@@ -1205,7 +1408,8 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
               const SizedBox(height: 16),
               TextField(
                 controller: salaryCtrl,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
                 autofocus: true,
                 decoration: const InputDecoration(
                   labelText: 'New Monthly Base Salary (₦) *',
@@ -1225,13 +1429,15 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                 final newSalary = double.tryParse(salaryCtrl.text.trim());
                 if (newSalary == null || newSalary < 0) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Please enter a valid salary amount.')),
+                    const SnackBar(
+                        content: Text('Please enter a valid salary amount.')),
                   );
                   return;
                 }
 
                 Navigator.pop(ctx);
-                final ok = await state.updateStaffSalary(profileId: staff.id, baseSalary: newSalary);
+                final ok = await state.updateStaffSalary(
+                    profileId: staff.id, baseSalary: newSalary);
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -1276,7 +1482,8 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                 children: [
                   Text(
                     'Resetting shared tablet PIN for ${staff.fullName} (${staff.displayName})',
-                    style: const TextStyle(fontSize: 13, color: AppColors.muted),
+                    style:
+                        const TextStyle(fontSize: 13, color: AppColors.muted),
                   ),
                   const SizedBox(height: 16),
                   TextField(
@@ -1290,8 +1497,10 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                       counterText: '',
                       border: const OutlineInputBorder(),
                       suffixIcon: IconButton(
-                        icon: Icon(obscure ? Icons.visibility : Icons.visibility_off),
-                        onPressed: () => setDialogState(() => obscure = !obscure),
+                        icon: Icon(
+                            obscure ? Icons.visibility : Icons.visibility_off),
+                        onPressed: () =>
+                            setDialogState(() => obscure = !obscure),
                       ),
                     ),
                   ),
@@ -1307,13 +1516,15 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
                     final pin = pinCtrl.text.trim();
                     if (pin.length != 4 || int.tryParse(pin) == null) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('PIN must be exactly 4 digits.')),
+                        const SnackBar(
+                            content: Text('PIN must be exactly 4 digits.')),
                       );
                       return;
                     }
 
                     Navigator.pop(ctx);
-                    final ok = await state.resetStaffPin(profileId: staff.id, newPin: pin);
+                    final ok = await state.resetStaffPin(
+                        profileId: staff.id, newPin: pin);
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
@@ -1350,7 +1561,9 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
           '${nextStatus ? "They will regain access to tablet logins." : "They will be blocked from logging into station tablets."}',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
@@ -1364,7 +1577,8 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> with Unsa
     );
 
     if (confirm == true) {
-      final ok = await state.toggleStaffStatus(profileId: staff.id, isActive: nextStatus);
+      final ok = await state.toggleStaffStatus(
+          profileId: staff.id, isActive: nextStatus);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

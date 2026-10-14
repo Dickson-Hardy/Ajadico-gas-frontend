@@ -39,6 +39,11 @@ migrate_working_dir/
 # Android related
 *.apk
 *.aab
+*.jks
+*.keystore
+*.p12
+*.pfx
+**/key.properties
 **/android/**/gradle-wrapper.jar
 **/android/.gradle
 **/android/captures/

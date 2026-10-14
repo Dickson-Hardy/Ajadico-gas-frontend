@@ -35,7 +35,8 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen>
   bool _isSubmitting = false;
 
   @override
-  bool get hasUnsavedWork => _drafts.isNotEmpty && !state.closingReadingsSubmitted;
+  bool get hasUnsavedWork =>
+      _drafts.isNotEmpty && !state.closingReadingsSubmitted;
 
   @override
   void initState() {
@@ -43,7 +44,7 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen>
     _nozzles = state.nozzles;
     for (var n in _nozzles) {
       _controllers[n.nozzleNumber] = TextEditingController(
-        text: n.closingReading?.toStringAsFixed(1) ?? '',
+        text: n.closingReading?.toStringAsFixed(2) ?? '',
       );
       if (n.closingReading != null && n.closingReading! >= n.openingReading) {
         _drafts[n.nozzleNumber] = n.closingReading!;
@@ -131,6 +132,14 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen>
   }
 
   void _submit() {
+    if (state.currentStationCode.isEmpty ||
+        _nozzles.isEmpty ||
+        _nozzles.any((n) => n.pricePerLitre <= 0)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: const Text(
+              'Configure a station, pumps and retail prices before submitting readings.')));
+      return;
+    }
     bool hasError = false;
     final Map<int, double> readings = {};
 
@@ -154,7 +163,8 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen>
         const SnackBar(
           backgroundColor: AppColors.bad,
           behavior: SnackBarBehavior.floating,
-          content: Text('Please correct meter reading errors before submitting.'),
+          content: const Text(
+              'Please correct meter reading errors before submitting.'),
         ),
       );
       return;
@@ -181,7 +191,8 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen>
         const SnackBar(
           backgroundColor: AppColors.bad,
           behavior: SnackBarBehavior.floating,
-          content: Text('Could not save closing readings. Please try again.'),
+          content:
+              const Text('Could not save closing readings. Please try again.'),
         ),
       );
     } finally {
@@ -201,20 +212,24 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen>
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Closing Meter Readings', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text('Closing Meter Readings',
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             Text(
               '${state.currentUser.displayName} · ${DateFormat('EEE dd MMM · h:mm a').format(DateTime.now())}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 13, color: Colors.white70),
+              style: TextStyle(
+                  fontSize: 13,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
           ],
         ),
       ),
       body: Column(
         children: [
-          ForecourtSyncBar(stationName: '${state.currentStationName} · Forecourt'),
-
+          ForecourtSyncBar(
+              stationName: '${state.currentStationName} · Forecourt'),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(20),
@@ -224,18 +239,21 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'Record closing pump meter dials',
                         style: TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
-                          color: AppColors.ink,
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                       ),
                       const SizedBox(height: 4),
-                      const Text(
+                      Text(
                         'Type the mechanical dial on each dispenser nozzle. Litres and sales value calculate dynamically.',
-                        style: TextStyle(fontSize: 15, color: AppColors.muted),
+                        style: TextStyle(
+                            fontSize: 15,
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant),
                       ),
                       const SizedBox(height: 16),
 
@@ -246,18 +264,31 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen>
                             padding: const EdgeInsets.all(24),
                             child: Center(
                               child: Column(
-                                children: const [
-                                  Icon(Icons.local_gas_station_outlined, size: 48, color: AppColors.muted),
-                                  SizedBox(height: 12),
+                                children: [
+                                  Icon(Icons.local_gas_station_outlined,
+                                      size: 48,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant),
+                                  const SizedBox(height: 12),
                                   Text(
-                                    'No active nozzles assigned to this shift',
-                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.ink),
+                                    'No active pumps assigned to this shift',
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurface),
                                   ),
-                                  SizedBox(height: 6),
+                                  const SizedBox(height: 6),
                                   Text(
-                                    'Please contact your station manager or setup nozzles in Admin settings.',
+                                    'Please contact your station manager or setup pumps in Admin settings.',
                                     textAlign: TextAlign.center,
-                                    style: TextStyle(color: AppColors.muted, fontSize: 14),
+                                    style: TextStyle(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant,
+                                        fontSize: 14),
                                   ),
                                 ],
                               ),
@@ -274,32 +305,41 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen>
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
                                   children: [
                                     Expanded(
                                       child: Text(
-                                        'Nozzle ${nozzle.nozzleNumber} · ${nozzle.productName}',
+                                        '${nozzle.label} · ${nozzle.productName}',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                           fontSize: 18,
                                           fontWeight: FontWeight.bold,
-                                          color: AppColors.ink,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurface,
                                         ),
                                       ),
                                     ),
                                     const SizedBox(width: 8),
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 2),
                                       decoration: BoxDecoration(
-                                        color: AppColors.ink.withValues(alpha: 0.06),
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurface
+                                            .withValues(alpha: 0.06),
                                         borderRadius: BorderRadius.circular(4),
                                       ),
                                       child: Text(
                                         'Tank ${nozzle.tankCode} · ${CurrencyFormatter.formatNaira(nozzle.pricePerLitre)}/L',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                        style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600),
                                       ),
                                     ),
                                   ],
@@ -310,14 +350,22 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen>
                                   children: [
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
-                                          const Text('Opening Dial (L)', style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                                          Text('Opening Dial (L)',
+                                              style: TextStyle(
+                                                  fontSize: 13,
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onSurfaceVariant)),
                                           const SizedBox(height: 4),
                                           TextFormField(
-                                            initialValue: nozzle.openingReading.toStringAsFixed(1),
+                                            initialValue: nozzle.openingReading
+                                                .toStringAsFixed(2),
                                             readOnly: true,
-                                            style: const TextStyle(fontWeight: FontWeight.bold),
+                                            style: const TextStyle(
+                                                fontWeight: FontWeight.bold),
                                           ),
                                         ],
                                       ),
@@ -326,23 +374,36 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen>
                                     Expanded(
                                       flex: 2,
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
-                                          const Text('Closing Dial (L) *', style: TextStyle(fontSize: 13, color: AppColors.ink, fontWeight: FontWeight.w600)),
+                                          Text('Closing Dial (L) *',
+                                              style: TextStyle(
+                                                  fontSize: 13,
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onSurface,
+                                                  fontWeight: FontWeight.w600)),
                                           const SizedBox(height: 4),
                                           TextField(
-                                            controller: _controllers[nozzle.nozzleNumber],
-                                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                            controller: _controllers[
+                                                nozzle.nozzleNumber],
+                                            keyboardType: const TextInputType
+                                                .numberWithOptions(
+                                                decimal: true),
                                             inputFormatters: [
-                                              FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+                                              FilteringTextInputFormatter.allow(
+                                                  RegExp(r'[0-9.,]')),
                                             ],
                                             decoration: InputDecoration(
-                                              hintText: 'e.g. ${(nozzle.openingReading + 500).toStringAsFixed(1)}',
+                                              hintText:
+                                                  'e.g. ${(nozzle.openingReading + 500).toStringAsFixed(1)}',
                                               errorText: err,
                                               errorMaxLines: 2,
                                               suffixText: 'L',
                                             ),
-                                            onChanged: (val) => _onClosingChanged(nozzle, val),
+                                            onChanged: (val) =>
+                                                _onClosingChanged(nozzle, val),
                                           ),
                                         ],
                                       ),
@@ -351,38 +412,30 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen>
                                 ),
                                 const SizedBox(height: 12),
                                 Container(
+                                  width: double.infinity,
                                   padding: const EdgeInsets.all(12),
                                   decoration: BoxDecoration(
-                                    color: AppColors.background,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .surfaceContainerLow,
                                     borderRadius: BorderRadius.circular(6),
                                   ),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      Expanded(
-                                        child: RichText(
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          text: TextSpan(
-                                            text: 'Litres sold: ',
-                                            style: const TextStyle(fontSize: 14, color: AppColors.muted),
-                                            children: [
-                                              TextSpan(
-                                                text: CurrencyFormatter.formatLitres(litresSold),
-                                                style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.ink),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
                                       Text(
-                                        CurrencyFormatter.formatNaira(_salesValueFor(nozzle)),
-                                        style: const TextStyle(
-                                          fontSize: 20,
-                                          fontWeight: FontWeight.bold,
-                                          color: AppColors.ok,
-                                        ),
+                                          'Litres sold: ${CurrencyFormatter.formatLitres(litresSold)}',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodyMedium),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        CurrencyFormatter.formatNaira(
+                                            _salesValueFor(nozzle)),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleLarge,
                                       ),
                                     ],
                                   ),
@@ -397,31 +450,25 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen>
                       Card(
                         child: Padding(
                           padding: const EdgeInsets.all(16),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              const Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Total Expected Sales Value',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
-                                    ),
-                                    Text('Carried to remittance declaration', style: TextStyle(fontSize: 12, color: AppColors.muted)),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 12),
+                              Text('Total expected sales',
+                                  style:
+                                      Theme.of(context).textTheme.titleMedium),
+                              const SizedBox(height: 4),
+                              Text('Carried to remittance declaration',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant)),
+                              const SizedBox(height: 12),
                               Text(
-                                CurrencyFormatter.formatNaira(_totalExpectedSales),
-                                style: const TextStyle(
-                                  fontSize: 26,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.ok,
-                                ),
+                                CurrencyFormatter.formatNaira(
+                                    _totalExpectedSales),
+                                style:
+                                    Theme.of(context).textTheme.headlineMedium,
                               ),
                             ],
                           ),
@@ -437,9 +484,11 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen>
       ),
       bottomNavigationBar: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        decoration: const BoxDecoration(
-          color: AppColors.background,
-          border: Border(top: BorderSide(color: AppColors.line)),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerLow,
+          border: Border(
+              top: BorderSide(
+                  color: Theme.of(context).colorScheme.outlineVariant)),
         ),
         child: Row(
           children: [
@@ -450,7 +499,8 @@ class _ClosingReadingsScreenState extends State<ClosingReadingsScreen>
                     ? const SizedBox(
                         width: 18,
                         height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        child: const CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white),
                       )
                     : const Icon(Icons.check_circle_outline),
                 onPressed: (_isSubmitting || _nozzles.isEmpty) ? null : _submit,

@@ -1,0 +1,10 @@
+{
+  "name": "Ajadico Energy Operations",
+  "short_name": "Ajadico",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#f6f8f7",
+  "theme_color": "#0D5C52",
+  "description": "Secure station operations and management workspace",
+  "prefer_related_applications": false
+}

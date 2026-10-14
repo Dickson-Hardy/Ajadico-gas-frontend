@@ -15,14 +15,14 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.stations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    code VARCHAR(20) UNIQUE NOT NULL, -- e.g. 'LEKKI-01'
-    name VARCHAR(100) NOT NULL,        -- e.g. 'Lekki Road Station'
+    code VARCHAR(20) UNIQUE NOT NULL, -- Unique operator-assigned station code
+    name VARCHAR(100) NOT NULL,        -- Registered station name
     address TEXT,
-    state VARCHAR(50) DEFAULT 'Lagos',
+    state VARCHAR(50),
     manager_name VARCHAR(100),
     phone VARCHAR(30),
     is_active BOOLEAN DEFAULT true,
-    has_interlocked_tanks BOOLEAN DEFAULT false, -- True for the 2 stations with interlocked tanks (§3.1)
+    has_interlocked_tanks BOOLEAN DEFAULT false, -- Set from the station's actual infrastructure
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     station_id UUID REFERENCES public.stations(id) ON DELETE SET NULL, -- NULL for Director with all-branch access
     full_name VARCHAR(100) NOT NULL,
-    display_name VARCHAR(50) NOT NULL, -- e.g. 'Amaka O.'
+    display_name VARCHAR(50) NOT NULL, -- Staff display name
     role public.user_role NOT NULL DEFAULT 'attendant',
     pin_hash TEXT NOT NULL, -- Salted SHA256 / bcrypt hash for shared tablet login
     phone VARCHAR(30),
@@ -499,82 +499,3 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- -----------------------------------------------------------------------------
--- 14. SEED SAMPLE TEST DATA (Lekki Road Station + Attendants)
--- -----------------------------------------------------------------------------
-DO $$
-DECLARE
-    v_station_id UUID;
-    v_pms_id UUID;
-    v_ago_id UUID;
-    v_tank_t1 UUID;
-    v_tank_t2 UUID;
-    v_tank_t3 UUID;
-    v_pump_1 UUID;
-    v_pump_2 UUID;
-    v_attendant_amaka UUID;
-    v_cashier_chidi UUID;
-    v_manager_bello UUID;
-    v_director UUID;
-BEGIN
-    -- 1. Create Lekki Road Station
-    INSERT INTO public.stations (code, name, address, manager_name, phone)
-    VALUES ('LEKKI-01', 'Lekki Road Station', 'Lekki Expressway, Lagos', 'Bello S.', '08012345678')
-    RETURNING id INTO v_station_id;
-
-    -- Retrieve products
-    SELECT id INTO v_pms_id FROM public.fuel_products WHERE code = 'PMS';
-    SELECT id INTO v_ago_id FROM public.fuel_products WHERE code = 'AGO';
-
-    -- 2. Fuel Prices
-    INSERT INTO public.fuel_prices (station_id, product_id, price_per_litre, authorised_by)
-    VALUES 
-    (v_station_id, v_pms_id, 1050.00, 'Director'),
-    (v_station_id, v_ago_id, 1320.00, 'Director');
-
-    -- 3. Tanks
-    INSERT INTO public.tanks (station_id, code, product_id, capacity_litres, current_dip_litres, calculated_stock_litres)
-    VALUES 
-    (v_station_id, 'T1', v_pms_id, 45000, 32100, 32100) RETURNING id INTO v_tank_t1;
-
-    INSERT INTO public.tanks (station_id, code, product_id, capacity_litres, current_dip_litres, calculated_stock_litres)
-    VALUES 
-    (v_station_id, 'T2', v_pms_id, 45000, 28400, 28520) RETURNING id INTO v_tank_t2;
-
-    INSERT INTO public.tanks (station_id, code, product_id, capacity_litres, current_dip_litres, calculated_stock_litres)
-    VALUES 
-    (v_station_id, 'T3', v_ago_id, 33000, 14200, 14200) RETURNING id INTO v_tank_t3;
-
-    -- 4. Pumps & Nozzles
-    INSERT INTO public.pumps (station_id, code, name) VALUES (v_station_id, 'PUMP-1', 'Island 1 - Dual') RETURNING id INTO v_pump_1;
-    INSERT INTO public.pumps (station_id, code, name) VALUES (v_station_id, 'PUMP-2', 'Island 2 - Dual') RETURNING id INTO v_pump_2;
-
-    INSERT INTO public.nozzles (pump_id, nozzle_number, product_id, supplying_tank_id, latest_meter_reading)
-    VALUES 
-    (v_pump_1, 1, v_pms_id, v_tank_t1, 412380.50),
-    (v_pump_1, 2, v_pms_id, v_tank_t1, 388102.00),
-    (v_pump_2, 3, v_ago_id, v_tank_t3, 201775.50);
-
-    -- 5. Profiles (PIN: 1234 for testing)
-    INSERT INTO public.profiles (station_id, full_name, display_name, role, pin_hash, phone)
-    VALUES 
-    (v_station_id, 'Amaka Okonkwo', 'Amaka O.', 'attendant', '1234', '08011112222') RETURNING id INTO v_attendant_amaka;
-
-    INSERT INTO public.profiles (station_id, full_name, display_name, role, pin_hash, phone)
-    VALUES 
-    (v_station_id, 'Bello Salami', 'Bello S.', 'manager', '1234', '08033334444') RETURNING id INTO v_manager_bello;
-
-    INSERT INTO public.profiles (station_id, full_name, display_name, role, pin_hash, phone)
-    VALUES 
-    (v_station_id, 'Chidi Eze', 'Chidi E.', 'cashier', '1234', '08055556666') RETURNING id INTO v_cashier_chidi;
-
-    INSERT INTO public.profiles (station_id, full_name, display_name, role, pin_hash, phone)
-    VALUES 
-    (NULL, 'Dickson Hardy (Managing Director)', 'Director', 'director', '1234', '08099990000') RETURNING id INTO v_director;
-
-    -- 6. Credit Customers
-    INSERT INTO public.credit_customers (station_id, company_name, contact_person, credit_limit, outstanding_balance, payment_terms_days, status, authorised_by)
-    VALUES 
-    (v_station_id, 'Sample Haulage Ltd', 'Capt. Danladi', 5000000.00, 1240000.00, 30, 'current', 'Director'),
-    (v_station_id, 'Sample Farms', 'Mallam Musa', 1000000.00, 310000.00, 14, 'overdue', 'Director'),
-    (v_station_id, 'Sample Clinic', 'Dr. Adeyemi', 500000.00, 0.00, 14, 'settled', 'Director');
-END $$;

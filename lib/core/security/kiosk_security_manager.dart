@@ -50,6 +50,9 @@ class KioskSecurityManager extends ChangeNotifier {
 
   // 1. Inactivity Watchdog State
   static const int inactivityTimeoutSeconds = 60;
+  static const int managementTimeoutSeconds = 15 * 60;
+  int _sessionTimeoutSeconds = inactivityTimeoutSeconds;
+  int get sessionTimeoutSeconds => _sessionTimeoutSeconds;
   static const int warningThresholdSeconds = 10;
 
   Timer? _inactivityTimer;
@@ -70,7 +73,8 @@ class KioskSecurityManager extends ChangeNotifier {
   int _lockoutSecondsRemaining = 0;
 
   int get failedAttempts => _failedAttempts;
-  bool get isLockedOut => _lockedUntil != null && DateTime.now().isBefore(_lockedUntil!);
+  bool get isLockedOut =>
+      _lockedUntil != null && DateTime.now().isBefore(_lockedUntil!);
   int get lockoutSecondsRemaining => _lockoutSecondsRemaining;
 
   // 3. Audit Trail
@@ -86,6 +90,14 @@ class KioskSecurityManager extends ChangeNotifier {
   void setSessionContext({required String stationId, required String actorId}) {
     _sessionStationId = stationId;
     _sessionActorId = actorId;
+    resetInactivityTimer();
+  }
+
+  /// Policy follows the authenticated role, never the chosen device mode.
+  void useManagementIdlePolicy(bool isManagement) {
+    _sessionTimeoutSeconds =
+        isManagement ? managementTimeoutSeconds : inactivityTimeoutSeconds;
+    resetInactivityTimer();
   }
 
   /// Initialize the watchdog with an auto-logout handler
@@ -100,14 +112,15 @@ class KioskSecurityManager extends ChangeNotifier {
       _isWarningActive = false;
       notifyListeners();
     }
-    _secondsRemaining = inactivityTimeoutSeconds;
+    _secondsRemaining = _sessionTimeoutSeconds;
   }
 
   /// Reset the timer whenever a new session starts
   void resetInactivityTimer() {
     _inactivityTimer?.cancel();
-    _secondsRemaining = inactivityTimeoutSeconds;
+    _secondsRemaining = _sessionTimeoutSeconds;
     _isWarningActive = false;
+    if (_sessionActorId.isEmpty) return;
 
     _inactivityTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_secondsRemaining > 0) {
@@ -131,7 +144,8 @@ class KioskSecurityManager extends ChangeNotifier {
 
     _logSecurityEvent(
       type: SecurityEventType.inactivityAutoLogout,
-      description: 'Tablet 60s inactivity watchdog triggered automatic forecourt logout',
+      description:
+          'Session inactivity timeout ($_sessionTimeoutSeconds seconds) triggered automatic logout',
       stationId: _sessionStationId,
       actorId: _sessionActorId,
     );
@@ -145,7 +159,8 @@ class KioskSecurityManager extends ChangeNotifier {
   // ---------------------------------------------------------------------------
 
   /// Record a failed PIN attempt
-  void recordFailedPinAttempt({required String actorId, required String stationId}) {
+  void recordFailedPinAttempt(
+      {required String actorId, required String stationId}) {
     _failedAttempts++;
 
     _logSecurityEvent(
@@ -163,7 +178,8 @@ class KioskSecurityManager extends ChangeNotifier {
   }
 
   /// Record a successful PIN entry
-  void recordSuccessfulPin({required String actorId, required String stationId}) {
+  void recordSuccessfulPin(
+      {required String actorId, required String stationId}) {
     _failedAttempts = 0;
     _isWarningActive = false;
     _secondsRemaining = inactivityTimeoutSeconds;
@@ -180,18 +196,21 @@ class KioskSecurityManager extends ChangeNotifier {
   }
 
   void _triggerLockout({required String stationId, required String actorId}) {
-    _lockedUntil = DateTime.now().add(const Duration(seconds: lockoutDurationSeconds));
+    _lockedUntil =
+        DateTime.now().add(const Duration(seconds: lockoutDurationSeconds));
     _lockoutSecondsRemaining = lockoutDurationSeconds;
 
     _logSecurityEvent(
       type: SecurityEventType.bruteForceLockout,
-      description: '3 consecutive invalid PINs entered. Forecourt tablet locked for 15 minutes',
+      description:
+          '3 consecutive invalid PINs entered. Forecourt tablet locked for 15 minutes',
       stationId: stationId,
       actorId: actorId,
     );
 
     _lockoutCountdownTimer?.cancel();
-    _lockoutCountdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+    _lockoutCountdownTimer =
+        Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_lockedUntil != null) {
         final remaining = _lockedUntil!.difference(DateTime.now()).inSeconds;
         if (remaining <= 0) {
@@ -206,29 +225,18 @@ class KioskSecurityManager extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Pure check for a valid station manager override PIN (no side effects).
-  bool validateManagerOverridePin(String managerPin) {
-    return managerPin == '998811' || managerPin == '5555';
-  }
-
-  /// Manager Override PIN unlocks a locked forecourt tablet
-  bool managerOverrideUnlock({
-    required String managerPin,
+  /// Called only after the authentication service verifies an active manager.
+  void unlockAfterManagerVerification({
     required String managerId,
     required String stationId,
   }) {
-    if (validateManagerOverridePin(managerPin)) {
-      _logSecurityEvent(
-        type: SecurityEventType.managerOverrideUnlock,
-        description: 'Station Manager $managerId authorized emergency override to clear 15-min lockout',
-        stationId: stationId,
-        actorId: managerId,
-      );
-
-      _clearLockout();
-      return true;
-    }
-    return false;
+    _logSecurityEvent(
+      type: SecurityEventType.managerOverrideUnlock,
+      description: 'Verified manager $managerId cleared the terminal lockout',
+      stationId: stationId,
+      actorId: managerId,
+    );
+    _clearLockout();
   }
 
   void _clearLockout() {
@@ -256,7 +264,8 @@ class KioskSecurityManager extends ChangeNotifier {
     );
     _auditTrail.add(entry);
     if (kDebugMode) {
-      print('[SECURITY AUDIT] [${entry.type.name.toUpperCase()}] ${entry.description}');
+      print(
+          '[SECURITY AUDIT] [${entry.type.name.toUpperCase()}] ${entry.description}');
     }
   }
 

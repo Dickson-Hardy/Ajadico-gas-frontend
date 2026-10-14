@@ -6,6 +6,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../network/supabase_repository.dart';
 import 'sync_queue_item.dart';
 
+class QueueOwner {
+  const QueueOwner(
+      this.profileId, this.authUserId, this.stationId, this.generation);
+  final String? profileId;
+  final String? authUserId;
+  final String? stationId;
+  final int generation;
+}
+
 /// Connection and sync status indicator data
 class SyncStatusInfo {
   final bool isOnline;
@@ -32,10 +41,23 @@ class SyncStatusInfo {
 /// guarantees idempotent outbox queuing, and executes FIFO synchronization.
 class OfflineSyncService extends ChangeNotifier {
   static final OfflineSyncService instance = OfflineSyncService._internal();
-  OfflineSyncService._internal() {
+  OfflineSyncService._internal() : _repository = SupabaseRepository.instance {
+    _isOnline = _repository.isConnected;
     _startPeriodicConnectivityCheck();
     _initPrefs();
   }
+
+  @visibleForTesting
+  OfflineSyncService.forTesting(
+      {required SupabaseRepository repository,
+      required Future<bool> Function(SyncQueueItem, SupabaseRepository)
+          dispatch})
+      : _repository = repository,
+        _testDispatch = dispatch {
+    if (kReleaseMode) throw StateError('Test sync services are disabled');
+  }
+  final SupabaseRepository _repository;
+  Future<bool> Function(SyncQueueItem, SupabaseRepository)? _testDispatch;
 
   static const String _prefsKey = 'offline_sync_queue';
   SharedPreferences? _prefs;
@@ -52,8 +74,13 @@ class OfflineSyncService extends ChangeNotifier {
       try {
         final List<dynamic> decoded = json.decode(jsonString);
         final diskItems = decoded
-            .map((e) => SyncQueueItem.fromJson(Map<String, dynamic>.from(e as Map)))
+            .map((e) =>
+                SyncQueueItem.fromJson(Map<String, dynamic>.from(e as Map)))
             .toList();
+        for (final item in diskItems) {
+          if (item.status == SyncItemStatus.syncing)
+            item.status = SyncItemStatus.pending;
+        }
         // Preserve any in-memory items enqueued before async prefs resolution
         for (final item in _queue) {
           if (!diskItems.any((d) => d.id == item.id)) {
@@ -82,17 +109,51 @@ class OfflineSyncService extends ChangeNotifier {
   }
 
   final List<SyncQueueItem> _queue = [];
-  bool _isOnline = true;
+  bool _isOnline = false;
   bool _isSyncing = false;
   DateTime? _lastSyncedAt;
   String? _activeItemTitle;
   Timer? _heartbeatTimer;
+  String? _ownerProfileId;
+  String? _ownerAuthUserId;
+  String? _ownerStationId;
+  int _sessionGeneration = 0;
+  bool _disposed = false;
+
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
+  QueueOwner get captureOwner => QueueOwner(
+      _ownerProfileId, _ownerAuthUserId, _ownerStationId, _sessionGeneration);
+  bool isCurrentOwner(QueueOwner owner) =>
+      owner.generation == _sessionGeneration &&
+      owner.profileId == _ownerProfileId &&
+      owner.authUserId == _ownerAuthUserId &&
+      owner.stationId == _ownerStationId;
+
+  void bindOwner({String? profileId, String? authUserId, String? stationId}) {
+    _sessionGeneration++;
+    _ownerProfileId = profileId;
+    _ownerAuthUserId = authUserId;
+    _ownerStationId = stationId;
+    if (_isOnline && !_isSyncing) unawaited(triggerSync());
+  }
+
+  bool _mayReplay(SyncQueueItem item) =>
+      _repository.authUserId == _ownerAuthUserId &&
+      item.belongsTo(_ownerProfileId, _ownerAuthUserId, _ownerStationId);
+
+  int get heldCount => _queue.where((item) => !_mayReplay(item)).length;
 
   List<SyncQueueItem> get queue => List.unmodifiable(_queue);
   bool get isOnline => _isOnline;
   bool get isSyncing => _isSyncing;
-  int get pendingCount => _queue.where((e) => e.status == SyncItemStatus.pending).length;
-  int get failedCount => _queue.where((e) => e.status == SyncItemStatus.failed).length;
+  int get pendingCount =>
+      _queue.where((e) => e.status == SyncItemStatus.pending).length;
+  int get failedCount =>
+      _queue.where((e) => e.status == SyncItemStatus.failed).length;
   DateTime? get lastSyncedAt => _lastSyncedAt;
 
   SyncStatusInfo get statusInfo => SyncStatusInfo(
@@ -104,8 +165,11 @@ class OfflineSyncService extends ChangeNotifier {
         activeItemTitle: _activeItemTitle,
       );
 
-  /// Toggle simulated connectivity for testing and demo purposes
-  void setSimulatedConnectivity(bool online) {
+  /// Test-only control; production connectivity comes from the repository.
+  @visibleForTesting
+  void setConnectivityForTesting(bool online) {
+    if (kReleaseMode)
+      throw StateError('Test connectivity controls are disabled');
     _isOnline = online;
     notifyListeners();
     if (_isOnline && pendingCount > 0) {
@@ -125,12 +189,19 @@ class OfflineSyncService extends ChangeNotifier {
     required SyncActionType actionType,
     required Map<String, dynamic> payload,
     String? explicitId,
+    QueueOwner? owner,
   }) async {
+    if (_disposed) throw StateError('The sync service has been closed');
+    final originatingOwner = owner ?? captureOwner;
     final item = SyncQueueItem(
-      id: explicitId ?? generateIdempotencyKey(actionType.name.substring(0, 3).toUpperCase()),
+      id: explicitId ??
+          generateIdempotencyKey(actionType.name.substring(0, 3).toUpperCase()),
       actionType: actionType,
       payload: payload,
       createdAt: DateTime.now(),
+      ownerProfileId: originatingOwner.profileId,
+      ownerAuthUserId: originatingOwner.authUserId,
+      ownerStationId: originatingOwner.stationId,
       status: SyncItemStatus.pending,
     );
 
@@ -148,10 +219,13 @@ class OfflineSyncService extends ChangeNotifier {
 
   /// Trigger synchronization of all pending items in FIFO order
   Future<void> triggerSync() async {
-    if (_isSyncing || !_isOnline) return;
+    if (_disposed || _isSyncing || !_isOnline) return;
 
     final pendingItems = _queue
-        .where((e) => e.status == SyncItemStatus.pending || e.status == SyncItemStatus.failed)
+        .where((e) =>
+            e.status == SyncItemStatus.pending ||
+            e.status == SyncItemStatus.failed)
+        .where(_mayReplay)
         .toList();
 
     if (pendingItems.isEmpty) return;
@@ -159,10 +233,17 @@ class OfflineSyncService extends ChangeNotifier {
     _isSyncing = true;
     notifyListeners();
 
-    final repo = SupabaseRepository.instance;
+    final generation = _sessionGeneration;
+    final repo = _repository.snapshotForAuthenticatedSession();
+    if (repo == null) {
+      _isSyncing = false;
+      notifyListeners();
+      return;
+    }
 
     for (final item in pendingItems) {
-      if (!_isOnline) break;
+      if (!_isOnline || generation != _sessionGeneration || !_mayReplay(item))
+        break;
 
       item.status = SyncItemStatus.syncing;
       item.lastAttemptedAt = DateTime.now();
@@ -170,7 +251,8 @@ class OfflineSyncService extends ChangeNotifier {
       notifyListeners();
 
       try {
-        final success = await _dispatchItem(item, repo);
+        final success = await (_testDispatch?.call(item, repo) ??
+            _dispatchItem(item, repo));
 
         if (success) {
           item.status = SyncItemStatus.completed;
@@ -201,16 +283,21 @@ class OfflineSyncService extends ChangeNotifier {
       await Future.delayed(const Duration(milliseconds: 300));
     }
 
+    await repo.closeSessionSnapshot();
     _isSyncing = false;
     _activeItemTitle = null;
     notifyListeners();
+    if (generation != _sessionGeneration && _isOnline) unawaited(triggerSync());
   }
 
   /// Dispatch an individual item to SupabaseRepository
-  Future<bool> _dispatchItem(SyncQueueItem item, SupabaseRepository repo) async {
+  Future<bool> _dispatchItem(
+      SyncQueueItem item, SupabaseRepository repo) async {
     final p = item.payload;
 
     switch (item.actionType) {
+      case SyncActionType.shiftAdjustment:
+        return await repo.syncShiftAdjustmentPayload(p);
       case SyncActionType.closingReadings:
         // Closing meter entries
         return await repo.syncClosingReadingsPayload(p);
@@ -310,22 +397,28 @@ class OfflineSyncService extends ChangeNotifier {
 
   void _startPeriodicConnectivityCheck() {
     _heartbeatTimer?.cancel();
-    _heartbeatTimer = Timer.periodic(const Duration(seconds: 15), (timer) async {
+    _heartbeatTimer =
+        Timer.periodic(const Duration(seconds: 15), (timer) async {
       // Check live connection status if repository is active
-      final repo = SupabaseRepository.instance;
+      final repo = _repository;
       final connected = repo.isConnected;
       if (connected != _isOnline) {
         _isOnline = connected;
         notifyListeners();
-        if (_isOnline && pendingCount > 0) {
-          triggerSync();
-        }
+      }
+      // Includes unchanged connectivity: a refreshed token must be able to
+      // resume work rejected when an earlier frozen JWT expired.
+      if (_isOnline && !_isSyncing && (pendingCount > 0 || failedCount > 0)) {
+        unawaited(triggerSync());
       }
     });
   }
 
   @override
   void dispose() {
+    _disposed = true;
+    _isOnline = false;
+    _sessionGeneration++;
     _heartbeatTimer?.cancel();
     super.dispose();
   }

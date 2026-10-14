@@ -12,10 +12,12 @@ class AttendantSalaryLedgerScreen extends StatefulWidget {
   const AttendantSalaryLedgerScreen({super.key, required this.onBack});
 
   @override
-  State<AttendantSalaryLedgerScreen> createState() => _AttendantSalaryLedgerScreenState();
+  State<AttendantSalaryLedgerScreen> createState() =>
+      _AttendantSalaryLedgerScreenState();
 }
 
-class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScreen> {
+class _AttendantSalaryLedgerScreenState
+    extends State<AttendantSalaryLedgerScreen> {
   final state = StationAppState.instance;
   int _selectedTab = 0; // 0 = Discrepancy Queue, 1 = Monthly Payroll Settlement
   String _selectedMonth = 'October 2026';
@@ -74,12 +76,18 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
           children: [
             Text(
               '${adj.attendantName} · ${adj.station}',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.ink),
+              style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                  color: AppColors.ink),
             ),
             const SizedBox(height: 8),
             Text(
               'Deduction: ${CurrencyFormatter.formatNaira(adj.amount.abs())}',
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.ink),
+              style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.ink),
             ),
             Text(
               'Shift Reference: ${adj.shiftRef}',
@@ -93,7 +101,9 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
@@ -101,7 +111,8 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
               foregroundColor: Colors.white,
               minimumSize: const Size(48, 48),
             ),
-            child: const Text('Approve Deduction', style: TextStyle(fontSize: 13)),
+            child:
+                const Text('Approve Deduction', style: TextStyle(fontSize: 13)),
           ),
         ],
       ),
@@ -132,12 +143,18 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
           children: [
             Text(
               '${adj.attendantName} · ${adj.station}',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.ink),
+              style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                  color: AppColors.ink),
             ),
             const SizedBox(height: 8),
             Text(
               'Variance: ${CurrencyFormatter.formatVariance(adj.amount)}',
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.ink),
+              style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.ink),
             ),
             const SizedBox(height: 12),
             const Text(
@@ -147,7 +164,9 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
@@ -155,7 +174,8 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
               foregroundColor: Colors.white,
               minimumSize: const Size(48, 48),
             ),
-            child: const Text('Waive Shortfall', style: TextStyle(fontSize: 13)),
+            child:
+                const Text('Waive Shortfall', style: TextStyle(fontSize: 13)),
           ),
         ],
       ),
@@ -168,7 +188,8 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
       SnackBar(
         backgroundColor: AppColors.ok,
         behavior: SnackBarBehavior.floating,
-        content: Text('Discrepancy for ${adj.attendantName} waived upon operational review.'),
+        content: Text(
+            'Discrepancy for ${adj.attendantName} waived upon operational review.'),
       ),
     );
   }
@@ -196,12 +217,16 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
               ),
               child: const Row(
                 children: [
-                  Icon(Icons.warning_amber_rounded, color: AppColors.bad, size: 20),
+                  Icon(Icons.warning_amber_rounded,
+                      color: AppColors.bad, size: 20),
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       'Approved shortages will be marked as "Settled in Payroll" and net wages locked.',
-                      style: TextStyle(fontSize: 12, color: AppColors.bad, fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.bad,
+                          fontWeight: FontWeight.w600),
                     ),
                   ),
                 ],
@@ -210,7 +235,8 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
@@ -227,11 +253,13 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                 SnackBar(
                   backgroundColor: AppColors.ok,
                   behavior: SnackBarBehavior.floating,
-                  content: Text('$_selectedMonth Monthly Payroll Settlement completed successfully!'),
+                  content: Text(
+                      '$_selectedMonth Monthly Payroll Settlement completed successfully!'),
                 ),
               );
             },
-            child: const Text('Confirm & Execute Settlement', style: TextStyle(fontSize: 13)),
+            child: const Text('Confirm & Execute Settlement',
+                style: TextStyle(fontSize: 13)),
           ),
         ],
       ),
@@ -240,20 +268,24 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
 
   void _copyPayrollCsv(List<_AttendantPayrollSummary> summaries) {
     final buffer = StringBuffer();
-    buffer.writeln('AJADICO ENERGY LIMITED - MONTHLY ATTENDANT PAYROLL & SHORTAGE DEDUCTIONS');
+    buffer.writeln(
+        'AJADICO ENERGY LIMITED - MONTHLY ATTENDANT PAYROLL & SHORTAGE DEDUCTIONS');
     buffer.writeln('Payroll Period,"$_selectedMonth"');
     buffer.writeln('Audited By,"${state.currentUser.displayName}"');
     buffer.writeln('');
-    buffer.writeln('Attendant Name,Station,Base Salary (NGN),Approved Shortages Deducted (NGN),Excesses Credited (NGN),Net Payable Wage (NGN),Carried Forward Deficit (NGN),Shortage Shifts Count,Status');
+    buffer.writeln(
+        'Attendant Name,Station,Base Salary (NGN),Approved Shortages Deducted (NGN),Excesses Credited (NGN),Net Payable Wage (NGN),Carried Forward Deficit (NGN),Shortage Shifts Count,Status');
 
     for (var s in summaries) {
-      buffer.writeln('"${s.attendantName}","${s.station}",${s.baseSalary ?? 0},${s.approvedShortages},${s.approvedExcesses},${s.netPayable},${s.carriedDeficit},${s.shortfallShiftsCount},"${s.isSettled ? "Settled & Processed" : "Ready for Settlement"}"');
+      buffer.writeln(
+          '"${s.attendantName}","${s.station}",${s.baseSalary ?? 0},${s.approvedShortages},${s.approvedExcesses},${s.netPayable},${s.carriedDeficit},${s.shortfallShiftsCount},"${s.isSettled ? "Settled & Processed" : "Ready for Settlement"}"');
     }
 
     Clipboard.setData(ClipboardData(text: buffer.toString()));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Payroll Sheet CSV copied to clipboard! Paste directly into Microsoft Excel or Google Sheets.'),
+        content: Text(
+            'Payroll Sheet CSV copied to clipboard! Paste directly into Microsoft Excel or Google Sheets.'),
         backgroundColor: AppColors.ok,
         behavior: SnackBarBehavior.floating,
       ),
@@ -263,7 +295,8 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
   void _copyPayrollSlips(List<_AttendantPayrollSummary> summaries) {
     final buffer = StringBuffer();
     buffer.writeln('====================================================');
-    buffer.writeln('   AJADICO ENERGY - ATTENDANT PAYROLL SLIPS ($_selectedMonth)   ');
+    buffer.writeln(
+        '   AJADICO ENERGY - ATTENDANT PAYROLL SLIPS ($_selectedMonth)   ');
     buffer.writeln('====================================================\n');
 
     for (var s in summaries) {
@@ -271,23 +304,29 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
       buffer.writeln(
         '  Monthly Base Wage:           ${s.baseSalary == null ? 'Not set (awaiting Director)' : CurrencyFormatter.formatNaira(s.baseSalary!)}',
       );
-      buffer.writeln('  - Shortages Deducted:        ${CurrencyFormatter.formatNaira(s.approvedShortages)} (${s.shortfallShiftsCount} shifts)');
+      buffer.writeln(
+          '  - Shortages Deducted:        ${CurrencyFormatter.formatNaira(s.approvedShortages)} (${s.shortfallShiftsCount} shifts)');
       if (s.approvedExcesses > 0) {
-        buffer.writeln('  + Excesses Credited:         ${CurrencyFormatter.formatNaira(s.approvedExcesses)}');
+        buffer.writeln(
+            '  + Excesses Credited:         ${CurrencyFormatter.formatNaira(s.approvedExcesses)}');
       }
       buffer.writeln('  --------------------------------------------------');
-      buffer.writeln('  NET SALARY PAYABLE:          ${CurrencyFormatter.formatNaira(s.netPayable)}');
+      buffer.writeln(
+          '  NET SALARY PAYABLE:          ${CurrencyFormatter.formatNaira(s.netPayable)}');
       if (s.carriedDeficit > 0) {
-        buffer.writeln('  ! DEFICIT CARRIED FORWARD:   ${CurrencyFormatter.formatNaira(s.carriedDeficit)}');
+        buffer.writeln(
+            '  ! DEFICIT CARRIED FORWARD:   ${CurrencyFormatter.formatNaira(s.carriedDeficit)}');
       }
-      buffer.writeln('  Status:                      ${s.isSettled ? "Settled & Processed" : "Ready for Settlement"}\n');
+      buffer.writeln(
+          '  Status:                      ${s.isSettled ? "Settled & Processed" : "Ready for Settlement"}\n');
     }
     buffer.writeln('====================================================');
 
     Clipboard.setData(ClipboardData(text: buffer.toString()));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Itemized attendant payslips copied to clipboard! Ready to print or dispatch.'),
+        content: Text(
+            'Itemized attendant payslips copied to clipboard! Ready to print or dispatch.'),
         backgroundColor: AppColors.ink,
         behavior: SnackBarBehavior.floating,
       ),
@@ -298,13 +337,17 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
     final Map<String, _AttendantPayrollSummary> summaryMap = {};
 
     // 1. Enrolled attendants in staff database
-    final enrolledAttendants = state.staff.where((s) => s.role == UserRole.attendant);
+    final enrolledAttendants =
+        state.staff.where((s) => s.role == UserRole.attendant);
     for (var att in enrolledAttendants) {
       final base = att.baseSalary > 0 ? att.baseSalary : null;
-      summaryMap[att.displayName.trim().toLowerCase()] = _AttendantPayrollSummary(
+      summaryMap[att.displayName.trim().toLowerCase()] =
+          _AttendantPayrollSummary(
         attendantId: att.id,
         attendantName: att.displayName,
-        station: att.stationName.isNotEmpty ? att.stationName : state.currentStationName,
+        station: att.stationName.isNotEmpty
+            ? att.stationName
+            : state.currentStationName,
         baseSalary: base,
       );
     }
@@ -316,13 +359,15 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
         summaryMap[key] = _AttendantPayrollSummary(
           attendantId: 'att-${key.hashCode.abs()}',
           attendantName: adj.attendantName,
-          station: adj.station.isNotEmpty ? adj.station : state.currentStationName,
+          station:
+              adj.station.isNotEmpty ? adj.station : state.currentStationName,
           baseSalary: null,
         );
       }
 
       final summary = summaryMap[key]!;
-      final isApprovedDeduction = adj.status == 'Salary Deduction Approved' || adj.status.contains('Settled in Payroll');
+      final isApprovedDeduction = adj.status == 'Salary Deduction Approved' ||
+          adj.status.contains('Settled in Payroll');
 
       if (isApprovedDeduction) {
         if (adj.amount < 0) {
@@ -356,11 +401,15 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
     final adjustments = state.salaryAdjustments;
     final summaries = _computePayrollSummaries();
 
-    final totalBasePayroll = summaries.fold(0.0, (sum, s) => sum + (s.baseSalary ?? 0.0));
-    final totalShortagesDeducted = summaries.fold(0.0, (sum, s) => sum + s.approvedShortages);
+    final totalBasePayroll =
+        summaries.fold(0.0, (sum, s) => sum + (s.baseSalary ?? 0.0));
+    final totalShortagesDeducted =
+        summaries.fold(0.0, (sum, s) => sum + s.approvedShortages);
     final totalNetPayable = summaries.fold(0.0, (sum, s) => sum + s.netPayable);
-    final totalShortfallShifts = summaries.fold(0, (sum, s) => sum + s.shortfallShiftsCount);
-    final allSettled = summaries.isNotEmpty && summaries.every((s) => s.isSettled);
+    final totalShortfallShifts =
+        summaries.fold(0, (sum, s) => sum + s.shortfallShiftsCount);
+    final allSettled =
+        summaries.isNotEmpty && summaries.every((s) => s.isSettled);
 
     return Scaffold(
       appBar: AppBar(
@@ -372,8 +421,10 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
         title: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Attendant Salary & Payroll Deductions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('Director · Forecourt Discrepancies & Monthly Settlement', style: TextStyle(fontSize: 13, color: Colors.white70)),
+            Text('Attendant Salary & Payroll Deductions',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text('Review differences and prepare monthly payroll',
+                style: TextStyle(fontSize: 13, color: AppColors.muted)),
           ],
         ),
       ),
@@ -392,15 +443,21 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _selectedTab == 0 ? 'Shift Discrepancy Governance' : 'Monthly Payroll Settlement Engine',
-                          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.ink),
+                          _selectedTab == 0
+                              ? 'Shift differences'
+                              : 'Monthly payroll',
+                          style: const TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.ink),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           _selectedTab == 0
                               ? 'Review individual shift variances, approve salary deductions, or waive operational differences.'
                               : 'Reconcile attendant monthly base wages against approved shift shortages.',
-                          style: const TextStyle(fontSize: 14, color: AppColors.muted),
+                          style: const TextStyle(
+                              fontSize: 14, color: AppColors.muted),
                         ),
                       ],
                     );
@@ -409,16 +466,17 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                         ButtonSegment(
                           value: 0,
                           icon: Icon(Icons.playlist_remove),
-                          label: Text('Discrepancy Queue'),
+                          label: Text('Differences'),
                         ),
                         ButtonSegment(
                           value: 1,
                           icon: Icon(Icons.account_balance_wallet_outlined),
-                          label: Text('Monthly Settlement'),
+                          label: Text('Payroll'),
                         ),
                       ],
                       selected: {_selectedTab},
-                      onSelectionChanged: (set) => setState(() => _selectedTab = set.first),
+                      onSelectionChanged: (set) =>
+                          setState(() => _selectedTab = set.first),
                     );
 
                     if (constraints.maxWidth < 700) {
@@ -427,7 +485,9 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                         children: [
                           titleBlock,
                           const SizedBox(height: 12),
-                          Align(alignment: Alignment.centerLeft, child: tabSwitch),
+                          Align(
+                              alignment: Alignment.centerLeft,
+                              child: tabSwitch),
                         ],
                       );
                     }
@@ -454,11 +514,18 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                         child: Center(
                           child: Column(
                             children: [
-                              Icon(Icons.verified_outlined, size: 48, color: AppColors.ok),
+                              Icon(Icons.verified_outlined,
+                                  size: 48, color: AppColors.ok),
                               SizedBox(height: 12),
-                              Text('No Attendant Discrepancies Currently Recorded', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                              Text(
+                                  'No Attendant Discrepancies Currently Recorded',
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16)),
                               SizedBox(height: 4),
-                              Text('All forecourt shifts balanced cleanly without unresolved cashier differences.', style: TextStyle(color: AppColors.muted)),
+                              Text(
+                                  'No unresolved differences are recorded in the loaded scope.',
+                                  style: TextStyle(color: AppColors.muted)),
                             ],
                           ),
                         ),
@@ -479,13 +546,17 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                                   Flexible(
                                     child: Row(
                                       children: [
-                                        const Icon(Icons.person_outline, size: 20, color: AppColors.slate),
+                                        const Icon(Icons.person_outline,
+                                            size: 20, color: AppColors.slate),
                                         const SizedBox(width: 8),
                                         Expanded(
                                           child: Text(
                                             '${adj.attendantName} · ${adj.station}',
                                             overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
+                                            style: const TextStyle(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.bold,
+                                                color: AppColors.ink),
                                           ),
                                         ),
                                       ],
@@ -496,24 +567,36 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                                     label: isShortage
                                         ? 'Shortage ${CurrencyFormatter.formatNaira(adj.amount.abs())}'
                                         : 'Excess +${CurrencyFormatter.formatNaira(adj.amount)}',
-                                    type: isShortage ? ChipType.bad : ChipType.ok,
+                                    type:
+                                        isShortage ? ChipType.bad : ChipType.ok,
                                   ),
                                 ],
                               ),
                               const SizedBox(height: 6),
-                              Text('Shift Reference: ${adj.shiftRef}', style: const TextStyle(fontSize: 13, color: AppColors.muted)),
+                              Text('Shift Reference: ${adj.shiftRef}',
+                                  style: const TextStyle(
+                                      fontSize: 13, color: AppColors.muted)),
                               const SizedBox(height: 4),
                               Row(
                                 children: [
-                                  const Text('Governance Status: ', style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                                  const Text('Governance Status: ',
+                                      style: TextStyle(
+                                          fontSize: 13,
+                                          color: AppColors.muted)),
                                   Text(
                                     adj.status,
                                     style: TextStyle(
                                       fontSize: 13,
                                       fontWeight: FontWeight.bold,
-                                      color: adj.status == 'Salary Deduction Approved'
+                                      color: adj.status ==
+                                              'Salary Deduction Approved'
                                           ? AppColors.bad
-                                          : (adj.status.contains('Settled') ? AppColors.ink : (adj.status == 'Waived by Director' ? AppColors.ok : AppColors.warn)),
+                                          : (adj.status.contains('Settled')
+                                              ? AppColors.ink
+                                              : (adj.status ==
+                                                      'Waived by Director'
+                                                  ? AppColors.ok
+                                                  : AppColors.warn)),
                                     ),
                                   ),
                                 ],
@@ -527,9 +610,11 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                                       onPressed: () => _waiveShortage(adj),
                                       style: OutlinedButton.styleFrom(
                                         minimumSize: const Size(48, 48),
-                                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 14),
                                       ),
-                                      child: const Text('Waive Shortfall', style: TextStyle(fontSize: 13)),
+                                      child: const Text('Waive Shortfall',
+                                          style: TextStyle(fontSize: 13)),
                                     ),
                                     const SizedBox(width: 10),
                                     ElevatedButton(
@@ -537,15 +622,21 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                                         backgroundColor: AppColors.bad,
                                         foregroundColor: Colors.white,
                                         minimumSize: const Size(48, 48),
-                                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 14),
                                       ),
                                       onPressed: () => _approveDeduction(adj),
-                                      child: const Text('Approve Salary Deduction', style: TextStyle(fontSize: 13)),
+                                      child: const Text(
+                                          'Approve Salary Deduction',
+                                          style: TextStyle(fontSize: 13)),
                                     ),
                                   ] else ...[
                                     Text(
                                       '✓ Decision Recorded: ${adj.status}',
-                                      style: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.bold, fontSize: 13),
+                                      style: const TextStyle(
+                                          color: AppColors.ink,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13),
                                     ),
                                   ],
                                 ],
@@ -570,7 +661,8 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 4),
                         decoration: BoxDecoration(
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(8),
@@ -579,7 +671,8 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.calendar_month, color: AppColors.primary, size: 18),
+                            const Icon(Icons.calendar_month,
+                                color: AppColors.primary, size: 18),
                             const SizedBox(width: 8),
                             DropdownButton<String>(
                               value: _selectedMonth,
@@ -589,7 +682,10 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                                       value: m,
                                       child: Text(
                                         'Payroll Cycle: $m',
-                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.ink),
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14,
+                                            color: AppColors.ink),
                                       ),
                                     ),
                                   )
@@ -600,7 +696,8 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                               },
                               underline: const SizedBox.shrink(),
                               isDense: true,
-                              icon: const Icon(Icons.arrow_drop_down, color: AppColors.slate),
+                              icon: const Icon(Icons.arrow_drop_down,
+                                  color: AppColors.slate),
                             ),
                           ],
                         ),
@@ -611,13 +708,16 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                         children: [
                           OutlinedButton.icon(
                             icon: const Icon(Icons.copy_all, size: 16),
-                            label: const Text('Copy Payslips', style: TextStyle(fontSize: 13)),
-                            style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
+                            label: const Text('Copy Payslips',
+                                style: TextStyle(fontSize: 13)),
+                            style: OutlinedButton.styleFrom(
+                                minimumSize: const Size(48, 48)),
                             onPressed: () => _copyPayrollSlips(summaries),
                           ),
                           ElevatedButton.icon(
                             icon: const Icon(Icons.table_chart, size: 16),
-                            label: const Text('Export Excel (CSV)', style: TextStyle(fontSize: 13)),
+                            label: const Text('Export Excel (CSV)',
+                                style: TextStyle(fontSize: 13)),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.ok,
                               foregroundColor: Colors.white,
@@ -626,14 +726,25 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                             onPressed: () => _copyPayrollCsv(summaries),
                           ),
                           ElevatedButton.icon(
-                            icon: Icon(allSettled ? Icons.check_circle : Icons.payments, size: 16),
-                            label: Text(allSettled ? 'Settled & Processed' : 'Execute Monthly Settlement', style: const TextStyle(fontSize: 13)),
+                            icon: Icon(
+                                allSettled
+                                    ? Icons.check_circle
+                                    : Icons.payments,
+                                size: 16),
+                            label: Text(
+                                allSettled
+                                    ? 'Settled & Processed'
+                                    : 'Execute Monthly Settlement',
+                                style: const TextStyle(fontSize: 13)),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: allSettled ? AppColors.ok : AppColors.primary,
+                              backgroundColor:
+                                  allSettled ? AppColors.ok : AppColors.primary,
                               foregroundColor: Colors.white,
                               minimumSize: const Size(48, 48),
                             ),
-                            onPressed: allSettled ? null : _confirmExecuteMonthlySettlement,
+                            onPressed: allSettled
+                                ? null
+                                : _confirmExecuteMonthlySettlement,
                           ),
                         ],
                       ),
@@ -649,10 +760,24 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                         spacing: 12,
                         runSpacing: 12,
                         children: [
-                          _buildKpiCard('Total Base Wages', CurrencyFormatter.formatNaira(totalBasePayroll), itemWidth),
-                          _buildKpiCard('Shortages Deducted', CurrencyFormatter.formatVariance(-totalShortagesDeducted), itemWidth, isRed: true),
-                          _buildKpiCard('Net Disbursable Payroll', CurrencyFormatter.formatNaira(totalNetPayable), itemWidth, isGreen: true),
-                          _buildKpiCard('Shortfall Shifts Resolved', '$totalShortfallShifts Shifts', itemWidth, isBlue: true),
+                          _buildKpiCard(
+                              'Total Base Wages',
+                              CurrencyFormatter.formatNaira(totalBasePayroll),
+                              itemWidth),
+                          _buildKpiCard(
+                              'Shortages Deducted',
+                              CurrencyFormatter.formatVariance(
+                                  -totalShortagesDeducted),
+                              itemWidth,
+                              isRed: true),
+                          _buildKpiCard(
+                              'Net Disbursable Payroll',
+                              CurrencyFormatter.formatNaira(totalNetPayable),
+                              itemWidth,
+                              isGreen: true),
+                          _buildKpiCard('Shortfall Shifts Resolved',
+                              '$totalShortfallShifts Shifts', itemWidth,
+                              isBlue: true),
                         ],
                       );
                     },
@@ -671,12 +796,17 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                               const Expanded(
                                 child: Text(
                                   'Attendant Wage & Deduction Calculation Ledger',
-                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
+                                  style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.ink),
                                 ),
                               ),
                               const SizedBox(width: 12),
                               StatusChip(
-                                label: allSettled ? 'Payroll Finalized' : 'Draft Settlement',
+                                label: allSettled
+                                    ? 'Payroll Finalized'
+                                    : 'Draft Settlement',
                                 type: allSettled ? ChipType.ok : ChipType.draft,
                               ),
                             ],
@@ -684,47 +814,79 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                           const SizedBox(height: 6),
                           const Text(
                             'Net Payable = Base Monthly Salary - Approved Shift Shortages. If shortages exceed base salary, remaining balance is carried forward.',
-                            style: TextStyle(fontSize: 13, color: AppColors.muted),
+                            style:
+                                TextStyle(fontSize: 13, color: AppColors.muted),
                           ),
                           const SizedBox(height: 16),
-
                           if (summaries.isEmpty)
                             const Padding(
                               padding: EdgeInsets.symmetric(vertical: 30),
                               child: Center(
-                                child: Text('No pump attendants enrolled in system.', style: TextStyle(color: AppColors.muted)),
+                                child: Text(
+                                    'No pump attendants enrolled in system.',
+                                    style: TextStyle(color: AppColors.muted)),
                               ),
                             )
                           else
                             SingleChildScrollView(
                               scrollDirection: Axis.horizontal,
                               child: DataTable(
-                                headingTextStyle: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.ink),
+                                headingTextStyle: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.ink),
                                 columns: [
                                   const DataColumn(label: Text('Attendant')),
                                   const DataColumn(label: Text('Station')),
-                                  const DataColumn(label: Align(alignment: Alignment.centerRight, child: Text('Base Salary (₦)')), numeric: true),
-                                  const DataColumn(label: Align(alignment: Alignment.centerRight, child: Text('Shortages Deducted (₦)')), numeric: true),
-                                  const DataColumn(label: Align(alignment: Alignment.centerRight, child: Text('Net Payable Wage (₦)')), numeric: true),
-                                  const DataColumn(label: Align(alignment: Alignment.centerRight, child: Text('Carried Deficit (₦)')), numeric: true),
-                                  const DataColumn(label: Align(alignment: Alignment.centerRight, child: Text('Shortage Shifts')), numeric: true),
-                                  const DataColumn(label: Text('Settlement Status')),
+                                  const DataColumn(
+                                      label: Align(
+                                          alignment: Alignment.centerRight,
+                                          child: Text('Base Salary (₦)')),
+                                      numeric: true),
+                                  const DataColumn(
+                                      label: Align(
+                                          alignment: Alignment.centerRight,
+                                          child:
+                                              Text('Shortages Deducted (₦)')),
+                                      numeric: true),
+                                  const DataColumn(
+                                      label: Align(
+                                          alignment: Alignment.centerRight,
+                                          child: Text('Net Payable Wage (₦)')),
+                                      numeric: true),
+                                  const DataColumn(
+                                      label: Align(
+                                          alignment: Alignment.centerRight,
+                                          child: Text('Carried Deficit (₦)')),
+                                      numeric: true),
+                                  const DataColumn(
+                                      label: Align(
+                                          alignment: Alignment.centerRight,
+                                          child: Text('Shortage Shifts')),
+                                      numeric: true),
+                                  const DataColumn(
+                                      label: Text('Settlement Status')),
                                 ],
                                 rows: summaries.map((s) {
                                   return DataRow(
                                     cells: [
-                                      DataCell(Text(s.attendantName, style: const TextStyle(fontWeight: FontWeight.bold))),
+                                      DataCell(Text(s.attendantName,
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.bold))),
                                       DataCell(Text(s.station)),
                                       DataCell(
                                         _numericCell(
                                           s.baseSalary == null
                                               ? const Text(
                                                   'Not set — awaiting Director',
-                                                  style: TextStyle(fontSize: 12, color: AppColors.warn),
+                                                  style: TextStyle(
+                                                      fontSize: 12,
+                                                      color: AppColors.warn),
                                                 )
                                               : Text(
-                                                  CurrencyFormatter.formatNaira(s.baseSalary!),
-                                                  style: const TextStyle(color: AppColors.ink),
+                                                  CurrencyFormatter.formatNaira(
+                                                      s.baseSalary!),
+                                                  style: const TextStyle(
+                                                      color: AppColors.ink),
                                                 ),
                                         ),
                                       ),
@@ -732,11 +894,16 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                                         _numericCell(
                                           Text(
                                             s.approvedShortages > 0
-                                                ? CurrencyFormatter.formatVariance(-s.approvedShortages)
-                                                : CurrencyFormatter.formatNaira(0),
+                                                ? CurrencyFormatter
+                                                    .formatVariance(
+                                                        -s.approvedShortages)
+                                                : CurrencyFormatter.formatNaira(
+                                                    0),
                                             style: TextStyle(
                                               fontWeight: FontWeight.bold,
-                                              color: s.approvedShortages > 0 ? AppColors.bad : AppColors.muted,
+                                              color: s.approvedShortages > 0
+                                                  ? AppColors.bad
+                                                  : AppColors.muted,
                                             ),
                                           ),
                                         ),
@@ -746,11 +913,17 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                                           s.baseSalary == null
                                               ? const Text(
                                                   'Pending base salary',
-                                                  style: TextStyle(fontSize: 12, color: AppColors.muted),
+                                                  style: TextStyle(
+                                                      fontSize: 12,
+                                                      color: AppColors.muted),
                                                 )
                                               : Text(
-                                                  CurrencyFormatter.formatNaira(s.netPayable),
-                                                  style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.ok),
+                                                  CurrencyFormatter.formatNaira(
+                                                      s.netPayable),
+                                                  style: const TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                      color: AppColors.ok),
                                                 ),
                                         ),
                                       ),
@@ -758,22 +931,35 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
                                         _numericCell(
                                           s.carriedDeficit > 0
                                               ? Text(
-                                                  CurrencyFormatter.formatNaira(s.carriedDeficit),
-                                                  style: const TextStyle(color: AppColors.bad),
+                                                  CurrencyFormatter.formatNaira(
+                                                      s.carriedDeficit),
+                                                  style: const TextStyle(
+                                                      color: AppColors.bad),
                                                 )
-                                              : const Text('None', style: TextStyle(color: AppColors.muted)),
+                                              : const Text('None',
+                                                  style: TextStyle(
+                                                      color: AppColors.muted)),
                                         ),
                                       ),
                                       DataCell(
                                         _numericCell(
-                                          Text('${s.shortfallShiftsCount} shift(s)', style: const TextStyle(color: AppColors.slate)),
+                                          Text(
+                                              '${s.shortfallShiftsCount} shift(s)',
+                                              style: const TextStyle(
+                                                  color: AppColors.slate)),
                                         ),
                                       ),
                                       DataCell(StatusChip(
                                         label: !s.hasBaseSalary
                                             ? 'Awaiting Director'
-                                            : (s.isSettled ? 'Settled' : 'Ready'),
-                                        type: !s.hasBaseSalary ? ChipType.draft : (s.isSettled ? ChipType.ok : ChipType.warn),
+                                            : (s.isSettled
+                                                ? 'Settled'
+                                                : 'Ready'),
+                                        type: !s.hasBaseSalary
+                                            ? ChipType.draft
+                                            : (s.isSettled
+                                                ? ChipType.ok
+                                                : ChipType.warn),
                                       )),
                                     ],
                                   );
@@ -805,7 +991,8 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
           tooltip: 'Back',
           onPressed: widget.onBack,
         ),
-        title: const Text('Attendant Salary & Payroll Deductions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        title: const Text('Attendant Salary & Payroll Deductions',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
       ),
       body: Center(
         child: Column(
@@ -815,7 +1002,10 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
             const SizedBox(height: 16),
             const Text(
               'Restricted — director access required',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
+              style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.ink),
             ),
             const SizedBox(height: 16),
             OutlinedButton.icon(
@@ -830,7 +1020,8 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
     );
   }
 
-  Widget _buildKpiCard(String label, String value, double width, {bool isGreen = false, bool isRed = false, bool isBlue = false}) {
+  Widget _buildKpiCard(String label, String value, double width,
+      {bool isGreen = false, bool isRed = false, bool isBlue = false}) {
     return SizedBox(
       width: width,
       child: Card(
@@ -839,14 +1030,19 @@ class _AttendantSalaryLedgerScreenState extends State<AttendantSalaryLedgerScree
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+              Text(label,
+                  style: const TextStyle(fontSize: 12, color: AppColors.muted)),
               const SizedBox(height: 6),
               Text(
                 value,
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
-                  color: isGreen ? AppColors.ok : (isRed ? AppColors.bad : (isBlue ? AppColors.bank : AppColors.ink)),
+                  color: isGreen
+                      ? AppColors.ok
+                      : (isRed
+                          ? AppColors.bad
+                          : (isBlue ? AppColors.bank : AppColors.ink)),
                 ),
               ),
             ],

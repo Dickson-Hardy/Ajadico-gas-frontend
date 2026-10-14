@@ -6,7 +6,9 @@ import '../../core/widgets/executive_hero_card.dart';
 import '../../core/widgets/forecourt_charts.dart';
 import '../../core/widgets/forecourt_tank_gauge.dart';
 import '../../core/widgets/status_chip.dart';
+import '../../core/widgets/evidence_preview_dialog.dart';
 import '../../state/station_app_state.dart';
+import '../../core/widgets/shift_adjustment_ledger.dart';
 import '../cashier/bank_deposit_dialog.dart';
 import '../reports/shift_summary_export_dialog.dart';
 import 'tank_changeover_dialog.dart';
@@ -60,9 +62,9 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Log out of this kiosk?'),
+        title: const Text('Sign out?'),
         content: const Text(
-          'You will be returned to the PIN sign-in screen. Any unsubmitted entries on this shared tablet will be lost.',
+          'You will be returned to the PIN sign-in screen. Any unsubmitted entries will be lost.',
         ),
         actions: [
           TextButton(
@@ -105,48 +107,8 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
   }
 
   void _showReceiptPreview(BranchExpense expense) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('${expense.category} Receipt Proof'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Amount: ${CurrencyFormatter.formatNaira(expense.amount)}', style: const TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
-            Text('Description: ${expense.description}'),
-            const SizedBox(height: 4),
-            Text('Recorded By: ${expense.recordedByRole.toUpperCase()} (${(expense.approvedBy?.isNotEmpty ?? false) ? expense.approvedBy : "Pending Approval"})'),
-            const SizedBox(height: 12),
-            Container(
-              height: 180,
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: AppColors.lightBackground,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.line),
-              ),
-              child: const Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.photo_outlined, size: 48, color: AppColors.muted),
-                    SizedBox(height: 8),
-                    Text('Receipt Photo Attached', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
-                    SizedBox(height: 4),
-                    Text('Stored in Supabase expense-receipts bucket', style: TextStyle(color: AppColors.muted, fontSize: 12)),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), style: TextButton.styleFrom(minimumSize: const Size(0, 48)), child: const Text('Close')),
-        ],
-      ),
-    );
+    EvidencePreviewDialog.show(context,
+        title: 'Expense receipt', reference: expense.receiptUrl);
   }
 
   void _confirmApproveExpense(BranchExpense expense) {
@@ -158,19 +120,29 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
           'Confirm approval of ${CurrencyFormatter.formatNaira(expense.amount)} for "${expense.description}". This will formalize the deduction from the safe cash drawer.',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), style: TextButton.styleFrom(minimumSize: const Size(0, 48)), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+              child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () {
               Navigator.pop(ctx);
-              state.approveExpense(expenseId: expense.id, approverNotes: state.currentUser.displayName);
+              final approved = state.approveExpense(
+                  expenseId: expense.id,
+                  approverNotes: state.currentUser.displayName);
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('Approved ${CurrencyFormatter.formatNaira(expense.amount)} (${expense.category})'),
-                  backgroundColor: AppColors.ok,
+                  content: Text(approved
+                      ? 'Approval recorded locally. Check synchronization status.'
+                      : 'Approval not permitted. Refresh the record and policy.'),
+                  backgroundColor: approved ? AppColors.ok : AppColors.bad,
                 ),
               );
             },
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.ok, foregroundColor: Colors.white, minimumSize: const Size(0, 48)),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.ok,
+                foregroundColor: Colors.white,
+                minimumSize: const Size(0, 48)),
             child: const Text('Confirm Approval'),
           ),
         ],
@@ -198,7 +170,9 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
               TextFormField(
                 controller: reasonController,
                 autovalidateMode: AutovalidateMode.onUserInteraction,
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'A rejection reason is required.' : null,
+                validator: (v) => (v == null || v.trim().isEmpty)
+                    ? 'A rejection reason is required.'
+                    : null,
                 decoration: const InputDecoration(
                   labelText: 'Rejection Reason',
                   hintText: 'e.g. Unapproved petty purchase, invalid receipt',
@@ -208,7 +182,10 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), style: TextButton.styleFrom(minimumSize: const Size(0, 48)), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+              child: const Text('Cancel')),
           ValueListenableBuilder<TextEditingValue>(
             valueListenable: reasonController,
             builder: (context, value, _) {
@@ -220,10 +197,13 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                         if (formKey.currentState?.validate() != true) return;
                         final reason = value.text.trim();
                         Navigator.pop(ctx);
-                        state.rejectExpense(expenseId: expense.id, reason: reason);
+                        final rejected = state.rejectExpense(
+                            expenseId: expense.id, reason: reason);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text('Rejected ${CurrencyFormatter.formatNaira(expense.amount)} (${expense.category})'),
+                            content: Text(rejected
+                                ? 'Rejection recorded locally. Check synchronization status.'
+                                : 'Rejection not permitted. Refresh the record and policy.'),
                             backgroundColor: AppColors.bad,
                           ),
                         );
@@ -253,26 +233,45 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
       if (n.productName == 'AGO') agoSold += n.litresSold;
     }
 
-    final totalSalesValue = state.submissions.fold(0.0, (s, sub) => s + sub.expectedSalesValue);
-    final totalCreditGiven = state.creditCustomers.fold(0.0, (s, c) => s + c.outstanding);
-    final totalExpenses = state.expenses.fold(0.0, (s, e) => s + e.amount);
-    final totalDepositsPending = state.deposits.where((d) => !d.isConfirmed).fold(0.0, (s, d) => s + d.amount);
+    final totalSalesValue =
+        state.submissions.fold(0.0, (s, sub) => s + sub.expectedSalesValue);
+    final totalCreditGiven =
+        state.creditCustomers.fold(0.0, (s, c) => s + c.outstanding);
+    final totalExpenses = state.expenses.fold(0.0, (s, e) => s + e.amount) +
+        state.shiftAdjustments
+            .where((e) => !e.isFuel && e.status != 'rejected')
+            .fold(0.0, (s, e) => s + e.amount);
+    final totalDepositsPending = state.deposits
+        .where((d) => !d.isConfirmed)
+        .fold(0.0, (s, d) => s + d.amount);
 
-    final pendingVerifications = state.submissions.where((s) => s.status == 'Pending Verification').length;
-    final unresolvedDifferences = state.submissions.where((s) => s.status == 'Flagged Unresolved').length + state.salaryAdjustments.where((a) => a.status == 'Pending Review').length;
+    final pendingVerifications = state.submissions
+        .where((s) => s.status == 'Pending Verification')
+        .length;
+    final unresolvedDifferences = state.submissions
+            .where((s) => s.status == 'Flagged Unresolved')
+            .length +
+        state.salaryAdjustments
+            .where((a) => a.status == 'Pending Review')
+            .length;
 
     return Scaffold(
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Branch Manager Dashboard', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('${state.currentUser.displayName} · ${state.currentStationName} · Today', style: const TextStyle(fontSize: 13, color: Colors.white70)),
+            const Text('Branch Manager Dashboard',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text(
+                '${state.currentUser.displayName} · ${state.currentStationName}',
+                style: const TextStyle(fontSize: 13, color: AppColors.muted)),
           ],
         ),
         actions: [
           IconButton(
-            icon: Icon(state.isDarkMode ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
+            icon: Icon(state.isDarkMode
+                ? Icons.light_mode_outlined
+                : Icons.dark_mode_outlined),
             tooltip: state.isDarkMode ? 'Daylight Mode' : 'Night Shift Mode',
             onPressed: () => state.toggleTheme(),
           ),
@@ -314,16 +313,28 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // 1. Executive Duotone Hero Card: The One Number That Matters
+                if (state.shiftAdjustments.isNotEmpty) ...[
+                  Text('Pump expenses & non-sale fuel',
+                      style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 12),
+                  ShiftAdjustmentLedger(
+                      entries: state.shiftAdjustments, review: true),
+                ],
                 ExecutiveHeroCard(
                   totalRevenue: totalSalesValue,
                   pmsLitres: pmsSold,
                   agoLitres: agoSold,
-                  safeCashBalance: state.totalCountedCash > 0 ? state.totalCountedCash : state.expectedClosingCash,
-                  netVariance: state.submissions.fold(0.0, (s, sub) => s + sub.variance),
+                  safeCashBalance: state.totalCountedCash > 0
+                      ? state.totalCountedCash
+                      : state.expectedClosingCash,
+                  netVariance:
+                      state.submissions.fold(0.0, (s, sub) => s + sub.variance),
                   pendingAuditCount: pendingVerifications,
                   stationName: state.currentStationName,
                   onDepositPressed: () => _openBankDepositDialog(
-                    state.totalCountedCash > 0 ? state.totalCountedCash : state.expectedClosingCash,
+                    state.totalCountedCash > 0
+                        ? state.totalCountedCash
+                        : state.expectedClosingCash,
                   ),
                   onAuditPressed: widget.onOpenVerificationQueue,
                   onExportPressed: () => ShiftSummaryExportDialog.show(context),
@@ -337,19 +348,27 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                 const SizedBox(height: 20),
 
                 // 3. Operational Dials Title & Submissions Status
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.spaceBetween,
                   children: [
                     Text(
                       'Operational Dials & Safe Balances',
                       style: AppTypography.title(
                         fontSize: 18,
-                        color: Theme.of(context).brightness == Brightness.dark ? AppColors.darkInk : AppColors.ink,
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? AppColors.darkInk
+                            : AppColors.ink,
                       ),
                     ),
                     StatusChip(
-                      label: pendingVerifications > 0 ? '$pendingVerifications Submissions Need Audit' : 'All Clear',
-                      type: pendingVerifications > 0 ? ChipType.warn : ChipType.ok,
+                      label: pendingVerifications > 0
+                          ? '$pendingVerifications Submissions Need Audit'
+                          : 'All Clear',
+                      type: pendingVerifications > 0
+                          ? ChipType.warn
+                          : ChipType.ok,
                     ),
                   ],
                 ),
@@ -365,12 +384,28 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                       spacing: 12,
                       runSpacing: 12,
                       children: [
-                        _buildKpiCard('PMS Sold', CurrencyFormatter.formatLitres(pmsSold), itemWidth),
-                        _buildKpiCard('AGO Sold', CurrencyFormatter.formatLitres(agoSold), itemWidth),
-                        _buildKpiCard('Sales Value', CurrencyFormatter.formatNaira(totalSalesValue), itemWidth, isGreen: true),
-                        _buildKpiCard('Credit Given', CurrencyFormatter.formatNaira(totalCreditGiven), itemWidth),
-                        _buildKpiCard('Expenses', CurrencyFormatter.formatNaira(totalExpenses), itemWidth),
-                        _buildKpiCard('Deposits Pending', CurrencyFormatter.formatNaira(totalDepositsPending), itemWidth, isBlue: true),
+                        _buildKpiCard('PMS Sold',
+                            CurrencyFormatter.formatLitres(pmsSold), itemWidth),
+                        _buildKpiCard('AGO Sold',
+                            CurrencyFormatter.formatLitres(agoSold), itemWidth),
+                        _buildKpiCard(
+                            'Sales Value',
+                            CurrencyFormatter.formatNaira(totalSalesValue),
+                            itemWidth,
+                            isGreen: true),
+                        _buildKpiCard(
+                            'Credit Given',
+                            CurrencyFormatter.formatNaira(totalCreditGiven),
+                            itemWidth),
+                        _buildKpiCard(
+                            'Expenses',
+                            CurrencyFormatter.formatNaira(totalExpenses),
+                            itemWidth),
+                        _buildKpiCard(
+                            'Deposits Pending',
+                            CurrencyFormatter.formatNaira(totalDepositsPending),
+                            itemWidth,
+                            isBlue: true),
                       ],
                     );
                   },
@@ -394,15 +429,17 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                         ),
                         SizedBox(height: 2),
                         Text(
-                          'Live physical dip levels, calculated book stock & tanker discharge ullage.',
-                          style: TextStyle(fontSize: 13, color: AppColors.muted),
+                          'Last recorded tank measurements, calculated stock and available capacity.',
+                          style:
+                              TextStyle(fontSize: 13, color: AppColors.muted),
                         ),
                       ],
                     );
                     final actions = <Widget>[
                       if (state.hasInterlockedTanks)
                         ElevatedButton.icon(
-                          onPressed: () => TankChangeoverDialog.show(context, state),
+                          onPressed: () =>
+                              TankChangeoverDialog.show(context, state),
                           icon: const Icon(Icons.alt_route, size: 16),
                           label: const Text('Manifold Changeover'),
                           style: ElevatedButton.styleFrom(
@@ -410,7 +447,8 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(horizontal: 12),
                             minimumSize: const Size(0, 48),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8)),
                           ),
                         ),
                       if (widget.onOpenTankDip != null)
@@ -423,20 +461,23 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                             side: const BorderSide(color: AppColors.line),
                             padding: const EdgeInsets.symmetric(horizontal: 12),
                             minimumSize: const Size(0, 48),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8)),
                           ),
                         ),
                       if (widget.onOpenFuelDelivery != null)
                         OutlinedButton.icon(
                           onPressed: widget.onOpenFuelDelivery,
-                          icon: const Icon(Icons.local_shipping_outlined, size: 16),
+                          icon: const Icon(Icons.local_shipping_outlined,
+                              size: 16),
                           label: const Text('Record Fuel Delivery'),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: AppColors.ink,
                             side: const BorderSide(color: AppColors.line),
                             padding: const EdgeInsets.symmetric(horizontal: 12),
                             minimumSize: const Size(0, 48),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8)),
                           ),
                         ),
                     ];
@@ -488,7 +529,8 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                             children: state.tanks.map((t) {
                               return Expanded(
                                 child: Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                                  padding:
+                                      const EdgeInsets.symmetric(horizontal: 6),
                                   child: ForecourtTankGauge(
                                     tankCode: t.code,
                                     productName: t.product,
@@ -523,19 +565,24 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                             builder: (context, constraints) {
                               final heading = Row(
                                 children: [
-                                  const Icon(Icons.pending_actions, color: AppColors.amber, size: 22),
+                                  const Icon(Icons.pending_actions,
+                                      color: AppColors.amber, size: 22),
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
                                       'Pending Expense Approvals (${state.pendingExpenses.length})',
-                                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.warnInk),
+                                      style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                          color: AppColors.warnInk),
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
                                 ],
                               );
-                              final recordButton = widget.onOpenExpenseEntry == null
+                              final recordButton = widget.onOpenExpenseEntry ==
+                                      null
                                   ? null
                                   : TextButton.icon(
                                       onPressed: widget.onOpenExpenseEntry,
@@ -546,14 +593,17 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                                         minimumSize: const Size(0, 48),
                                       ),
                                     );
-                              if (constraints.maxWidth < 700 || recordButton == null) {
+                              if (constraints.maxWidth < 700 ||
+                                  recordButton == null) {
                                 return Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     heading,
                                     if (recordButton != null) ...[
                                       const SizedBox(height: 4),
-                                      Align(alignment: Alignment.centerLeft, child: recordButton),
+                                      Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: recordButton),
                                     ],
                                   ],
                                 );
@@ -567,7 +617,8 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                             },
                           ),
                           const SizedBox(height: 12),
-                          ...state.pendingExpenses.map((expense) => _buildPendingExpenseTile(expense)),
+                          ...state.pendingExpenses.map(
+                              (expense) => _buildPendingExpenseTile(expense)),
                         ],
                       ),
                     ),
@@ -594,45 +645,68 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                                 children: [
                                   const Text(
                                     'Needs attention',
-                                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
+                                    style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.ink),
                                   ),
                                   const SizedBox(height: 12),
                                   if (state.pendingExpenses.isNotEmpty)
                                     _buildActionRow(
                                       'Pending expense approvals',
                                       StatusChip(
-                                        label: '${state.pendingExpenses.length}',
+                                        label:
+                                            '${state.pendingExpenses.length}',
                                         type: ChipType.warn,
                                       ),
                                     ),
                                   _buildActionRow(
                                     'Submissions to verify',
-                                    StatusChip(label: '$pendingVerifications', type: pendingVerifications > 0 ? ChipType.warn : ChipType.ok),
+                                    StatusChip(
+                                        label: '$pendingVerifications',
+                                        type: pendingVerifications > 0
+                                            ? ChipType.warn
+                                            : ChipType.ok),
                                   ),
                                   _buildActionRow(
                                     'Unresolved differences',
-                                    StatusChip(label: '$unresolvedDifferences', type: unresolvedDifferences > 0 ? ChipType.bad : ChipType.ok),
+                                    StatusChip(
+                                        label: '$unresolvedDifferences',
+                                        type: unresolvedDifferences > 0
+                                            ? ChipType.bad
+                                            : ChipType.ok),
                                   ),
                                   _buildActionRow(
                                     'Bank deposits in transit',
                                     StatusChip(
-                                      label: totalDepositsPending > 0 ? CurrencyFormatter.formatNaira(totalDepositsPending) : 'None',
-                                      type: totalDepositsPending > 0 ? ChipType.bank : ChipType.ok,
+                                      label: totalDepositsPending > 0
+                                          ? CurrencyFormatter.formatNaira(
+                                              totalDepositsPending)
+                                          : 'None',
+                                      type: totalDepositsPending > 0
+                                          ? ChipType.bank
+                                          : ChipType.ok,
                                     ),
                                   ),
-                                    ...state.tanks.where((t) => t.hasDeficit).map((t) {
-                                      return _buildActionRow(
-                                        'Tank ${t.code} dip vs calculated',
-                                        StatusChip(
-                                          label: '${t.variance >= 0 ? '+' : '−'}${CurrencyFormatter.formatLitres(t.variance.abs())}',
-                                          type: ChipType.bad,
-                                        ),
-                                      );
-                                    }),
-                                  ...state.tanks.where((t) => t.isLowStock).map((t) {
+                                  ...state.tanks
+                                      .where((t) => t.hasDeficit)
+                                      .map((t) {
+                                    return _buildActionRow(
+                                      'Tank ${t.code} dip vs calculated',
+                                      StatusChip(
+                                        label:
+                                            '${t.variance >= 0 ? '+' : '−'}${CurrencyFormatter.formatLitres(t.variance.abs())}',
+                                        type: ChipType.bad,
+                                      ),
+                                    );
+                                  }),
+                                  ...state.tanks
+                                      .where((t) => t.isLowStock)
+                                      .map((t) {
                                     return _buildActionRow(
                                       'Low stock: ${t.product} ${t.code}',
-                                      const StatusChip(label: 'Low', type: ChipType.warn),
+                                      const StatusChip(
+                                          label: 'Low', type: ChipType.warn),
                                     );
                                   }),
                                 ],
@@ -654,32 +728,46 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                                 children: [
                                   const Text(
                                     'Shift operations',
-                                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
+                                    style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.ink),
                                   ),
                                   const SizedBox(height: 12),
                                   _buildActionRow(
                                     'Morning Shift',
                                     StatusChip(
-                                      label: pendingVerifications > 0 ? 'Verification Pending' : 'Verified & Locked',
-                                      type: pendingVerifications > 0 ? ChipType.warn : ChipType.ok,
+                                      label: pendingVerifications > 0
+                                          ? 'Verification Pending'
+                                          : 'Verified & Locked',
+                                      type: pendingVerifications > 0
+                                          ? ChipType.warn
+                                          : ChipType.ok,
                                     ),
                                   ),
                                   _buildActionRow(
                                     'Afternoon / Evening Shift',
                                     StatusChip(
-                                      label: DateTime.now().hour >= 14 ? 'Active / In progress' : 'Scheduled (Starts 2:00 PM)',
-                                      type: DateTime.now().hour >= 14 ? ChipType.warn : ChipType.draft,
+                                      label: DateTime.now().hour >= 14
+                                          ? 'Active / In progress'
+                                          : 'Scheduled (Starts 2:00 PM)',
+                                      type: DateTime.now().hour >= 14
+                                          ? ChipType.warn
+                                          : ChipType.draft,
                                     ),
                                   ),
                                   const Divider(color: AppColors.line),
                                   const Text(
                                     'Active Prices (Authorized by Director):',
-                                    style: TextStyle(fontSize: 13, color: AppColors.muted),
+                                    style: TextStyle(
+                                        fontSize: 13, color: AppColors.muted),
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
                                     'PMS: ${CurrencyFormatter.formatNaira(state.pmsPrice)}/L | AGO: ${CurrencyFormatter.formatNaira(state.agoPrice)}/L',
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14),
                                   ),
                                 ],
                               ),
@@ -703,49 +791,76 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
         ),
         child: SafeArea(
           top: false,
-          child: Row(
-            children: [
+          child: LayoutBuilder(builder: (context, constraints) {
+            final deposit = () => _openBankDepositDialog(
+                state.totalCountedCash > 0
+                    ? state.totalCountedCash
+                    : state.expectedClosingCash);
+            if (constraints.maxWidth < 600) {
+              return Column(mainAxisSize: MainAxisSize.min, children: [
+                SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                        icon: const Icon(Icons.playlist_add_check),
+                        onPressed: widget.onOpenVerificationQueue,
+                        label: const Text('Verify queue'))),
+                const SizedBox(height: 8),
+                Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      OutlinedButton(
+                          onPressed: widget.onOpenCashCount,
+                          child: const Text('Cash count')),
+                      OutlinedButton(
+                          onPressed: deposit,
+                          child: const Text('Bank deposit')),
+                      TextButton(
+                          onPressed: () =>
+                              ShiftSummaryExportDialog.show(context),
+                          child: const Text('Copy summary')),
+                    ]),
+              ]);
+            }
+            return Row(children: [
               Expanded(
-                child: ElevatedButton.icon(
-                  icon: const Icon(Icons.playlist_add_check),
-                  onPressed: widget.onOpenVerificationQueue,
-                  label: const Text('Verify queue'),
-                ),
-              ),
+                  child: ElevatedButton.icon(
+                      icon: const Icon(Icons.playlist_add_check),
+                      onPressed: widget.onOpenVerificationQueue,
+                      label: const Text('Verify queue'))),
               const SizedBox(width: 8),
               Expanded(
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.point_of_sale),
-                  onPressed: widget.onOpenCashCount,
-                  label: const Text('Cash count'),
-                ),
-              ),
+                  child: OutlinedButton.icon(
+                      icon: const Icon(Icons.point_of_sale),
+                      onPressed: widget.onOpenCashCount,
+                      label: const Text('Cash count'))),
               const SizedBox(width: 8),
               Expanded(
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.account_balance, color: AppColors.bank),
-                  onPressed: () => _openBankDepositDialog(state.totalCountedCash > 0 ? state.totalCountedCash : state.expectedClosingCash),
-                  label: const Text('Bank deposit'),
-                ),
-              ),
+                  child: OutlinedButton.icon(
+                      icon: const Icon(Icons.account_balance),
+                      onPressed: deposit,
+                      label: const Text('Bank deposit'))),
               const SizedBox(width: 8),
               IconButton(
-                icon: const Icon(Icons.print_outlined, color: AppColors.primary),
-                tooltip: 'Copy Shift Summary',
-                onPressed: () => ShiftSummaryExportDialog.show(context),
-              ),
-            ],
-          ),
+                  icon: const Icon(Icons.copy_outlined),
+                  tooltip: 'Copy summary',
+                  onPressed: () => ShiftSummaryExportDialog.show(context)),
+            ]);
+          }),
         ),
       ),
     );
   }
 
-  Widget _buildKpiCard(String label, String value, double width, {bool isGreen = false, bool isBlue = false}) {
+  Widget _buildKpiCard(String label, String value, double width,
+      {bool isGreen = false, bool isBlue = false}) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final valueColor = isGreen
         ? (isDark ? AppColors.emerald : AppColors.okInk)
-        : (isBlue ? AppColors.accent : (isDark ? AppColors.darkInk : AppColors.ink));
+        : (isBlue
+            ? AppColors.accent
+            : (isDark ? AppColors.darkInk : AppColors.ink));
 
     return SizedBox(
       width: width,
@@ -754,7 +869,8 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
         decoration: BoxDecoration(
           color: isDark ? AppColors.darkCard : AppColors.card,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: isDark ? AppColors.darkLine : AppColors.line),
+          border:
+              Border.all(color: isDark ? AppColors.darkLine : AppColors.line),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.03),
@@ -811,7 +927,8 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
   }
 
   Widget _buildPendingExpenseTile(BranchExpense expense) {
-    final requiresDirector = expense.amount > 50000;
+    final requiresDirector = state.operationsPolicy == null ||
+        expense.amount > state.operationsPolicy!.managerApprovalLimit;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -831,23 +948,23 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
                       children: [
-                        Flexible(
-                          child: Text(
-                            expense.category,
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.ink),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                        Text(
+                          expense.category,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                              color: AppColors.ink),
                         ),
-                        const SizedBox(width: 8),
                         StatusChip(
                           label: expense.recordedByRole.toUpperCase(),
                           type: ChipType.draft,
                         ),
-                        if (expense.paymentSource == 'sales_cash' || expense.paymentSource == 'Cash Drawer') ...[
-                          const SizedBox(width: 6),
+                        if (expense.paymentSource == 'sales_cash' ||
+                            expense.paymentSource == 'Cash Drawer') ...[
                           const StatusChip(
                             label: 'CASH SAFE',
                             type: ChipType.warn,
@@ -858,12 +975,14 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                     const SizedBox(height: 4),
                     Text(
                       expense.description,
-                      style: const TextStyle(fontSize: 13, color: AppColors.slate),
+                      style:
+                          const TextStyle(fontSize: 13, color: AppColors.slate),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       'Recorded: ${_formatTime(expense.recordedAt)} · Source: ${expense.paymentSource}',
-                      style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                      style:
+                          const TextStyle(fontSize: 12, color: AppColors.muted),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -873,30 +992,41 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
               const SizedBox(width: 12),
               Text(
                 CurrencyFormatter.formatNaira(expense.amount),
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.ink),
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: AppColors.ink),
               ),
             ],
           ),
           const SizedBox(height: 10),
           LayoutBuilder(
             builder: (context, constraints) {
-              final left = expense.receiptUrl != null && expense.receiptUrl!.isNotEmpty
+              final left = expense.receiptUrl != null &&
+                      expense.receiptUrl!.isNotEmpty
                   ? TextButton.icon(
                       onPressed: () => _showReceiptPreview(expense),
-                      icon: const Icon(Icons.receipt, size: 16, color: AppColors.primary),
-                      label: const Text('View Receipt Proof', style: TextStyle(fontSize: 13)),
-                      style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+                      icon: const Icon(Icons.receipt,
+                          size: 16, color: AppColors.primary),
+                      label: const Text('View Receipt Proof',
+                          style: TextStyle(fontSize: 13)),
+                      style:
+                          TextButton.styleFrom(minimumSize: const Size(0, 48)),
                     )
                   : const Padding(
                       padding: EdgeInsets.symmetric(vertical: 12),
                       child: Text(
                         'No receipt attached',
-                        style: TextStyle(fontSize: 12, color: AppColors.muted, fontStyle: FontStyle.italic),
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.muted,
+                            fontStyle: FontStyle.italic),
                       ),
                     );
               final right = requiresDirector
                   ? Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 8),
                       decoration: BoxDecoration(
                         color: AppColors.badSurface,
                         borderRadius: BorderRadius.circular(6),
@@ -905,11 +1035,15 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                       child: const Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.shield_outlined, size: 16, color: AppColors.bad),
+                          Icon(Icons.shield_outlined,
+                              size: 16, color: AppColors.bad),
                           SizedBox(width: 4),
                           Text(
-                            'Requires Director Approval (>₦50k)',
-                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.bad),
+                            'Requires director approval',
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.bad),
                           ),
                         ],
                       ),
@@ -919,26 +1053,32 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                       children: [
                         OutlinedButton.icon(
                           onPressed: () => _confirmRejectExpense(expense),
-                          icon: const Icon(Icons.close, size: 16, color: AppColors.bad),
-                          label: const Text('Reject', style: TextStyle(fontSize: 13, color: AppColors.bad)),
+                          icon: const Icon(Icons.close,
+                              size: 16, color: AppColors.bad),
+                          label: const Text('Reject',
+                              style: TextStyle(
+                                  fontSize: 13, color: AppColors.bad)),
                           style: OutlinedButton.styleFrom(
                             side: const BorderSide(color: AppColors.bad),
                             padding: const EdgeInsets.symmetric(horizontal: 12),
                             minimumSize: const Size(0, 48),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(6)),
                           ),
                         ),
                         const SizedBox(width: 8),
                         ElevatedButton.icon(
                           onPressed: () => _confirmApproveExpense(expense),
                           icon: const Icon(Icons.check, size: 16),
-                          label: const Text('Approve', style: TextStyle(fontSize: 13)),
+                          label: const Text('Approve',
+                              style: TextStyle(fontSize: 13)),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.ok,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             minimumSize: const Size(0, 48),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(6)),
                           ),
                         ),
                       ],

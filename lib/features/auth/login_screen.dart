@@ -1,1076 +1,818 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../core/constants/app_colors.dart';
 import '../../core/network/supabase_repository.dart';
 import '../../core/security/kiosk_security_manager.dart';
-import '../../core/theme/app_typography.dart';
 import '../../core/widgets/ajadico_logo.dart';
-import '../../core/widgets/forecourt_sync_bar.dart';
+import '../../core/widgets/management_unlock_dialog.dart';
+import '../../models/station.dart';
 import '../../models/user_profile.dart';
 import '../../state/station_app_state.dart';
+import 'device_mode_preferences.dart';
+import 'management_credentials.dart';
 
-/// Redesigned Login Screen implementing Option 3:
-/// - Door 1: Forecourt Shift Staff (Username/Staff ID + PIN for Attendants & Cashiers)
-/// - Door 2: Management & Executive Portal (Email/ID + Password/Key for Managers & Directors)
+/// One application, with a remembered entry experience for each device.
 class LoginScreen extends StatefulWidget {
-  final Function(UserProfile user) onLoginSuccess;
-
   const LoginScreen({super.key, required this.onLoginSuccess});
+  final void Function(UserProfile user) onLoginSuccess;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStateMixin {
-  // Mode 0 = Forecourt Staff (Attendant & Cashier), Mode 1 = Management (Manager & Director)
-  int _activeDoor = 0;
-
-  // Door 1 (Forecourt Staff) Controllers & State
-  final TextEditingController _staffUsernameCtrl = TextEditingController();
-  String _staffPin = '';
-  bool _isStaffAuthenticating = false;
-  String? _staffAuthError;
-
-  // Door 2 (Management) Controllers & State
-  final TextEditingController _mgmtUsernameCtrl = TextEditingController();
-  final TextEditingController _mgmtPasswordCtrl = TextEditingController();
-  bool _isMgmtAuthenticating = false;
-  String? _mgmtAuthError;
-  bool _obscureMgmtPassword = true;
-
+class _LoginScreenState extends State<LoginScreen> {
+  final _preferences = DeviceModePreferences();
+  final _state = StationAppState.instance;
   final _security = KioskSecurityManager.instance;
+  final _identity = TextEditingController();
+  final _pin = TextEditingController();
+  final _form = GlobalKey<FormState>();
+  final _identityFocus = FocusNode();
+  final _pinFocus = FocusNode();
+  bool _loading = true;
+  bool _choosingMode = false;
+  bool _busy = false;
+  bool _obscure = true;
+  bool _submitted = false;
+  DeviceMode? _selection;
+  String? _selectedStationId;
+  String? _error;
+  String? _codeEmail;
+  DateTime? _resendAfter;
+
+  bool get _stationMode => _preferences.mode == DeviceMode.station;
+  bool get _settingUp => _choosingMode || _preferences.mode == null;
 
   @override
   void initState() {
     super.initState();
-    _security.addListener(_onSecurityChanged);
-    StationAppState.instance.addListener(_onStateChanged);
+    _state.addListener(_refresh);
+    _security.addListener(_refresh);
+    _loadMode();
+  }
+
+  Future<void> _loadMode() async {
+    try {
+      await _preferences.load();
+      if (!mounted) return;
+      _selection = _preferences.mode;
+      _selectedStationId = _preferences.stationId;
+      _applyStationContext();
+    } catch (_) {
+      if (mounted)
+        _error = 'Could not load device settings. Choose a mode to continue.';
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Station? get _boundStation {
+    final id = _preferences.stationId;
+    for (final station in _state.stations) {
+      if (station.id == id) return station;
+    }
+    return null;
+  }
+
+  void _applyStationContext() {
+    if (_preferences.mode != DeviceMode.station) return;
+    final branch = _boundStation;
+    if (branch != null &&
+        _state.currentStationId != branch.id &&
+        !_state.isSyncingWithRemote) {
+      _state.switchStation(branch);
+    }
+  }
+
+  void _refresh() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
-    _staffUsernameCtrl.dispose();
-    _mgmtUsernameCtrl.dispose();
-    _mgmtPasswordCtrl.dispose();
-    _security.removeListener(_onSecurityChanged);
-    StationAppState.instance.removeListener(_onStateChanged);
+    _state.removeListener(_refresh);
+    _security.removeListener(_refresh);
+    _identity.dispose();
+    _pin.dispose();
+    _identityFocus.dispose();
+    _pinFocus.dispose();
     super.dispose();
   }
 
-  void _onSecurityChanged() {
-    if (mounted) setState(() {});
-  }
-
-  void _onStateChanged() {
-    if (mounted) setState(() {});
-  }
-
-  // ---------------------------------------------------------------------------
-  // DOOR 1: FORECOURT STAFF LOGIN (ATTENDANTS & CASHIERS)
-  // ---------------------------------------------------------------------------
-  void _onStaffKeyPress(String key) {
-    if (_staffPin.length < 6 && !_isStaffAuthenticating && !_security.isLockedOut) {
-      setState(() {
-        _staffPin += key;
-        _staffAuthError = null;
-      });
+  Future<void> _saveMode() async {
+    if (_busy || _selection == null) return;
+    if (_selection == DeviceMode.station &&
+        _state.stations.isNotEmpty &&
+        !_state.stations.any((s) => s.id == _selectedStationId)) {
+      setState(() => _error = 'Select the station this tablet belongs to.');
+      return;
     }
-  }
-
-  void _onStaffPinClear() {
     setState(() {
-      _staffPin = '';
-      _staffAuthError = null;
+      _busy = true;
+      _error = null;
     });
-  }
-
-  Future<void> _submitStaffLogin() async {
-    final username = _staffUsernameCtrl.text.trim();
-    if (username.isEmpty) {
-      setState(() => _staffAuthError = 'Please enter your Username or Staff ID');
-      return;
-    }
-    if (_staffPin.length < 4) {
-      setState(() => _staffAuthError = 'Please enter at least 4 digits for your PIN');
-      return;
-    }
-
-    setState(() {
-      _isStaffAuthenticating = true;
-      _staffAuthError = null;
-    });
-
-    final currentStation = StationAppState.instance.currentStationCode.toLowerCase();
-    final liveStaff = StationAppState.instance.staff;
-
-    // Find staff profile by username / displayName / fullName / phone
-    UserProfile? matchedUser;
-    for (final u in liveStaff) {
-      if (u.isActive &&
-          (u.displayName.equalsIgnoreCase(username) ||
-              u.fullName.equalsIgnoreCase(username) ||
-              (u.phone != null && u.phone!.trim() == username) ||
-              u.id.equalsIgnoreCase(username))) {
-        matchedUser = u;
-        break;
-      }
-    }
-
-    // If no direct database match, check partial name match
-    if (matchedUser == null) {
-      for (final u in liveStaff) {
-        if (u.isActive &&
-            (u.displayName.toLowerCase().contains(username.toLowerCase()) ||
-                u.fullName.toLowerCase().contains(username.toLowerCase()))) {
-          matchedUser = u;
-          break;
-        }
-      }
-    }
-
-    if (matchedUser == null) {
-      setState(() {
-        _isStaffAuthenticating = false;
-        _staffPin = '';
-        _staffAuthError = 'Staff username not found. Check spelling or ask the Station Manager.';
-      });
-      return;
-    }
-
-    // If user is actually an executive trying to log in at the staff door
-    if (matchedUser.role == UserRole.manager || matchedUser.role == UserRole.director) {
-      setState(() {
-        _isStaffAuthenticating = false;
-        _staffAuthError = 'This is an executive account. Please switch to the "Management" tab.';
-      });
-      return;
-    }
-
-    // Verify PIN against Supabase or offline fallback
     try {
-      final repo = SupabaseRepository.instance;
-      final effectiveStation = matchedUser.stationId ?? StationAppState.instance.currentStationId;
-
-      if (!repo.isConnected) {
-        // Offline: only the station manager override PIN is honored (no hardcoded demo PINs)
-        if (_security.validateManagerOverridePin(_staffPin)) {
-          _security.recordSuccessfulPin(actorId: matchedUser.id, stationId: effectiveStation);
-          setState(() => _isStaffAuthenticating = false);
-          widget.onLoginSuccess(matchedUser);
-          return;
-        }
-        setState(() {
-          _isStaffAuthenticating = false;
-          _staffPin = '';
-          _staffAuthError =
-              'Terminal offline — staff PIN cannot be verified. Connect to the internet, or ask the Station Manager to use the override PIN.';
-        });
-        return;
-      }
-
-      final res = await repo.verifyAttendantPin(
-        stationId: effectiveStation,
-        profileId: matchedUser.id,
-        pin: _staffPin,
-      );
-
-      if (res['success'] == true) {
-        _security.recordSuccessfulPin(actorId: matchedUser.id, stationId: currentStation);
-        setState(() => _isStaffAuthenticating = false);
-        widget.onLoginSuccess(matchedUser);
-      } else if (_isServiceFault(res['message']?.toString() ?? '')) {
-        setState(() {
-          _isStaffAuthenticating = false;
-          _staffPin = '';
-          _staffAuthError = 'Network timeout — please try again or notify Manager';
-        });
-      } else {
-        _security.recordFailedPinAttempt(actorId: matchedUser.id, stationId: currentStation);
-        setState(() {
-          _isStaffAuthenticating = false;
-          _staffPin = '';
-          final remaining = KioskSecurityManager.maxFailedAttempts - _security.failedAttempts;
-          _staffAuthError = remaining > 0
-              ? 'Invalid PIN. $remaining attempt(s) remaining before 15m lockout.'
-              : 'Too many failed attempts. Forecourt tablet locked.';
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _isStaffAuthenticating = false;
-        _staffPin = '';
-        _staffAuthError = 'Authentication service fault — contact Station Manager';
-      });
+      await _preferences.save(_selection!,
+          stationId:
+              _selection == DeviceMode.station ? _selectedStationId : null);
+      if (!mounted) return;
+      _identity.clear();
+      _pin.clear();
+      _codeEmail = null;
+      _obscure = true;
+      _submitted = false;
+      _choosingMode = false;
+      _applyStationContext();
+      FocusManager.instance.primaryFocus?.unfocus();
+    } catch (_) {
+      if (mounted)
+        setState(
+            () => _error = 'Could not save this device mode. Please retry.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // DOOR 2: MANAGEMENT PORTAL LOGIN (MANAGERS & DIRECTORS)
-  // ---------------------------------------------------------------------------
-  Future<void> _submitManagementLogin() async {
-    final identifier = _mgmtUsernameCtrl.text.trim().toLowerCase();
-    final password = _mgmtPasswordCtrl.text.trim();
-
-    if (identifier.isEmpty) {
-      setState(() => _mgmtAuthError = 'Please enter your Manager ID or Email');
-      return;
-    }
-    if (password.isEmpty) {
-      setState(() => _mgmtAuthError = 'Please enter your Security Password or PIN');
-      return;
-    }
-
-    setState(() {
-      _isMgmtAuthenticating = true;
-      _mgmtAuthError = null;
-    });
-
-    final currentStation = StationAppState.instance.currentStationCode.toLowerCase();
-
-    // 1. Check for Managing Director (Engr. Dickson)
-    final isDirectorIdentifier = identifier.contains('director') ||
-        identifier.contains('dickson') ||
-        identifier.contains('admin') ||
-        identifier == 'ceo' ||
-        identifier == 'hq';
-
-    if (isDirectorIdentifier) {
-      if (_security.validateManagerOverridePin(password)) {
-        _security.recordSuccessfulPin(actorId: UserProfile.defaultDirector.id, stationId: currentStation);
-        setState(() => _isMgmtAuthenticating = false);
-        widget.onLoginSuccess(UserProfile.defaultDirector);
-        return;
-      } else {
-        setState(() {
-          _isMgmtAuthenticating = false;
-          _mgmtAuthError = 'Invalid Director credentials or Master PIN.';
-        });
-        return;
-      }
-    }
-
-    // 2. Check for Branch Manager in database
-    final liveStaff = StationAppState.instance.staff;
-    UserProfile? managerUser;
-    for (final u in liveStaff) {
-      if (u.role == UserRole.manager &&
-          (u.displayName.toLowerCase().contains(identifier) ||
-              u.fullName.toLowerCase().contains(identifier) ||
-              u.id.equalsIgnoreCase(identifier))) {
-        managerUser = u;
-        break;
-      }
-    }
-
-    // Manager must be an on-boarded live staff profile (no fabricated fallback user)
-    if (managerUser == null) {
-      setState(() {
-        _isMgmtAuthenticating = false;
-        _mgmtAuthError =
-            'No Station Manager profile found for this station. Ask the Director to onboard one in Staff Management.';
-      });
-      return;
-    }
-
-    final effectiveStation = managerUser.stationId ?? StationAppState.instance.currentStationId;
-
-    // Verify Manager credentials (override PIN only — no hardcoded passwords)
-    if (_security.validateManagerOverridePin(password)) {
-      _security.recordSuccessfulPin(actorId: managerUser.id, stationId: effectiveStation);
-      setState(() => _isMgmtAuthenticating = false);
-      widget.onLoginSuccess(managerUser);
-      return;
-    }
-
-    // Try Supabase PIN verification if manager has personal PIN
-    try {
-      final repo = SupabaseRepository.instance;
-      if (repo.isConnected) {
-        final res = await repo.verifyAttendantPin(
-          stationId: effectiveStation,
-          profileId: managerUser.id,
-          pin: password,
-        );
-        if (res['success'] == true) {
-          _security.recordSuccessfulPin(actorId: managerUser.id, stationId: effectiveStation);
-          setState(() => _isMgmtAuthenticating = false);
-          widget.onLoginSuccess(managerUser);
-          return;
-        }
-      }
-    } catch (_) {}
-
-    setState(() {
-      _isMgmtAuthenticating = false;
-      _mgmtAuthError = 'Invalid credentials. Enter manager password or master override PIN.';
-    });
-  }
-
-  bool _isServiceFault(String message) {
-    return message.contains('Exception') ||
-        message.contains('Failed host lookup') ||
-        message.contains('SocketException') ||
-        message.contains('TimeoutException') ||
-        message.contains('Connection closed');
-  }
-
-  void _showEmergencyUnlockDialog() {
-    final pinCtrl = TextEditingController();
-
-    showDialog(
+  Future<void> _changeMode() async {
+    if (_busy) return;
+    final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) {
-        String? unlockError;
-
-        return StatefulBuilder(
-          builder: (context, setDlgState) {
-            void submitPin() {
-              final ok = _security.managerOverrideUnlock(
-                managerPin: pinCtrl.text.trim(),
-                managerId: 'manager-override',
-                stationId: StationAppState.instance.currentStationCode,
-              );
-              if (ok) {
-                Navigator.pop(ctx);
-                setState(() {
-                  _staffAuthError = null;
-                  _staffPin = '';
-                });
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Forecourt tablet unlocked by Station Manager.'),
-                    backgroundColor: AppColors.ok,
-                  ),
-                );
-              } else {
-                setDlgState(() {
-                  unlockError = 'Incorrect Manager PIN. Lockout remains active.';
-                });
-              }
-            }
-
-            return AlertDialog(
-              title: Row(
-                children: [
-                  const Icon(Icons.lock_open_outlined, color: AppColors.amber),
-                  const SizedBox(width: 8),
-                  Text('Station Manager Unlock', style: AppTypography.title()),
-                ],
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Enter Station Manager override PIN to immediately cancel the 15-minute brute-force lockout.',
-                    style: AppTypography.body(fontSize: 13, color: AppColors.muted),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: pinCtrl,
-                    autofocus: true,
-                    obscureText: true,
-                    maxLength: 6,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    decoration: InputDecoration(
-                      labelText: 'Manager Override PIN',
-                      counterText: '',
-                      errorText: unlockError,
-                      border: const OutlineInputBorder(),
-                    ),
-                    onSubmitted: (_) => submitPin(),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-                ElevatedButton(
-                  onPressed: submitPin,
-                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.amber, foregroundColor: AppColors.ink),
-                  child: const Text('Unlock Tablet'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      builder: (context) => AlertDialog(
+        title: const Text('Change device mode?'),
+        content: const Text(
+            'This changes the sign-in experience on this device. It does not change account permissions. Any entered PIN will be cleared.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Change mode')),
+        ],
+      ),
     );
+    if (confirmed != true || !mounted) return;
+    setState(() {
+      _identity.clear();
+      _pin.clear();
+      _codeEmail = null;
+      _obscure = true;
+      _submitted = false;
+      _error = null;
+      _selection = _preferences.mode;
+      _selectedStationId = _preferences.stationId;
+      _choosingMode = true;
+    });
+  }
+
+  UserProfile? _profileFor(String identifier) {
+    final normalized = identifier.trim().toLowerCase();
+    final matches = _state.staff
+        .where((user) =>
+            user.isActive &&
+            (user.id.toLowerCase() == normalized ||
+                user.displayName.toLowerCase() == normalized ||
+                user.fullName.toLowerCase() == normalized ||
+                user.phone?.trim() == normalized))
+        .toList();
+    return matches.length == 1 ? matches.single : null;
+  }
+
+  Future<void> _signIn() async {
+    if (!_stationMode) {
+      await _managementSignIn();
+      return;
+    }
+    if (_busy || _security.isLockedOut || _settingUp) return;
+    setState(() => _submitted = true);
+    if (!(_form.currentState?.validate() ?? false)) return;
+    final repo = SupabaseRepository.instance;
+    if (repo.configurationError != null) {
+      setState(() => _error =
+          'This build is missing valid backend configuration. Contact your administrator.');
+      return;
+    }
+    if (!repo.isConnected) {
+      setState(() => _error =
+          'You are offline. Connect to the internet to verify your PIN.');
+      return;
+    }
+    if (_state.isSyncingWithRemote) {
+      setState(() =>
+          _error = 'Station records are loading. Please try again shortly.');
+      return;
+    }
+    final user = _profileFor(_identity.text);
+    if (user == null) {
+      setState(() => _error =
+          'Use your full registered name, staff ID or registered phone number.');
+      return;
+    }
+    final isManagement =
+        user.role == UserRole.manager || user.role == UserRole.director;
+    if (isManagement == _stationMode) {
+      setState(() => _error = _stationMode
+          ? 'Management accounts use Personal device mode.'
+          : 'Station staff accounts use Station tablet mode.');
+      return;
+    }
+    if (_stationMode &&
+        (_boundStation == null || user.stationId != _boundStation!.id)) {
+      setState(() => _error =
+          'This staff account is not assigned to the configured station. Contact your manager.');
+      return;
+    }
+    Station? assignedStation;
+    if (user.role != UserRole.director) {
+      for (final station in _state.stations) {
+        if (station.id == user.stationId) assignedStation = station;
+      }
+      if (assignedStation == null) {
+        setState(() => _error =
+            'Your account needs an active station assignment. Contact your administrator.');
+        return;
+      }
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final result = await repo.verifyAttendantPin(
+          stationId: assignedStation?.id ?? _state.currentStationId,
+          profileId: user.id,
+          pin: _pin.text);
+      if (!mounted) return;
+      _pin.clear();
+      if (result['success'] == true) {
+        if (assignedStation != null &&
+            _state.currentStationId != assignedStation.id) {
+          if (_state.isSyncingWithRemote) {
+            setState(() => _error =
+                'Station records changed during sign-in. Please try again.');
+            return;
+          }
+          _state.switchStation(assignedStation);
+        }
+        _security.recordSuccessfulPin(
+            actorId: user.id,
+            stationId: assignedStation?.id ?? _state.currentStationId);
+        widget.onLoginSuccess(user);
+      } else {
+        final message = result['message']?.toString() ?? '';
+        final serviceFault = [
+          'Exception',
+          'offline',
+          'unavailable',
+          'Station could not'
+        ].any(message.contains);
+        if (!serviceFault) {
+          _security.recordFailedPinAttempt(
+              actorId: user.id,
+              stationId: assignedStation?.id ?? _state.currentStationId);
+        }
+        setState(() => _error = serviceFault
+            ? 'Staff sign-in requires an enrolled tablet and a verified staff session. Ask your administrator to complete station access setup.'
+            : 'PIN not accepted. Check your PIN and try again.');
+      }
+    } catch (_) {
+      if (mounted)
+        setState(() => _error = 'Could not verify your PIN. Please try again.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _managementSignIn() async {
+    if (_busy || _settingUp) return;
+    setState(() => _submitted = true);
+    if (!(_form.currentState?.validate() ?? false)) return;
+    final repo = SupabaseRepository.instance;
+    if (!repo.isConnected || repo.configurationError != null) {
+      setState(() => _error = 'Connect to the configured service to sign in.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      if (_codeEmail == null) {
+        if (_resendAfter != null && DateTime.now().isBefore(_resendAfter!)) {
+          setState(() => _error =
+              'Please wait one minute before requesting another code.');
+          return;
+        }
+        final email = _identity.text.trim().toLowerCase();
+        await repo.requestManagementCode(email);
+        if (!mounted) return;
+        setState(() {
+          _codeEmail = email;
+          _resendAfter = DateTime.now().add(const Duration(minutes: 1));
+          _submitted = false;
+          _pin.clear();
+        });
+        _pinFocus.requestFocus();
+      } else {
+        final user = await repo.verifyManagementCode(_codeEmail!, _pin.text);
+        _pin.clear();
+        if (!mounted) {
+          await repo.endAuthenticatedSession();
+          return;
+        }
+        if (user.role == UserRole.manager) {
+          final stations = _state.stations.where((s) => s.id == user.stationId);
+          if (stations.isEmpty || _state.isSyncingWithRemote) {
+            await repo.endAuthenticatedSession();
+            throw StateError('Station assignment unavailable.');
+          }
+          _state.switchStation(stations.first);
+        }
+        widget.onLoginSuccess(user);
+      }
+    } catch (_) {
+      if (mounted)
+        setState(() => _error = _codeEmail == null
+            ? 'Could not request a code. Check your connection or ask your administrator to confirm your invitation.'
+            : 'Could not sign in. Check the code, or ask your administrator to confirm your verified account and station assignment.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _editPin(String key) {
+    if (_busy || _security.isLockedOut) return;
+    var value = _pin.text;
+    if (key == 'Clear') {
+      value = '';
+    } else if (key == 'Backspace') {
+      if (value.isNotEmpty) value = value.substring(0, value.length - 1);
+    } else if (value.length < 6) {
+      value += key;
+    }
+    _pin.value = TextEditingValue(
+        text: value, selection: TextSelection.collapsed(offset: value.length));
+    setState(() => _error = null);
+  }
+
+  void _accessHelp() {
+    showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+              title: const Text('Need access help?'),
+              content: Text(_stationMode
+                  ? 'Ask your station manager to check your staff identity, station assignment or PIN. PINs cannot be reset from this device without authorized verification.'
+                  : 'Your company administrator must invite your email and link it to an active management account. Sign in with the code sent to that email. There is no default password or master PIN.'),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Close'))
+              ],
+            ));
   }
 
   @override
   Widget build(BuildContext context) {
-    final state = StationAppState.instance;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
+    final colors = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Ajadico Petroleum', style: AppTypography.heading(fontSize: 18, color: Colors.white)),
-            Text(
-              '${state.currentStationName} · Terminal Sign In',
-              style: AppTypography.caption(fontSize: 12, color: Colors.white70),
-            ),
-          ],
-        ),
-        actions: [
-          // Theme Toggle
-          IconButton(
-            icon: Icon(state.isDarkMode ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
-            tooltip: state.isDarkMode ? 'Daylight Mode' : 'Forecourt Night Shift Mode',
-            onPressed: () => state.toggleTheme(),
-          ),
-          if (_security.isLockedOut)
-            IconButton(
-              icon: const Icon(Icons.lock_reset, color: AppColors.amber),
-              tooltip: 'Emergency Manager Unlock',
-              onPressed: _showEmergencyUnlockDialog,
-            ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: Column(
-        children: [
-          // Live Sync & Status Bar
-          ForecourtSyncBar(stationName: '${state.currentStationName} · Forecourt Island'),
-
-          // Main Centered Content
-          Expanded(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 480),
-                  child: Column(
-                    children: [
-                      // Official Logo
-                      const Center(
-                        child: Padding(
-                          padding: EdgeInsets.only(top: 4, bottom: 16),
-                          child: AjadicoLogo.stacked(size: 60, showSubtitle: true),
-                        ),
-                      ),
-
-                      // Two-Door Segmented Switcher
-                      Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: isDark ? AppColors.darkCard : AppColors.lightBackground,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: isDark ? AppColors.darkLine : AppColors.line),
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: _buildDoorTab(
-                                index: 0,
-                                label: 'Forecourt Staff',
-                                subtitle: 'Attendants & Cashier',
-                                icon: Icons.local_gas_station_rounded,
-                                isDark: isDark,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: _buildDoorTab(
-                                index: 1,
-                                label: 'Management',
-                                subtitle: 'Manager & Director',
-                                icon: Icons.admin_panel_settings_rounded,
-                                isDark: isDark,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Door Body Card
-                      AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 250),
-                        child: _activeDoor == 0
-                            ? _buildStaffDoorCard(isDark)
-                            : _buildManagementDoorCard(isDark),
-                      ),
-                    ],
+      backgroundColor: colors.surface,
+      body: SafeArea(
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : LayoutBuilder(builder: (context, constraints) {
+                final horizontal = constraints.maxWidth < 600 ? 24.0 : 40.0;
+                return Center(
+                    child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 540),
+                  child: SingleChildScrollView(
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    padding:
+                        EdgeInsets.fromLTRB(horizontal, 28, horizontal, 24),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Align(
+                              alignment: Alignment.centerLeft,
+                              child: AjadicoLogo.horizontal(
+                                  size: 30,
+                                  showSubtitle: false,
+                                  textColor: colors.onSurface)),
+                          SizedBox(
+                              height:
+                                  _settingUp ? 44 : (_stationMode ? 24 : 36)),
+                          if (_settingUp) _deviceSetup() else _loginForm(),
+                        ]),
                   ),
-                ),
-              ),
-            ),
-          ),
-        ],
+                ));
+              }),
       ),
     );
   }
 
-  // ===========================================================================
-  // DOOR TOGGLE BUTTON
-  // ===========================================================================
-  Widget _buildDoorTab({
-    required int index,
-    required String label,
-    required String subtitle,
-    required IconData icon,
-    required bool isDark,
-  }) {
-    final isSelected = _activeDoor == index;
+  Widget _heading(String title, String subtitle) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Semantics(
+              header: true,
+              child: Text(title,
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w600,
+                      height: 1.2,
+                      letterSpacing: -0.5))),
+          const SizedBox(height: 10),
+          Text(subtitle,
+              style: TextStyle(
+                  fontSize: 14,
+                  height: 1.5,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant)),
+        ],
+      );
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(9),
-      onTap: () => setState(() => _activeDoor = index),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? (isDark ? AppColors.darkBackground : Colors.white)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(9),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.06),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ]
+  Widget _deviceSetup() {
+    final stations = _state.stations;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      _heading('How will you use this device?',
+          'Choose once. You can change this when signed out.'),
+      const SizedBox(height: 32),
+      _modeOption(DeviceMode.personal, 'Personal device',
+          'For managers and directors', Icons.person_outline),
+      const SizedBox(height: 12),
+      _modeOption(DeviceMode.station, 'Station tablet',
+          'For attendants and cashiers', Icons.groups_outlined),
+      if (_selection == DeviceMode.station && stations.isNotEmpty) ...[
+        const SizedBox(height: 24),
+        DropdownButtonFormField<String>(
+          key: ValueKey(_selectedStationId),
+          initialValue: stations.any((s) => s.id == _selectedStationId)
+              ? _selectedStationId
               : null,
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: 'Assigned station'),
+          items: stations
+              .map((s) => DropdownMenuItem(value: s.id, child: Text(s.name)))
+              .toList(),
+          onChanged: _busy
+              ? null
+              : (value) => setState(() => _selectedStationId = value),
         ),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  icon,
-                  size: 16,
-                  color: isSelected
-                      ? AppColors.primary
-                      : (isDark ? AppColors.darkMuted : AppColors.muted),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: AppTypography.title(
-                    fontSize: 13,
-                    fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-                    color: isSelected
-                        ? (isDark ? AppColors.darkInk : AppColors.ink)
-                        : (isDark ? AppColors.darkMuted : AppColors.muted),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 2),
-            Text(
-              subtitle,
-              style: AppTypography.caption(
+        const SizedBox(height: 8),
+        Text('Use the station assigned to this shared tablet.',
+            style: TextStyle(
                 fontSize: 12,
-                color: isSelected
-                    ? AppColors.primary
-                    : (isDark ? AppColors.darkMuted : AppColors.muted),
-              ),
-            ),
-            if (isSelected) ...[
-              const SizedBox(height: 4),
-              Container(
-                width: 32,
-                height: 3,
-                decoration: BoxDecoration(
-                  color: AppColors.gold,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
+                color: Theme.of(context).colorScheme.onSurfaceVariant)),
+      ],
+      if (_error != null) ...[
+        const SizedBox(height: 20),
+        _message(_error!, error: true)
+      ],
+      const SizedBox(height: 40),
+      _primaryButton('Continue', _selection == null ? null : _saveMode),
+      const SizedBox(height: 16),
+      Text('Your account determines what you can access.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+              fontSize: 12,
+              height: 1.5,
+              color: Theme.of(context).colorScheme.onSurfaceVariant)),
+      if (_choosingMode)
+        TextButton(
+            onPressed: _busy
+                ? null
+                : () => setState(() {
+                      _choosingMode = false;
+                      _error = null;
+                    }),
+            child: const Text('Keep current mode')),
+    ]);
   }
 
-  // ===========================================================================
-  // DOOR 1 CARD: FORECOURT SHIFT STAFF (USERNAME + PIN)
-  // ===========================================================================
-  Widget _buildStaffDoorCard(bool isDark) {
-    return Container(
-      key: const ValueKey('staff-door'),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: isDark ? AppColors.darkCard : AppColors.card,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: isDark ? AppColors.darkLine : AppColors.line),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
+  Widget _modeOption(
+      DeviceMode mode, String title, String subtitle, IconData icon) {
+    final colors = Theme.of(context).colorScheme;
+    final selected = _selection == mode;
+    return Semantics(
+        selected: selected,
+        button: true,
+        child: Material(
+          color: selected
+              ? colors.primary.withValues(alpha: 0.05)
+              : colors.surface,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+              side: BorderSide(
+                  color: selected ? colors.primary : colors.outlineVariant,
+                  width: selected ? 1.5 : 1)),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: _busy
+                ? null
+                : () => setState(() {
+                      _selection = mode;
+                      _error = null;
+                    }),
+            child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Row(children: [
+                  Icon(icon,
+                      size: 26,
+                      color: selected ? colors.primary : colors.onSurface),
+                  const SizedBox(width: 18),
+                  Expanded(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                        Text(title,
+                            style: const TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 5),
+                        Text(subtitle,
+                            style: TextStyle(
+                                fontSize: 13,
+                                height: 1.4,
+                                color: colors.onSurfaceVariant)),
+                      ])),
+                  const SizedBox(width: 8),
+                  Icon(
+                      selected
+                          ? Icons.check_circle_outline
+                          : Icons.chevron_right,
+                      size: 22,
+                      color:
+                          selected ? colors.primary : colors.onSurfaceVariant),
+                ])),
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: AppColors.ok.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.badge_outlined, color: AppColors.ok, size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Forecourt Shift Sign In', style: AppTypography.title(fontSize: 16)),
-                    Text(
-                      'Pump Attendants & Station Cashier',
-                      style: AppTypography.caption(
-                        fontSize: 12,
-                        color: isDark ? AppColors.darkMuted : AppColors.muted,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (_security.failedAttempts > 0 && !_security.isLockedOut)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: AppColors.badSurface,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    '${_security.failedAttempts}/${KioskSecurityManager.maxFailedAttempts}',
-                    style: AppTypography.caption(fontSize: 12, color: AppColors.bad),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 18),
+        ));
+  }
 
-          // 1. Username / Staff ID Field
-          Text(
-            'STAFF USERNAME OR ID',
-            style: AppTypography.caption(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.5,
-              color: isDark ? AppColors.darkMuted : AppColors.muted,
-            ),
-          ),
-          const SizedBox(height: 6),
-          TextField(
-            controller: _staffUsernameCtrl,
-            enabled: !_security.isLockedOut && !_isStaffAuthenticating,
-            style: AppTypography.body(fontSize: 15),
+  Widget _loginForm() {
+    final colors = Theme.of(context).colorScheme;
+    final enabled = !_busy && (!_stationMode || !_security.isLockedOut);
+    final boundStation = _boundStation;
+    return Form(
+        key: _form,
+        autovalidateMode: _submitted
+            ? AutovalidateMode.onUserInteraction
+            : AutovalidateMode.disabled,
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          if (SupabaseRepository.instance.configurationError != null) ...[
+            _message(
+                'This build is missing valid backend configuration. Contact your administrator.',
+                error: true),
+            const SizedBox(height: 16),
+          ],
+          if (_stationMode) ...[
+            _message(boundStation?.name ?? 'No station configured'),
+            const SizedBox(height: 16),
+          ],
+          _heading(
+              _stationMode ? 'Staff sign-in' : 'Sign in',
+              _stationMode
+                  ? 'Enter your identity and personal PIN.'
+                  : 'Your management workspace, on your device.'),
+          SizedBox(height: _stationMode ? 20 : 28),
+          _fieldLabel(
+              _stationMode ? 'Registered name or staff ID' : 'Work email'),
+          const SizedBox(height: 8),
+          TextFormField(
+            key: const ValueKey('login-identity'),
+            controller: _identity,
+            focusNode: _identityFocus,
+            enabled: enabled && (_stationMode || _codeEmail == null),
+            style: const TextStyle(fontSize: 16),
+            autocorrect: false,
+            textCapitalization: TextCapitalization.none,
+            textInputAction: !_stationMode && _codeEmail == null
+                ? TextInputAction.done
+                : TextInputAction.next,
+            autofillHints: _stationMode ? null : const [AutofillHints.username],
+            keyboardType:
+                _stationMode ? TextInputType.text : TextInputType.emailAddress,
             decoration: InputDecoration(
-              hintText: 'Enter your staff name or Staff ID',
-              prefixIcon: const Icon(Icons.person_outline, size: 20),
-              filled: true,
-              fillColor: isDark ? AppColors.darkBackground : AppColors.lightBackground,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide(color: isDark ? AppColors.darkLine : AppColors.line),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide(color: isDark ? AppColors.darkLine : AppColors.line),
-              ),
-            ),
+                hintText: _stationMode
+                    ? 'Enter your full name or staff ID'
+                    : 'Enter your invited email'),
+            onFieldSubmitted: (_) => !_stationMode && _codeEmail == null
+                ? _signIn()
+                : _pinFocus.requestFocus(),
+            validator: (value) => value == null || value.trim().isEmpty
+                ? (_stationMode
+                    ? 'Enter your registered identity.'
+                    : 'Enter your invited email.')
+                : !_stationMode && !ManagementCredentials.validEmail(value)
+                    ? 'Enter a valid email address.'
+                    : null,
+            onChanged: (_) {
+              if (_error != null) setState(() => _error = null);
+            },
           ),
-          const SizedBox(height: 14),
-
-          // 2. PIN Entry Mask
-          Text(
-            'SECURITY PIN (4–6 DIGITS)',
-            style: AppTypography.caption(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.5,
-              color: isDark ? AppColors.darkMuted : AppColors.muted,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Container(
-            width: double.infinity,
-            height: 48,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: isDark ? AppColors.darkBackground : AppColors.lightBackground,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: _staffAuthError != null
-                    ? AppColors.bad
-                    : (isDark ? AppColors.darkLine : AppColors.line),
-                width: 1.5,
-              ),
-            ),
-            child: Text(
-              _staffPin.isEmpty ? '• • • •' : '• ' * _staffPin.length,
-              style: AppTypography.monoNumeric(
-                fontSize: 24,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 8,
-                color: isDark ? AppColors.darkInk : AppColors.ink,
-              ),
-            ),
-          ),
-
-          if (_staffAuthError != null) ...[
+          if (_stationMode || _codeEmail != null) ...[
+            SizedBox(height: _stationMode ? 16 : 20),
+            _fieldLabel(
+                _stationMode ? 'Personal PIN' : 'Email verification code'),
             const SizedBox(height: 8),
-            Text(
-              _staffAuthError!,
-              style: AppTypography.caption(fontSize: 12, color: AppColors.bad),
+            TextFormField(
+              key: const ValueKey('login-pin'),
+              controller: _pin,
+              focusNode: _pinFocus,
+              enabled: enabled,
+              style: const TextStyle(fontSize: 16),
+              obscureText: _stationMode || _obscure,
+              enableSuggestions: false,
+              autofillHints:
+                  _stationMode ? null : const [AutofillHints.oneTimeCode],
+              autocorrect: false,
+              enableInteractiveSelection: !_stationMode,
+              keyboardType:
+                  _stationMode ? TextInputType.none : TextInputType.number,
+              textInputAction: TextInputAction.done,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(_stationMode ? 6 : 8)
+              ],
+              decoration: InputDecoration(
+                  hintText: _stationMode
+                      ? 'Enter PIN using the keypad'
+                      : 'Code from your email',
+                  suffixIcon: _stationMode
+                      ? null
+                      : IconButton(
+                          tooltip: _obscure ? 'Show code' : 'Hide code',
+                          onPressed: enabled
+                              ? () => setState(() => _obscure = !_obscure)
+                              : null,
+                          icon: Icon(_obscure
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined))),
+              validator: (value) => value == null ||
+                      (_stationMode
+                          ? !RegExp(r'^\d{4,6}$').hasMatch(value)
+                          : !ManagementCredentials.validCode(value))
+                  ? (_stationMode
+                      ? 'Enter your 4–6 digit PIN.'
+                      : 'Enter the 6–8 digit email code.')
+                  : null,
+              onFieldSubmitted: (_) => _signIn(),
+              onChanged: (_) {
+                if (_error != null) setState(() => _error = null);
+              },
             ),
           ],
-
-          // Lockout Banner if tablet locked
-          if (_security.isLockedOut) ...[
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.badSurface,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.bad.withValues(alpha: 0.3)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.lock_clock, size: 24, color: AppColors.bad),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Locked for ${_security.lockoutSecondsRemaining}s. Contact Station Manager to unlock.',
-                      style: AppTypography.caption(fontSize: 12, color: AppColors.bad),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-
-          const SizedBox(height: 16),
-
-          // 3. Numeric Keypad
-          Column(
-            children: [
-              _buildStaffKeypadRow(['1', '2', '3'], isDark),
-              const SizedBox(height: 8),
-              _buildStaffKeypadRow(['4', '5', '6'], isDark),
-              const SizedBox(height: 8),
-              _buildStaffKeypadRow(['7', '8', '9'], isDark),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: _security.isLockedOut ? null : _onStaffPinClear,
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(0, 48),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      child: Text('Clear', style: AppTypography.caption(fontSize: 12)),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: _security.isLockedOut ? null : () => _onStaffKeyPress('0'),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(0, 48),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      child: Text('0', style: AppTypography.title(fontSize: 18)),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: (_isStaffAuthenticating || _security.isLockedOut)
-                          ? null
-                          : _submitStaffLogin,
-                      style: ElevatedButton.styleFrom(
-                        minimumSize: const Size(0, 48),
-                        backgroundColor: AppColors.ok,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      child: _isStaffAuthenticating
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                            )
-                          : const Text('Sign In', style: TextStyle(fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 14),
-          Center(
-            child: Text(
-              '60s auto-logout on forecourt islands · 3 attempts lockout',
-              style: AppTypography.caption(
-                fontSize: 12,
-                color: isDark ? AppColors.darkMuted : AppColors.muted,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStaffKeypadRow(List<String> keys, bool isDark) {
-    return Row(
-      children: keys.map((key) {
-        return Expanded(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: OutlinedButton(
-              onPressed: _security.isLockedOut ? null : () => _onStaffKeyPress(key),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size(0, 48),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                side: BorderSide(color: isDark ? AppColors.darkLine : AppColors.line),
-              ),
-              child: Text(
-                key,
-                style: AppTypography.title(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: isDark ? AppColors.darkInk : AppColors.ink,
-                ),
-              ),
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  // ===========================================================================
-  // DOOR 2 CARD: MANAGEMENT & EXECUTIVE PORTAL (CREDENTIALS / MASTER KEY)
-  // ===========================================================================
-  Widget _buildManagementDoorCard(bool isDark) {
-    return Container(
-      key: const ValueKey('mgmt-door'),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: isDark ? AppColors.darkCard : AppColors.card,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.35)),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primary.withValues(alpha: isDark ? 0.2 : 0.05),
-            blurRadius: 12,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.shield_outlined, color: AppColors.primary, size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Management & Executive Portal', style: AppTypography.title(fontSize: 16)),
-                    Text(
-                      'Station Managers, Auditors & HQ Directors',
-                      style: AppTypography.caption(
-                        fontSize: 12,
-                        color: isDark ? AppColors.darkMuted : AppColors.muted,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-
-          // 1. Manager ID / Email Field
-          Text(
-            'MANAGER ID OR CORPORATE EMAIL',
-            style: AppTypography.caption(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.5,
-              color: isDark ? AppColors.darkMuted : AppColors.muted,
-            ),
-          ),
-          const SizedBox(height: 6),
-          TextField(
-            controller: _mgmtUsernameCtrl,
-            enabled: !_security.isLockedOut && !_isMgmtAuthenticating,
-            style: AppTypography.body(fontSize: 15),
-            decoration: InputDecoration(
-              hintText: 'e.g. Station Manager name, ID, or corporate email',
-              prefixIcon: const Icon(Icons.email_outlined, size: 20),
-              filled: true,
-              fillColor: isDark ? AppColors.darkBackground : AppColors.lightBackground,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide(color: isDark ? AppColors.darkLine : AppColors.line),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide(color: isDark ? AppColors.darkLine : AppColors.line),
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-
-          // 2. Password / Master Override Key Field
-          Text(
-            'SECURITY PASSWORD OR OVERRIDE PIN',
-            style: AppTypography.caption(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.5,
-              color: isDark ? AppColors.darkMuted : AppColors.muted,
-            ),
-          ),
-          const SizedBox(height: 6),
-          TextField(
-            controller: _mgmtPasswordCtrl,
-            obscureText: _obscureMgmtPassword,
-            enabled: !_security.isLockedOut && !_isMgmtAuthenticating,
-            style: AppTypography.body(fontSize: 15),
-            decoration: InputDecoration(
-              hintText: 'Enter password or manager override PIN',
-              prefixIcon: const Icon(Icons.lock_outline, size: 20),
-              suffixIcon: IconButton(
-                icon: Icon(
-                  _obscureMgmtPassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                  size: 20,
-                ),
-                onPressed: () => setState(() => _obscureMgmtPassword = !_obscureMgmtPassword),
-              ),
-              filled: true,
-              fillColor: isDark ? AppColors.darkBackground : AppColors.lightBackground,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide(color: isDark ? AppColors.darkLine : AppColors.line),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide(color: isDark ? AppColors.darkLine : AppColors.line),
-              ),
-            ),
-            onSubmitted: (_) => _submitManagementLogin(),
-          ),
-
-          if (_mgmtAuthError != null) ...[
-            const SizedBox(height: 10),
-            Text(
-              _mgmtAuthError!,
-              style: AppTypography.caption(fontSize: 12, color: AppColors.bad),
-            ),
-          ],
-
-          // Lockout banner (lockout applies to ALL doors on this terminal)
-          if (_security.isLockedOut) ...[
+          if (!_stationMode && _codeEmail != null) ...[
             const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.badSurface,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.bad.withValues(alpha: 0.3)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.lock_clock, size: 24, color: AppColors.bad),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Terminal locked for ${_security.lockoutSecondsRemaining}s after too many failed attempts. '
-                      'Both staff and management sign-in are disabled.',
-                      style: AppTypography.caption(fontSize: 12, color: AppColors.bad),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            _message(
+                'If this email has an invited account, a code has been sent. Check your inbox and spam folder.'),
+            TextButton(
+                onPressed: _busy
+                    ? null
+                    : () => setState(() {
+                          _codeEmail = null;
+                          _pin.clear();
+                          _submitted = false;
+                          _error = null;
+                        }),
+                child: const Text('Change email or request another code')),
           ],
-
-          const SizedBox(height: 20),
-
-          // 3. Submit Management Sign In Button
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: ElevatedButton.icon(
-              icon: _isMgmtAuthenticating
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                    )
-                  : const Icon(Icons.login_rounded),
-              label: Text(
-                _isMgmtAuthenticating ? 'Authenticating...' : 'Sign In to Management Console',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-              ),
-              onPressed: (_isMgmtAuthenticating || _security.isLockedOut)
-                  ? null
-                  : _submitManagementLogin,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-            ),
+          if (_stationMode) ...[const SizedBox(height: 12), _keypad(enabled)],
+          if (_stationMode && _security.isLockedOut) ...[
+            const SizedBox(height: 16),
+            _message(
+                'Sign-in locked. Try again in ${(_security.lockoutSecondsRemaining / 60).ceil()} minutes.',
+                error: true),
+            TextButton(
+                onPressed: () => showManagementUnlockDialog(context),
+                child: const Text('Authorized management unlock')),
+          ],
+          if (_error != null) ...[
+            const SizedBox(height: 16),
+            _message(_error!, error: true)
+          ],
+          SizedBox(height: _stationMode ? 16 : 24),
+          _primaryButton(
+              !_stationMode && _codeEmail == null
+                  ? 'Send sign-in code'
+                  : 'Sign in',
+              enabled ? _signIn : null),
+          if (!_stationMode)
+            TextButton(
+                onPressed: _busy ? null : _accessHelp,
+                child: const Text('Need access help?')),
+          if (_stationMode)
+            Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text('Shared device · Sign out after your shift.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        fontSize: 12, color: colors.onSurfaceVariant))),
+          SizedBox(height: _stationMode ? 12 : 28),
+          Divider(color: colors.outlineVariant),
+          const SizedBox(height: 8),
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            children: [
+              Row(mainAxisSize: MainAxisSize.min, children: [
+                if (_stationMode)
+                  IconButton(
+                      tooltip: 'Need access help?',
+                      onPressed: _busy ? null : _accessHelp,
+                      icon: const Icon(Icons.help_outline, size: 20))
+                else
+                  Icon(Icons.person_outline,
+                      size: 20, color: colors.onSurfaceVariant),
+                const SizedBox(width: 8),
+                Text(_stationMode ? 'Station tablet' : 'Personal device',
+                    style: TextStyle(
+                        fontSize: 12, color: colors.onSurfaceVariant)),
+              ]),
+              TextButton(
+                  onPressed: _busy ? null : _changeMode,
+                  child: const Text('Change device mode',
+                      style: TextStyle(fontSize: 12))),
+            ],
           ),
-
-          const SizedBox(height: 16),
-          const Divider(),
-          const SizedBox(height: 12),
-
-          // Guidance — no hardcoded shortcut credentials
-          Text(
-            'Management sign-in uses the station override PIN or the manager\'s personal PIN registered in Supabase. '
-            'Contact HQ if you need credentials provisioned.',
-            style: AppTypography.caption(
-              fontSize: 12,
-              color: isDark ? AppColors.darkMuted : AppColors.muted,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
+        ]));
   }
-}
 
-extension StringIgnoreCase on String {
-  bool equalsIgnoreCase(String other) => toLowerCase() == other.toLowerCase();
+  Widget _fieldLabel(String text) => Text(text,
+      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600));
+
+  Widget _primaryButton(String label, VoidCallback? onPressed) => SizedBox(
+      height: 52,
+      child: FilledButton(
+          onPressed: _busy ? null : onPressed,
+          style: FilledButton.styleFrom(
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8))),
+          child: _busy
+              ? SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Theme.of(context).colorScheme.onPrimary))
+              : Text(label,
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w600))));
+
+  Widget _message(String text, {bool error = false}) {
+    final colors = Theme.of(context).colorScheme;
+    return Semantics(
+        liveRegion: error,
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+              color: error ? colors.errorContainer : colors.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(8)),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Icon(error ? Icons.info_outline : Icons.location_on_outlined,
+                size: 20,
+                color:
+                    error ? colors.onErrorContainer : colors.onSurfaceVariant),
+            const SizedBox(width: 10),
+            Expanded(
+                child: Text(text,
+                    style: TextStyle(
+                        fontSize: 13,
+                        height: 1.5,
+                        color: error
+                            ? colors.onErrorContainer
+                            : colors.onSurfaceVariant))),
+          ]),
+        ));
+  }
+
+  Widget _keypad(bool enabled) => Column(children: [
+        for (final keys in [
+          ['1', '2', '3'],
+          ['4', '5', '6'],
+          ['7', '8', '9'],
+          ['Clear', '0', 'Backspace']
+        ])
+          Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(children: [
+                for (var i = 0; i < keys.length; i++) ...[
+                  if (i != 0) const SizedBox(width: 8),
+                  Expanded(
+                      child: SizedBox(
+                          height: 48,
+                          child: OutlinedButton(
+                              key: ValueKey('pin-key-${keys[i]}'),
+                              onPressed:
+                                  enabled ? () => _editPin(keys[i]) : null,
+                              child: keys[i] == 'Backspace'
+                                  ? const Icon(Icons.backspace_outlined,
+                                      semanticLabel: 'Delete last PIN digit',
+                                      size: 20)
+                                  : Text(keys[i],
+                                      style: TextStyle(
+                                          fontSize:
+                                              keys[i] == 'Clear' ? 14 : 20,
+                                          fontWeight: FontWeight.w500))))),
+                ],
+              ])),
+      ]);
 }

@@ -36,15 +36,13 @@ class UserProfile {
     this.isActive = true,
   });
 
-  /// Default executive session actor for Director oversight
-  static const UserProfile defaultDirector = UserProfile(
-    id: 'director-1',
-    displayName: 'Engr. Dickson (Director)',
-    fullName: 'Dickson Hardy (Managing Director)',
-    role: UserRole.director,
-    stationName: 'HQ · All 5 Stations',
+  /// Neutral identity while no authenticated session is active.
+  static const signedOut = UserProfile(
+    id: '',
+    displayName: 'Not signed in',
+    fullName: 'Not signed in',
+    role: UserRole.attendant,
+    stationName: '',
+    isActive: false,
   );
-
-  /// Zero demo data: Staff list starts completely empty and loads from live database
-  static const List<UserProfile> demoStaff = [];
 }

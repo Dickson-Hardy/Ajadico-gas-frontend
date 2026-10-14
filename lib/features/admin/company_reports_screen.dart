@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
-import '../../core/theme/app_typography.dart';
 import '../../core/utils/currency_formatter.dart';
-import '../../core/widgets/empty_state_view.dart';
-import '../../core/widgets/forecourt_charts.dart';
+import '../../core/widgets/operations_workspace.dart';
+import '../../core/widgets/shift_adjustment_ledger.dart';
 import '../../core/widgets/forecourt_tank_gauge.dart';
 import '../../core/widgets/status_chip.dart';
+import '../../core/widgets/evidence_preview_dialog.dart';
 import '../../models/user_profile.dart';
 import '../../state/station_app_state.dart';
 import '../manager/tank_changeover_dialog.dart';
@@ -48,85 +48,9 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
     if (mounted) setState(() {});
   }
 
-  String _formatTime(DateTime dt) {
-    final hour = dt.hour.toString().padLeft(2, '0');
-    final minute = dt.minute.toString().padLeft(2, '0');
-    return '$hour:$minute';
-  }
-
   void _showReceiptPreview(BranchExpense expense) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('${expense.category} Receipt Proof'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Amount: ${CurrencyFormatter.formatNaira(expense.amount)}', style: const TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
-            Text('Description: ${expense.description}'),
-            const SizedBox(height: 4),
-            Text('Recorded By: ${expense.recordedByRole.toUpperCase()} · Status: ${expense.status}'),
-            const SizedBox(height: 12),
-            Container(
-              height: 180,
-              width: double.infinity,
-              clipBehavior: Clip.antiAlias,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.line),
-              ),
-              child: expense.receiptUrl != null && expense.receiptUrl!.isNotEmpty
-                  ? Image.network(
-                      expense.receiptUrl!,
-                      fit: BoxFit.contain,
-                      loadingBuilder: (ctx, child, progress) {
-                        if (progress == null) return child;
-                        return const Center(
-                          child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
-                        );
-                      },
-                      errorBuilder: (ctx, err, stack) => const Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.broken_image_outlined, size: 48, color: AppColors.muted),
-                            SizedBox(height: 8),
-                            Text(
-                              'Receipt image could not be loaded',
-                              style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600),
-                            ),
-                            SizedBox(height: 4),
-                            Text(
-                              'Stored in Supabase expense-receipts bucket',
-                              style: TextStyle(color: AppColors.muted, fontSize: 12),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  : const Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.photo_outlined, size: 48, color: AppColors.muted),
-                          SizedBox(height: 8),
-                          Text('Receipt Photo Attached', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
-                          SizedBox(height: 4),
-                          Text('Stored in Supabase expense-receipts bucket', style: TextStyle(color: AppColors.muted, fontSize: 12)),
-                        ],
-                      ),
-                    ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
-        ],
-      ),
-    );
+    EvidencePreviewDialog.show(context,
+        title: '${expense.category} receipt', reference: expense.receiptUrl);
   }
 
   Future<void> _approveExpenseDialog(BranchExpense exp) async {
@@ -140,10 +64,14 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
           children: [
             Text(
               '${exp.category} · ${CurrencyFormatter.formatNaira(exp.amount)}',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.ink),
+              style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                  color: AppColors.ink),
             ),
             const SizedBox(height: 8),
-            Text(exp.description, style: const TextStyle(fontSize: 13, color: AppColors.slate)),
+            Text(exp.description,
+                style: const TextStyle(fontSize: 13, color: AppColors.slate)),
             const SizedBox(height: 12),
             const Text(
               'Approving locks this expense into the consolidated company ledger as Director-authorized.',
@@ -152,7 +80,9 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
@@ -168,11 +98,16 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
 
     if (confirmed != true || !mounted) return;
     try {
-      state.approveExpense(expenseId: exp.id, approverNotes: 'Director approval');
+      if (!state.approveExpense(
+          expenseId: exp.id, approverNotes: 'Director approval')) {
+        throw StateError(
+            'Approval not permitted by the current policy or record status.');
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Approved ${CurrencyFormatter.formatNaira(exp.amount)} (${exp.category})'),
+            content: Text(
+                'Approved ${CurrencyFormatter.formatNaira(exp.amount)} (${exp.category})'),
             backgroundColor: AppColors.ok,
           ),
         );
@@ -180,7 +115,9 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to approve expense: $e'), backgroundColor: AppColors.bad),
+          SnackBar(
+              content: Text('Failed to approve expense: $e'),
+              backgroundColor: AppColors.bad),
         );
       }
     }
@@ -201,14 +138,22 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
               children: [
                 Text(
                   '${exp.category} · ${CurrencyFormatter.formatNaira(exp.amount)}',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.ink),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                      color: AppColors.ink),
                 ),
                 const SizedBox(height: 8),
-                Text(exp.description, style: const TextStyle(fontSize: 13, color: AppColors.slate)),
+                Text(exp.description,
+                    style:
+                        const TextStyle(fontSize: 13, color: AppColors.slate)),
                 const SizedBox(height: 12),
                 const Text(
                   'Rejection Reason *',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.ink),
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      color: AppColors.ink),
                 ),
                 const SizedBox(height: 6),
                 TextField(
@@ -216,7 +161,8 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
                   maxLines: 3,
                   autofocus: true,
                   decoration: const InputDecoration(
-                    hintText: 'e.g. Missing original vendor receipt; resubmit with proof of purchase.',
+                    hintText:
+                        'e.g. Missing original vendor receipt; resubmit with proof of purchase.',
                   ),
                   onChanged: (_) => setDialogState(() {}),
                 ),
@@ -231,9 +177,13 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
               ],
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel')),
               ElevatedButton(
-                onPressed: canSubmit ? () => Navigator.pop(ctx, reasonCtrl.text.trim()) : null,
+                onPressed: canSubmit
+                    ? () => Navigator.pop(ctx, reasonCtrl.text.trim())
+                    : null,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.bad,
                   foregroundColor: Colors.white,
@@ -250,11 +200,15 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
 
     if (reason == null || reason.isEmpty || !mounted) return;
     try {
-      state.rejectExpense(expenseId: exp.id, reason: reason);
+      if (!state.rejectExpense(expenseId: exp.id, reason: reason)) {
+        throw StateError(
+            'Rejection not permitted by the current policy or record status.');
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Rejected ${CurrencyFormatter.formatNaira(exp.amount)} — reason recorded.'),
+            content: Text(
+                'Rejected ${CurrencyFormatter.formatNaira(exp.amount)} — reason recorded.'),
             backgroundColor: AppColors.ink,
           ),
         );
@@ -262,7 +216,9 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to reject expense: $e'), backgroundColor: AppColors.bad),
+          SnackBar(
+              content: Text('Failed to reject expense: $e'),
+              backgroundColor: AppColors.bad),
         );
       }
     }
@@ -276,7 +232,8 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
           tooltip: 'Back',
           onPressed: widget.onBack,
         ),
-        title: const Text('Company Consolidated Executive View', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        title: const Text('Company Consolidated Executive View',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
       ),
       body: Center(
         child: Padding(
@@ -289,7 +246,10 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
               const Text(
                 'Restricted — director access required',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.ink),
               ),
               const SizedBox(height: 8),
               const Text(
@@ -302,7 +262,8 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
                 onPressed: widget.onBack,
                 icon: const Icon(Icons.arrow_back),
                 label: const Text('Back'),
-                style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
+                style:
+                    OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
               ),
             ],
           ),
@@ -311,541 +272,468 @@ class _CompanyReportsScreenState extends State<CompanyReportsScreen> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (state.currentUser.role != UserRole.director) {
-      return _buildRestrictedAccess();
-    }
+  DateTimeRange? _reportRange;
 
-    // 1. Calculate Real Financial Metrics purely from live state
-    double totalPmsLitres = 0.0;
-    double totalAgoLitres = 0.0;
-    double totalRevenue = 0.0;
+  bool _inPeriod(DateTime date) {
+    final range = _reportRange;
+    if (range == null) return true;
+    final day = DateTime(date.year, date.month, date.day);
+    return !day.isBefore(range.start) && !day.isAfter(range.end);
+  }
 
-    for (var sub in state.submissions) {
-      if (sub.status == 'Verified') {
-        totalRevenue += sub.expectedSalesValue;
-        for (var n in sub.nozzles) {
-          if (n.productName == 'PMS') totalPmsLitres += n.litresSold;
-          if (n.productName == 'AGO') totalAgoLitres += n.litresSold;
-        }
-      }
-    }
+  String _dateLabel(DateTime value) =>
+      '${value.day.toString().padLeft(2, '0')}/${value.month.toString().padLeft(2, '0')}/${value.year}';
 
-    final totalExpenses = state.expenses.fold(0.0, (s, e) => s + e.amount);
-    // Estimated fuel COGS based on current retail price margins (~8% distribution margin)
-    final totalCogs = totalRevenue * 0.92;
-    final totalGrossProfit = totalRevenue - totalCogs;
-    final totalNetProfit = totalGrossProfit - totalExpenses;
+  Future<void> _selectPeriod() async {
+    final now = DateTime.now();
+    final range = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(now.year, now.month, now.day),
+      initialDateRange: _reportRange,
+      helpText: 'Select reporting period',
+    );
+    if (range != null && mounted) setState(() => _reportRange = range);
+  }
 
-    // 2. Real Tanks from Supabase Database
-    final liveTanks = state.tanks;
-    final totalPmsInStock = liveTanks.where((t) => t.product == 'PMS').fold(0.0, (s, t) => s + t.physicalDip);
-    final totalAgoInStock = liveTanks.where((t) => t.product == 'AGO').fold(0.0, (s, t) => s + t.physicalDip);
-    final totalCompanyUllage = liveTanks.fold(0.0, (s, t) => s + (t.capacity - t.physicalDip));
-    final lowStockTanksCount = liveTanks.where((t) => t.isLowStock || t.hasDeficit).length;
-
-    return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          tooltip: 'Back',
-          onPressed: widget.onBack,
-        ),
-        title: const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Company Consolidated Executive View', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text('Director · Live Multi-Branch Consolidated Ledger & Storage', style: TextStyle(fontSize: 13, color: Colors.white70)),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: Icon(state.isDarkMode ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
-            tooltip: state.isDarkMode ? 'Daylight Mode' : 'Night Shift Mode',
-            onPressed: () => state.toggleTheme(),
-          ),
-          if (state.hasInterlockedTanks)
-            TextButton.icon(
-              icon: const Icon(Icons.alt_route, color: AppColors.amber),
-              label: const Text('Manifold Switch', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              onPressed: () => TankChangeoverDialog.show(context, state),
-            ),
-          if (widget.onOpenExpenseEntry != null)
-            IconButton(
-              icon: const Icon(Icons.receipt_long),
-              tooltip: 'Record Corporate / Station Expense',
-              onPressed: widget.onOpenExpenseEntry,
-            ),
-          if (widget.onOpenStaffManagement != null)
-            IconButton(
-              icon: const Icon(Icons.badge_outlined),
-              tooltip: 'Staff Management & Payroll',
-              onPressed: widget.onOpenStaffManagement,
-            ),
-          if (widget.onOpenStationSetup != null)
-            IconButton(
-              icon: const Icon(Icons.settings_suggest),
-              tooltip: 'Forecourt & Station Setup',
-              onPressed: widget.onOpenStationSetup,
-            ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1000),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Top Header & Mode Toggle
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final titleBlock = Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _selectedView == 0
-                                ? 'Consolidated Financial Performance'
-                                : 'Underground Fuel Storage Tanks (UST)',
-                            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.ink),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _selectedView == 0
-                                ? 'Real-time revenue, audited shift remittances, and verified expenses.'
-                                : 'Real-time physical dip levels, book stock, and available discharge ullage.',
-                            style: const TextStyle(fontSize: 15, color: AppColors.muted),
-                          ),
-                        ],
-                      );
-                      final viewToggle = SegmentedButton<int>(
-                        segments: const [
-                          ButtonSegment(
-                            value: 0,
-                            icon: Icon(Icons.assessment_outlined),
-                            label: Text('P&L Ledger'),
-                          ),
-                          ButtonSegment(
-                            value: 1,
-                            icon: Icon(Icons.propane_tank_outlined),
-                            label: Text('Tank Gauges'),
-                          ),
-                        ],
-                        selected: {_selectedView},
-                        onSelectionChanged: (set) => setState(() => _selectedView = set.first),
-                      );
-
-                      if (constraints.maxWidth < 700) {
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            titleBlock,
-                            const SizedBox(height: 12),
-                            Align(alignment: Alignment.centerLeft, child: viewToggle),
-                          ],
-                        );
-                      }
-
-                      return Row(
-                        children: [
-                          Expanded(child: titleBlock),
-                          const SizedBox(width: 16),
-                          viewToggle,
-                        ],
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 20),
-
-                // =============================================================
-                // VIEW 0: REAL FINANCIAL LEDGER (ZERO DEMO DATA)
-                // =============================================================
-                if (_selectedView == 0) ...[
-                  // 7-Day Forecourt Sales Trend Sparkline Chart
-                  const Forecourt7DaySalesChart(),
-                  const SizedBox(height: 20),
-
-                  // Real Financial KPI Summary Cards
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final width = (constraints.maxWidth - 36) / 4;
-                      return Wrap(
-                        spacing: 12,
-                        runSpacing: 12,
-                        children: [
-                          _buildSummaryKpi('Total Verified Revenue', CurrencyFormatter.formatNaira(totalRevenue), width),
-                          _buildSummaryKpi('Gross Margin (Profit)', CurrencyFormatter.formatNaira(totalGrossProfit), width, color: AppColors.ok),
-                          _buildSummaryKpi('Verified Expenses', CurrencyFormatter.formatNaira(totalExpenses), width),
-                          _buildSummaryKpi('Net Operating Profit', CurrencyFormatter.formatNaira(totalNetProfit), width, color: totalNetProfit >= 0 ? AppColors.ok : AppColors.bad),
-                        ],
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Real Branch Financial Table
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Wrap(
-                            spacing: 16,
-                            runSpacing: 6,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            alignment: WrapAlignment.spaceBetween,
-                            children: [
-                              const Text(
-                                'Station Performance (Live Verified Shifts)',
-                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
-                              ),
-                              Text(
-                                '${state.submissions.where((s) => s.status == "Verified").length} Verified Shift(s)',
-                                style: const TextStyle(fontSize: 13, color: AppColors.muted),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-
-                          if (totalRevenue == 0 && totalExpenses == 0)
-                            const EmptyStateView.noRecords(
-                              title: 'No Verified Transactions Yet Today',
-                              message: 'Financial figures update live as pump attendants submit shift remittances and cashiers verify them.',
-                            )
-                          else
-                            SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: DataTable(
-                                headingTextStyle: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.ink),
-                                columns: const [
-                                  DataColumn(label: Text('Branch')),
-                                  DataColumn(label: Text('PMS Litres', textAlign: TextAlign.end), numeric: true),
-                                  DataColumn(label: Text('AGO Litres', textAlign: TextAlign.end), numeric: true),
-                                  DataColumn(label: Text('Gross Revenue (₦)', textAlign: TextAlign.end), numeric: true),
-                                  DataColumn(label: Text('Est. Gross Profit', textAlign: TextAlign.end), numeric: true),
-                                  DataColumn(label: Text('Expenses', textAlign: TextAlign.end), numeric: true),
-                                  DataColumn(label: Text('Net Profit', textAlign: TextAlign.end), numeric: true),
-                                ],
-                                rows: [
-                                  DataRow(
-                                    cells: [
-                                      const DataCell(Text('Lekki Road Station', style: TextStyle(fontWeight: FontWeight.bold))),
-                                      _numericCell(Text(CurrencyFormatter.formatLitres(totalPmsLitres))),
-                                      _numericCell(Text(CurrencyFormatter.formatLitres(totalAgoLitres))),
-                                      _numericCell(Text(CurrencyFormatter.formatNaira(totalRevenue))),
-                                      _numericCell(Text(CurrencyFormatter.formatNaira(totalGrossProfit))),
-                                      _numericCell(Text(CurrencyFormatter.formatNaira(totalExpenses))),
-                                      _numericCell(
-                                        Text(
-                                          CurrencyFormatter.formatNaira(totalNetProfit),
-                                          style: TextStyle(fontWeight: FontWeight.bold, color: totalNetProfit >= 0 ? AppColors.ok : AppColors.bad),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // Executive Expense Approvals & Audit Ledger Card (§6.1)
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Wrap(
-                                  spacing: 10,
-                                  runSpacing: 8,
-                                  crossAxisAlignment: WrapCrossAlignment.center,
-                                  children: [
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const Icon(Icons.receipt_long, color: AppColors.ink, size: 22),
-                                        const SizedBox(width: 8),
-                                        const Text(
-                                          'Expense Ledger & Executive Approvals',
-                                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
-                                        ),
-                                      ],
-                                    ),
-                                    if (state.pendingExpenses.isNotEmpty)
-                                      StatusChip(
-                                        label: '${state.pendingExpenses.length} Pending Approval',
-                                        type: ChipType.warn,
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              if (widget.onOpenExpenseEntry != null) ...[
-                                const SizedBox(width: 12),
-                                ElevatedButton.icon(
-                                  onPressed: widget.onOpenExpenseEntry,
-                                  icon: const Icon(Icons.add, size: 16),
-                                  label: const Text('Record Expense'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: AppColors.primary,
-                                    foregroundColor: Colors.white,
-                                    minimumSize: const Size(48, 48),
-                                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          const Text(
-                            'All operational and petty cash safe disbursals recorded across branches. Director has absolute authorization authority.',
-                            style: TextStyle(fontSize: 13, color: AppColors.muted),
-                          ),
-                          const SizedBox(height: 16),
-
-                          if (state.expenses.isEmpty)
-                            const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 24),
-                              child: Center(
-                                child: Text('No station expenses recorded yet today.', style: TextStyle(color: AppColors.muted)),
-                              ),
-                            )
-                          else
-                            SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: DataTable(
-                                headingTextStyle: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.ink),
-                                columns: const [
-                                  DataColumn(label: Text('Time')),
-                                  DataColumn(label: Text('Category')),
-                                  DataColumn(label: Text('Description')),
-                                  DataColumn(label: Text('Source')),
-                                  DataColumn(label: Text('Role')),
-                                  DataColumn(label: Text('Amount (₦)', textAlign: TextAlign.end), numeric: true),
-                                  DataColumn(label: Text('Status')),
-                                  DataColumn(label: Text('Receipt')),
-                                  DataColumn(label: Text('Executive Action')),
-                                ],
-                                rows: state.expenses.map((exp) {
-                                  return DataRow(
-                                    cells: [
-                                      DataCell(Text(_formatTime(exp.recordedAt))),
-                                      DataCell(Text(exp.category, style: const TextStyle(fontWeight: FontWeight.w600))),
-                                      DataCell(Text(exp.description)),
-                                      DataCell(Text(exp.paymentSource == 'sales_cash' ? 'Cash Safe' : exp.paymentSource)),
-                                      DataCell(Text(exp.recordedByRole.toUpperCase())),
-                                      _numericCell(Text(
-                                        CurrencyFormatter.formatNaira(exp.amount),
-                                        style: const TextStyle(fontWeight: FontWeight.bold),
-                                      )),
-                                      DataCell(StatusChip(
-                                        label: exp.status,
-                                        type: exp.isApproved
-                                            ? ChipType.ok
-                                            : (exp.isRejected ? ChipType.bad : ChipType.warn),
-                                      )),
-                                      DataCell(
-                                        exp.receiptUrl != null && exp.receiptUrl!.isNotEmpty
-                                            ? IconButton(
-                                                icon: const Icon(Icons.receipt, color: AppColors.primary, size: 18),
-                                                tooltip: 'View Receipt',
-                                                onPressed: () => _showReceiptPreview(exp),
-                                              )
-                                            : const Text('-', style: TextStyle(color: AppColors.muted)),
-                                      ),
-                                      DataCell(
-                                        exp.isPending
-                                            ? Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  OutlinedButton(
-                                                    onPressed: () => _rejectExpenseDialog(exp),
-                                                    style: OutlinedButton.styleFrom(
-                                                      side: const BorderSide(color: AppColors.bad),
-                                                      minimumSize: const Size(48, 48),
-                                                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                                                    ),
-                                                    child: const Text('Reject', style: TextStyle(color: AppColors.bad, fontSize: 13)),
-                                                  ),
-                                                  const SizedBox(width: 6),
-                                                  ElevatedButton(
-                                                    onPressed: () => _approveExpenseDialog(exp),
-                                                    style: ElevatedButton.styleFrom(
-                                                      backgroundColor: AppColors.ok,
-                                                      foregroundColor: Colors.white,
-                                                      minimumSize: const Size(48, 48),
-                                                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                                                    ),
-                                                    child: const Text('Approve', style: TextStyle(fontSize: 13)),
-                                                  ),
-                                                ],
-                                              )
-                                            : Text(
-                                                exp.approvedBy != null && exp.approvedBy!.isNotEmpty
-                                                    ? 'By ${exp.approvedBy}'
-                                                    : 'Completed',
-                                                style: const TextStyle(fontSize: 12, color: AppColors.slate),
-                                              ),
-                                      ),
-                                    ],
-                                  );
-                                }).toList(),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-
-                // =============================================================
-                // VIEW 1: LIVE GRAPHICAL TANK GAUGES (REAL SUPABASE TANKS ONLY)
-                // =============================================================
-                if (_selectedView == 1) ...[
-                  // Fuel Inventory KPI Metric Summary (from real tanks)
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final width = (constraints.maxWidth - 36) / 4;
-                      return Wrap(
-                        spacing: 12,
-                        runSpacing: 12,
-                        children: [
-                          _buildSummaryKpi('Total PMS in Storage', CurrencyFormatter.formatLitres(totalPmsInStock), width, color: const Color(0xFFC2410C)),
-                          _buildSummaryKpi('Total AGO in Storage', CurrencyFormatter.formatLitres(totalAgoInStock), width, color: AppColors.ok),
-                          _buildSummaryKpi('Total Discharge Ullage', CurrencyFormatter.formatLitres(totalCompanyUllage), width, color: AppColors.ink),
-                          _buildSummaryKpi('Attention Required', '$lowStockTanksCount Tank(s)', width, color: lowStockTanksCount > 0 ? AppColors.warn : AppColors.ok),
-                        ],
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 20),
-
-                  // Header with Tank Count
-                  Wrap(
-                    spacing: 16,
-                    runSpacing: 6,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    alignment: WrapAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Active Station Tanks (${liveTanks.length} Tanks in Database)',
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
-                      ),
-                      const Text(
-                        'Source: Supabase PostgreSQL `tanks` table',
-                        style: TextStyle(fontSize: 12, color: AppColors.muted),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Real Graphical Tank Gauges Grid
-                  if (liveTanks.isEmpty)
-                    const Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(40),
-                        child: Center(
-                          child: Column(
-                            children: [
-                              Icon(Icons.propane_tank_outlined, size: 48, color: AppColors.muted),
-                              SizedBox(height: 12),
-                              Text('No Storage Tanks Configured in Database', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                            ],
-                          ),
-                        ),
-                      ),
-                    )
-                  else
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final isMobile = constraints.maxWidth < 700;
-                        return Wrap(
-                          spacing: 16,
-                          runSpacing: 16,
-                          children: liveTanks.map((t) {
-                            final itemWidth = isMobile ? constraints.maxWidth : (constraints.maxWidth - 16) / 2;
-                            return SizedBox(
-                              width: itemWidth,
-                              child: ForecourtTankGauge(
-                                tankCode: t.code,
-                                productName: t.product,
-                                capacityLitres: t.capacity,
-                                currentLitres: t.physicalDip,
-                                calculatedStockLitres: t.bookStock,
-                                stationName: 'Lekki Road Station',
-                                lastDipTime: t.lastDipTime,
-                              ),
-                            );
-                          }).toList(),
-                        );
-                      },
-                    ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
+  Widget _empty(String title, String description, {Widget? action}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 36),
+      child: Column(children: [
+        Icon(Icons.receipt_long_outlined,
+            size: 30, color: Theme.of(context).colorScheme.onSurfaceVariant),
+        const SizedBox(height: 12),
+        Text(title,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 6),
+        Text(description,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall),
+        if (action != null) ...[const SizedBox(height: 16), action],
+      ]),
     );
   }
 
-  DataCell _numericCell(Widget child) {
-    return DataCell(Align(alignment: Alignment.centerRight, child: child));
+  Widget _metricGrid(List<Widget> cards) =>
+      LayoutBuilder(builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 820
+            ? 4
+            : constraints.maxWidth >= 460
+                ? 2
+                : 1;
+        final width = (constraints.maxWidth - 12 * (columns - 1)) / columns;
+        return Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: cards
+                .map((card) => SizedBox(width: width, child: card))
+                .toList());
+      });
+
+  Widget _expenseRow(BranchExpense expense) {
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.all(18),
+      child: LayoutBuilder(builder: (context, constraints) {
+        final details =
+            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(expense.category,
+              style:
+                  const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+          const SizedBox(height: 5),
+          Text(expense.description,
+              style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12)),
+          const SizedBox(height: 6),
+          Text(
+              '${expense.paymentSource} · ${expense.recordedBy} · ${_dateLabel(expense.recordedAt)}',
+              style: TextStyle(color: colors.onSurfaceVariant, fontSize: 11)),
+        ]);
+        final actions = Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(CurrencyFormatter.formatNaira(expense.amount),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, fontSize: 14)),
+              if (expense.receiptUrl != null && expense.receiptUrl!.isNotEmpty)
+                IconButton(
+                    tooltip: 'View receipt',
+                    onPressed: () => _showReceiptPreview(expense),
+                    icon: const Icon(Icons.attach_file, size: 18)),
+              if (expense.isPending) ...[
+                OutlinedButton(
+                    onPressed: () => _rejectExpenseDialog(expense),
+                    child: const Text('Reject')),
+                ElevatedButton(
+                    onPressed: () => _approveExpenseDialog(expense),
+                    child: const Text('Approve')),
+              ] else
+                Text(expense.status,
+                    style: TextStyle(
+                        fontSize: 11,
+                        color:
+                            expense.isRejected ? AppColors.bad : AppColors.ok)),
+            ]);
+        if (constraints.maxWidth < 760)
+          return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                details,
+                const SizedBox(height: 12),
+                actions,
+              ]);
+        return Row(children: [
+          Expanded(child: details),
+          const SizedBox(width: 18),
+          actions
+        ]);
+      }),
+    );
   }
 
-  Widget _buildSummaryKpi(String label, String value, double width, {Color color = AppColors.ink}) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final effectiveColor = color == AppColors.ink ? (isDark ? AppColors.darkInk : AppColors.ink) : color;
+  @override
+  Widget build(BuildContext context) {
+    if (state.currentUser.role != UserRole.director)
+      return _buildRestrictedAccess();
+    final colors = Theme.of(context).colorScheme;
+    final submissions =
+        state.submissions.where((s) => _inPeriod(s.submittedAt)).toList();
+    final verified = submissions.where((s) => s.status == 'Verified').toList();
+    final expenses =
+        state.expenses.where((e) => _inPeriod(e.recordedAt)).toList();
+    final revenue = verified.fold(0.0, (sum, s) => sum + s.expectedSalesValue);
+    final expenseTotal = expenses.fold(0.0, (sum, e) => sum + e.amount);
+    final pumpEntries =
+        state.shiftAdjustments.where((e) => _inPeriod(e.createdAt)).toList();
+    final pending = expenses.where((e) => e.isPending).toList();
+    final tanks = state.tanks;
+    final pmsStock = tanks
+        .where((t) => t.product == 'PMS')
+        .fold(0.0, (sum, t) => sum + t.physicalDip);
+    final agoStock = tanks
+        .where((t) => t.product == 'AGO')
+        .fold(0.0, (sum, t) => sum + t.physicalDip);
+    final attention = tanks.where((t) => t.isLowStock || t.hasDeficit).length;
+    final periodLabel = _reportRange == null
+        ? 'Loaded records'
+        : '${_dateLabel(_reportRange!.start)} – ${_dateLabel(_reportRange!.end)}';
 
-    return SizedBox(
-      width: width,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: isDark ? AppColors.darkCard : AppColors.card,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: isDark ? AppColors.darkLine : AppColors.line),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.03),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label.toUpperCase(),
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.5,
-                color: isDark ? AppColors.darkMuted : AppColors.muted,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: AppTypography.monoNumeric(
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                color: effectiveColor,
-              ),
-            ),
-          ],
+    return Scaffold(
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        title: const Text('Financial overview'),
+        actions: [
+          IconButton(
+            tooltip: 'Refresh records',
+            onPressed: state.isSyncingWithRemote
+                ? null
+                : () => state.syncWithSupabase(),
+            icon: state.isSyncingWithRemote
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.refresh),
+          ),
+          const SizedBox(width: 12),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1240),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(state.currentStationName,
+                  style: Theme.of(context).textTheme.headlineMedium),
+              const SizedBox(height: 6),
+              Text('Review verified sales, recorded expenses and fuel stock.',
+                  style:
+                      TextStyle(color: colors.onSurfaceVariant, fontSize: 13)),
+              const SizedBox(height: 22),
+              Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    SegmentedButton<int>(
+                      showSelectedIcon: false,
+                      segments: const [
+                        ButtonSegment(
+                            value: 0,
+                            label: Text('Financials'),
+                            icon: Icon(Icons.receipt_long_outlined)),
+                        ButtonSegment(
+                            value: 1,
+                            label: Text('Fuel stock'),
+                            icon: Icon(Icons.storage_outlined)),
+                      ],
+                      selected: {_selectedView},
+                      onSelectionChanged: (selection) =>
+                          setState(() => _selectedView = selection.first),
+                    ),
+                    OutlinedButton.icon(
+                        onPressed: _selectPeriod,
+                        icon: const Icon(Icons.date_range_outlined, size: 17),
+                        label: Text(periodLabel)),
+                    if (_reportRange != null)
+                      TextButton(
+                          onPressed: () => setState(() => _reportRange = null),
+                          child: const Text('Clear dates')),
+                    if (widget.onOpenExpenseEntry != null)
+                      ElevatedButton.icon(
+                          onPressed: widget.onOpenExpenseEntry,
+                          icon: const Icon(Icons.add, size: 17),
+                          label: const Text('Record expense')),
+                  ]),
+              const SizedBox(height: 24),
+              if (_selectedView == 0) ...[
+                _metricGrid([
+                  WorkspaceMetric(
+                      label: 'Verified sales',
+                      value: CurrencyFormatter.formatNaira(revenue),
+                      detail: '${verified.length} verified submissions'),
+                  WorkspaceMetric(
+                      label: 'Recorded expenses',
+                      value: CurrencyFormatter.formatNaira(expenseTotal +
+                          pumpEntries
+                              .where((e) => !e.isFuel)
+                              .fold(0.0, (sum, e) => sum + e.amount)),
+                      detail:
+                          '${pending.length + pumpEntries.where((e) => !e.isFuel && e.isPending).length} awaiting approval'),
+                  WorkspaceMetric(
+                      label: 'Gross profit',
+                      value: 'Unavailable',
+                      detail: 'Fuel cost accounting required'),
+                  WorkspaceMetric(
+                      label: 'Profit after expenses',
+                      value: 'Unavailable',
+                      detail: 'Stock and costs must be reconciled'),
+                ]),
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                      color: colors.surface,
+                      border: Border.all(color: colors.outlineVariant),
+                      borderRadius: BorderRadius.circular(6)),
+                  child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.info_outline,
+                            size: 18, color: colors.onSurfaceVariant),
+                        const SizedBox(width: 10),
+                        Expanded(
+                            child: Text(
+                                'Profit is unavailable until delivery costs and remaining stock are reconciled. Date filters apply to loaded records; these totals are not a complete company accounting statement.',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    height: 1.5,
+                                    color: colors.onSurfaceVariant))),
+                      ]),
+                ),
+                const SizedBox(height: 24),
+                WorkspaceSection(
+                  title: 'Shift records',
+                  subtitle:
+                      '${submissions.length} records · ${state.currentStationName}',
+                  child: submissions.isEmpty
+                      ? _empty('No shift records in this view',
+                          'Submitted shifts appear here with their verification status.')
+                      : SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: DataTable(
+                            columns: const [
+                              DataColumn(label: Text('ATTENDANT')),
+                              DataColumn(label: Text('SHIFT / DATE')),
+                              DataColumn(
+                                  label: Text('SALES VALUE'), numeric: true),
+                              DataColumn(
+                                  label: Text('DIFFERENCE'), numeric: true),
+                              DataColumn(label: Text('STATUS')),
+                            ],
+                            rows: submissions
+                                .map((s) => DataRow(cells: [
+                                      DataCell(Text(s.attendantName)),
+                                      DataCell(Text(
+                                          '${s.shiftType} · ${_dateLabel(s.submittedAt)}')),
+                                      DataCell(Text(
+                                          CurrencyFormatter.formatNaira(
+                                              s.expectedSalesValue))),
+                                      DataCell(Text(
+                                          CurrencyFormatter.formatVariance(
+                                              s.variance),
+                                          style: TextStyle(
+                                              color: s.isBalanced
+                                                  ? colors.onSurface
+                                                  : AppColors.bad))),
+                                      DataCell(StatusChip(
+                                          label: s.status,
+                                          type: s.status == 'Verified'
+                                              ? ChipType.ok
+                                              : s.status == 'Flagged Unresolved'
+                                                  ? ChipType.bad
+                                                  : ChipType.warn)),
+                                    ]))
+                                .toList(),
+                          ),
+                        ),
+                ),
+                const SizedBox(height: 24),
+                WorkspaceSection(
+                  title: 'Expense review',
+                  subtitle:
+                      '${pending.length} awaiting your decision · ${expenses.length} recorded',
+                  child: expenses.isEmpty
+                      ? _empty('No expenses in this view',
+                          'Record a branch expense to start the approval trail.',
+                          action: widget.onOpenExpenseEntry == null
+                              ? null
+                              : OutlinedButton.icon(
+                                  onPressed: widget.onOpenExpenseEntry,
+                                  icon: const Icon(Icons.add, size: 16),
+                                  label: const Text('Record expense')))
+                      : Column(children: [
+                          for (var index = 0;
+                              index < expenses.length;
+                              index++) ...[
+                            if (index > 0)
+                              Divider(height: 1, color: colors.outlineVariant),
+                            _expenseRow(expenses[index]),
+                          ],
+                        ]),
+                ),
+                if (state.shiftAdjustments.isNotEmpty)
+                  WorkspaceSection(
+                      title: 'Pump expenses & non-sale fuel',
+                      subtitle:
+                          'Shift-linked entries; approval follows operational limits',
+                      child: ShiftAdjustmentLedger(
+                          entries: pumpEntries, review: true)),
+              ] else ...[
+                Text('Latest loaded tank readings',
+                    style: TextStyle(
+                        fontSize: 12, color: colors.onSurfaceVariant)),
+                const SizedBox(height: 12),
+                _metricGrid([
+                  WorkspaceMetric(
+                      label: 'Measured PMS stock',
+                      value: CurrencyFormatter.formatLitres(pmsStock)),
+                  WorkspaceMetric(
+                      label: 'Measured AGO stock',
+                      value: CurrencyFormatter.formatLitres(agoStock)),
+                  WorkspaceMetric(
+                      label: 'Available tank capacity',
+                      value: CurrencyFormatter.formatLitres(tanks.fold(
+                          0.0, (sum, t) => sum + t.capacity - t.physicalDip))),
+                  WorkspaceMetric(
+                      label: 'Tanks needing attention',
+                      value: '$attention',
+                      detail: 'Low stock or recorded deficit',
+                      color: attention > 0 ? AppColors.warn : colors.primary),
+                ]),
+                const SizedBox(height: 24),
+                WorkspaceSection(
+                  title: 'Tank reconciliation',
+                  subtitle:
+                      'Calculated stock compared with the last loaded measurement',
+                  action: state.hasInterlockedTanks && tanks.isNotEmpty
+                      ? TextButton.icon(
+                          onPressed: () =>
+                              TankChangeoverDialog.show(context, state),
+                          icon: const Icon(Icons.alt_route, size: 16),
+                          label: const Text('Changeover'))
+                      : null,
+                  child: tanks.isEmpty
+                      ? _empty('No tanks configured',
+                          'Set up the station tanks before recording stock.',
+                          action: widget.onOpenStationSetup == null
+                              ? null
+                              : OutlinedButton(
+                                  onPressed: widget.onOpenStationSetup,
+                                  child: const Text('Configure station')))
+                      : MediaQuery.sizeOf(context).width < 700
+                          ? Column(children: [
+                              for (final tank in tanks)
+                                ForecourtTankGauge(
+                                  tankCode: tank.code,
+                                  productName: tank.product,
+                                  capacityLitres: tank.capacity,
+                                  currentLitres: tank.physicalDip,
+                                  calculatedStockLitres: tank.bookStock,
+                                  lastDipTime: tank.lastDipTime,
+                                  isCompact: true,
+                                ),
+                            ])
+                          : SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: DataTable(
+                                columns: const [
+                                  DataColumn(label: Text('TANK')),
+                                  DataColumn(label: Text('PRODUCT')),
+                                  DataColumn(
+                                      label: Text('CALCULATED'), numeric: true),
+                                  DataColumn(
+                                      label: Text('MEASURED'), numeric: true),
+                                  DataColumn(
+                                      label: Text('VARIANCE'), numeric: true),
+                                  DataColumn(label: Text('STATUS')),
+                                ],
+                                rows: tanks
+                                    .map((t) => DataRow(cells: [
+                                          DataCell(Text(t.code,
+                                              style: const TextStyle(
+                                                  fontWeight:
+                                                      FontWeight.w600))),
+                                          DataCell(Text(t.product)),
+                                          DataCell(Text(
+                                              CurrencyFormatter.formatLitres(
+                                                  t.bookStock))),
+                                          DataCell(Text(
+                                              CurrencyFormatter.formatLitres(
+                                                  t.physicalDip))),
+                                          DataCell(Text(
+                                              CurrencyFormatter.formatLitres(
+                                                  t.variance),
+                                              style: TextStyle(
+                                                  color: t.hasDeficit
+                                                      ? AppColors.bad
+                                                      : colors.onSurface))),
+                                          DataCell(StatusChip(
+                                              label: t.hasDeficit
+                                                  ? 'Variance'
+                                                  : t.isLowStock
+                                                      ? 'Low stock'
+                                                      : 'Recorded',
+                                              type: t.hasDeficit
+                                                  ? ChipType.bad
+                                                  : t.isLowStock
+                                                      ? ChipType.warn
+                                                      : ChipType.ok)),
+                                        ]))
+                                    .toList(),
+                              )),
+                ),
+              ],
+              const SizedBox(height: 24),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                if (widget.onOpenStaffManagement != null)
+                  OutlinedButton.icon(
+                      onPressed: widget.onOpenStaffManagement,
+                      icon: const Icon(Icons.people_outline, size: 17),
+                      label: const Text('People & access')),
+                if (widget.onOpenStationSetup != null)
+                  OutlinedButton.icon(
+                      onPressed: widget.onOpenStationSetup,
+                      icon: const Icon(Icons.settings_outlined, size: 17),
+                      label: const Text('Station configuration')),
+              ]),
+              const SizedBox(height: 24),
+            ]),
+          ),
         ),
       ),
     );

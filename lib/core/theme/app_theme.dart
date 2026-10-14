@@ -1,219 +1,188 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../constants/app_colors.dart';
 
+/// Shared component styling for the operational workspace and all forms.
 class AppTheme {
-  /// Daytime Forecourt Light Theme
-  static ThemeData get lightTheme {
-    final baseTextTheme = ThemeData.light().textTheme;
-    final manropeTextTheme = GoogleFonts.manropeTextTheme(baseTextTheme).copyWith(
-      headlineLarge: GoogleFonts.manrope(fontWeight: FontWeight.w700, color: AppColors.ink),
-      headlineMedium: GoogleFonts.manrope(fontWeight: FontWeight.w700, color: AppColors.ink),
-      headlineSmall: GoogleFonts.manrope(fontWeight: FontWeight.w700, color: AppColors.ink),
-      titleLarge: GoogleFonts.manrope(fontWeight: FontWeight.w600, color: AppColors.ink),
-      titleMedium: GoogleFonts.manrope(fontWeight: FontWeight.w600, color: AppColors.ink),
-      titleSmall: GoogleFonts.manrope(fontWeight: FontWeight.w600, color: AppColors.muted),
-      bodyLarge: GoogleFonts.manrope(color: AppColors.ink),
-      bodyMedium: GoogleFonts.manrope(color: AppColors.ink),
-      bodySmall: GoogleFonts.manrope(color: AppColors.muted),
-    );
+  static ThemeData get lightTheme => _build(Brightness.light);
+  static ThemeData get darkTheme => _build(Brightness.dark);
 
-    return ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.light,
-      scaffoldBackgroundColor: AppColors.background,
-      textTheme: manropeTextTheme,
-      colorScheme: const ColorScheme.light(
-        primary: AppColors.ok,
-        onPrimary: Colors.white,
-        surface: AppColors.card,
-        onSurface: AppColors.ink,
-        error: AppColors.bad,
-        onError: Colors.white,
-      ),
+  static ThemeData _build(Brightness brightness) {
+    final dark = brightness == Brightness.dark;
+    final surface = dark ? const Color(0xFF172622) : Colors.white;
+    final ink = dark ? AppColors.darkInk : AppColors.ink;
+    final muted = dark ? AppColors.darkMuted : AppColors.muted;
+    final line = dark ? AppColors.darkLine : AppColors.line;
+    final primary = dark ? const Color(0xFF65CEB3) : AppColors.primary;
+    final scheme = ColorScheme.fromSeed(
+            seedColor: AppColors.primary, brightness: brightness)
+        .copyWith(
+      primary: primary,
+      onPrimary: dark ? const Color(0xFF092E24) : Colors.white,
+      surface: surface,
+      onSurface: ink,
+      onSurfaceVariant: muted,
+      outlineVariant: line,
+      error: AppColors.bad,
+    );
+    final base = ThemeData(
+        useMaterial3: true,
+        brightness: brightness,
+        colorScheme: scheme,
+        fontFamily: 'Roboto');
+    final shape =
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(6));
+    final border = OutlineInputBorder(
+        borderRadius: BorderRadius.circular(6),
+        borderSide: BorderSide(color: line));
+    final text =
+        base.textTheme.apply(bodyColor: ink, displayColor: ink).copyWith(
+              headlineMedium: TextStyle(
+                  fontFamily: 'Roboto',
+                  fontSize: 28,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.7,
+                  color: ink),
+              titleLarge: TextStyle(
+                  fontFamily: 'Roboto',
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  color: ink),
+              titleMedium: TextStyle(
+                  fontFamily: 'Roboto',
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: ink),
+              bodyMedium: TextStyle(
+                  fontFamily: 'Roboto', fontSize: 14, height: 1.45, color: ink),
+              bodySmall: TextStyle(
+                  fontFamily: 'Roboto',
+                  fontSize: 12,
+                  height: 1.45,
+                  color: muted),
+            );
+    return base.copyWith(
+      scaffoldBackgroundColor:
+          dark ? AppColors.darkBackground : AppColors.background,
+      textTheme: text.apply(fontFamily: 'Roboto'),
+      splashFactory: InkRipple.splashFactory,
+      dividerTheme: DividerThemeData(color: line, thickness: 1, space: 1),
       appBarTheme: AppBarTheme(
-        backgroundColor: AppColors.ink,
-        foregroundColor: AppColors.background,
+        backgroundColor: surface,
+        foregroundColor: ink,
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
+        scrolledUnderElevation: 0,
         centerTitle: false,
-        titleTextStyle: GoogleFonts.manrope(
-          fontSize: 18,
-          fontWeight: FontWeight.bold,
-          color: AppColors.background,
-        ),
+        toolbarHeight: 72,
+        titleTextStyle: TextStyle(
+            fontFamily: 'Roboto',
+            fontSize: 19,
+            fontWeight: FontWeight.w600,
+            color: ink),
+        iconTheme: IconThemeData(color: muted, size: 21),
+        actionsIconTheme: IconThemeData(color: muted, size: 21),
+        shape: Border(bottom: BorderSide(color: line)),
       ),
       cardTheme: CardThemeData(
-        color: AppColors.card,
+        color: surface,
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
         margin: const EdgeInsets.only(bottom: 16),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: AppColors.line),
-        ),
+            borderRadius: BorderRadius.circular(8),
+            side: BorderSide(color: line)),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.background,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: AppColors.line),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: AppColors.line),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: AppColors.bank, width: 2),
-        ),
-        labelStyle: GoogleFonts.manrope(color: AppColors.muted, fontSize: 14),
+        fillColor: dark ? AppColors.darkInput : Colors.white,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+        border: border,
+        enabledBorder: border,
+        focusedBorder:
+            border.copyWith(borderSide: BorderSide(color: primary, width: 1.5)),
+        errorBorder:
+            border.copyWith(borderSide: const BorderSide(color: AppColors.bad)),
+        focusedErrorBorder: border.copyWith(
+            borderSide: const BorderSide(color: AppColors.bad, width: 1.5)),
+        labelStyle: TextStyle(fontFamily: 'Roboto', color: muted, fontSize: 13),
+        hintStyle: TextStyle(fontFamily: 'Roboto', color: muted, fontSize: 13),
+        errorStyle:
+            const TextStyle(fontFamily: 'Roboto', fontSize: 12, height: 1.4),
+        errorMaxLines: 3,
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.ok,
-          foregroundColor: Colors.white,
-          minimumSize: const Size(double.infinity, 48),
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-          textStyle: GoogleFonts.manrope(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
+          style: ElevatedButton.styleFrom(
+        backgroundColor: primary,
+        foregroundColor: scheme.onPrimary,
+        minimumSize: const Size(48, 46),
+        elevation: 0,
+        shape: shape,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        textStyle: const TextStyle(
+            fontFamily: 'Roboto', fontSize: 13, fontWeight: FontWeight.w600),
+      )),
       outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(
-          foregroundColor: AppColors.ink,
-          minimumSize: const Size(double.infinity, 48),
-          side: const BorderSide(color: AppColors.line),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-          textStyle: GoogleFonts.manrope(
-            fontSize: 16,
+          style: OutlinedButton.styleFrom(
+        foregroundColor: ink,
+        minimumSize: const Size(48, 46),
+        side: BorderSide(color: line),
+        shape: shape,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        textStyle: const TextStyle(
+            fontFamily: 'Roboto', fontSize: 13, fontWeight: FontWeight.w500),
+      )),
+      textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+        foregroundColor: primary,
+        minimumSize: const Size(44, 44),
+        textStyle: const TextStyle(
+            fontFamily: 'Roboto', fontSize: 13, fontWeight: FontWeight.w600),
+      )),
+      iconButtonTheme: IconButtonThemeData(
+          style: IconButton.styleFrom(minimumSize: const Size(44, 44))),
+      dataTableTheme: DataTableThemeData(
+        headingRowColor: WidgetStatePropertyAll(
+            dark ? AppColors.darkInput : const Color(0xFFF6F8F7)),
+        headingTextStyle: TextStyle(
+            fontFamily: 'Roboto',
+            fontSize: 11,
             fontWeight: FontWeight.w600,
-          ),
-        ),
+            color: muted),
+        dataTextStyle:
+            TextStyle(fontFamily: 'Roboto', fontSize: 13, color: ink),
+        headingRowHeight: 44,
+        dataRowMinHeight: 56,
+        dataRowMaxHeight: 72,
+        horizontalMargin: 20,
+        columnSpacing: 24,
+        dividerThickness: 1,
+      ),
+      chipTheme: base.chipTheme.copyWith(
+        side: BorderSide(color: line),
+        shape: shape,
+        labelStyle: TextStyle(fontFamily: 'Roboto', fontSize: 12, color: ink),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: AppColors.card,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        titleTextStyle: GoogleFonts.manrope(
-          fontSize: 18,
-          fontWeight: FontWeight.bold,
-          color: AppColors.ink,
-        ),
-      ),
-    );
-  }
-
-  /// Night Shift Forecourt Dark Theme
-  static ThemeData get darkTheme {
-    final baseTextTheme = ThemeData.dark().textTheme;
-    final manropeTextTheme = GoogleFonts.manropeTextTheme(baseTextTheme).copyWith(
-      headlineLarge: GoogleFonts.manrope(fontWeight: FontWeight.w700, color: AppColors.darkInk),
-      headlineMedium: GoogleFonts.manrope(fontWeight: FontWeight.w700, color: AppColors.darkInk),
-      headlineSmall: GoogleFonts.manrope(fontWeight: FontWeight.w700, color: AppColors.darkInk),
-      titleLarge: GoogleFonts.manrope(fontWeight: FontWeight.w600, color: AppColors.darkInk),
-      titleMedium: GoogleFonts.manrope(fontWeight: FontWeight.w600, color: AppColors.darkInk),
-      titleSmall: GoogleFonts.manrope(fontWeight: FontWeight.w600, color: AppColors.darkMuted),
-      bodyLarge: GoogleFonts.manrope(color: AppColors.darkInk),
-      bodyMedium: GoogleFonts.manrope(color: AppColors.darkInk),
-      bodySmall: GoogleFonts.manrope(color: AppColors.darkMuted),
-    );
-
-    return ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.dark,
-      scaffoldBackgroundColor: AppColors.darkBackground,
-      textTheme: manropeTextTheme,
-      colorScheme: const ColorScheme.dark(
-        primary: AppColors.emerald,
-        onPrimary: AppColors.darkBackground,
-        surface: AppColors.darkCard,
-        onSurface: AppColors.darkInk,
-        error: AppColors.bad,
-        onError: Colors.white,
-      ),
-      appBarTheme: AppBarTheme(
-        backgroundColor: const Color(0xFF0F172A),
-        foregroundColor: AppColors.darkInk,
-        elevation: 0,
-        centerTitle: false,
-        titleTextStyle: GoogleFonts.manrope(
-          fontSize: 18,
-          fontWeight: FontWeight.bold,
-          color: AppColors.darkInk,
-        ),
-      ),
-      cardTheme: CardThemeData(
-        color: AppColors.darkCard,
-        elevation: 0,
-        margin: const EdgeInsets.only(bottom: 16),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: AppColors.darkLine),
-        ),
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: AppColors.darkInput,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: AppColors.darkLine),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: AppColors.darkLine),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: AppColors.emerald, width: 2),
-        ),
-        labelStyle: GoogleFonts.manrope(color: AppColors.darkMuted, fontSize: 14),
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.emerald,
-          foregroundColor: const Color(0xFF064E3B),
-          minimumSize: const Size(double.infinity, 48),
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-          textStyle: GoogleFonts.manrope(
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-      outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(
-          foregroundColor: AppColors.darkInk,
-          minimumSize: const Size(double.infinity, 48),
-          side: const BorderSide(color: AppColors.darkLine),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-          textStyle: GoogleFonts.manrope(
-            fontSize: 16,
+        backgroundColor: surface,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        titleTextStyle: TextStyle(
+            fontFamily: 'Roboto',
+            fontSize: 20,
             fontWeight: FontWeight.w600,
-          ),
-        ),
+            color: ink),
+        contentTextStyle: TextStyle(
+            fontFamily: 'Roboto', fontSize: 14, height: 1.5, color: muted),
       ),
-      dialogTheme: DialogThemeData(
-        backgroundColor: AppColors.darkCard,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        titleTextStyle: GoogleFonts.manrope(
-          fontSize: 18,
-          fontWeight: FontWeight.bold,
-          color: AppColors.darkInk,
-        ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        shape: shape,
+        contentTextStyle: const TextStyle(
+            fontFamily: 'Roboto', fontSize: 13, color: Colors.white),
       ),
+      progressIndicatorTheme: ProgressIndicatorThemeData(color: primary),
     );
   }
 }

@@ -50,10 +50,14 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
 
   void _initSelection() {
     // Find interlocked tanks for PMS
-    final interlocked = widget.state.tanks.where((t) => t.isInterlocked && t.product == _selectedProduct).toList();
+    final interlocked = widget.state.tanks
+        .where((t) => t.isInterlocked && t.product == _selectedProduct)
+        .toList();
     if (interlocked.length >= 2) {
-      final active = interlocked.firstWhere((t) => t.isActiveSupply, orElse: () => interlocked[0]);
-      final standby = interlocked.firstWhere((t) => !t.isActiveSupply, orElse: () => interlocked[1]);
+      final active = interlocked.firstWhere((t) => t.isActiveSupply,
+          orElse: () => interlocked[0]);
+      final standby = interlocked.firstWhere((t) => !t.isActiveSupply,
+          orElse: () => interlocked[1]);
       _fromTank = active.code;
       _toTank = standby.code;
     } else if (interlocked.isNotEmpty) {
@@ -61,13 +65,25 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
       _toTank = interlocked[0].code;
     }
 
-    _fromTankDipController.text = (widget.state.tanks.firstWhere((t) => t.code == _fromTank, orElse: () => widget.state.tanks[0]).physicalDip).toStringAsFixed(0);
-    _toTankDipController.text = (widget.state.tanks.firstWhere((t) => t.code == _toTank, orElse: () => widget.state.tanks[0]).physicalDip).toStringAsFixed(0);
+    _fromTankDipController.text = (widget.state.tanks
+            .firstWhere((t) => t.code == _fromTank,
+                orElse: () => widget.state.tanks[0])
+            .physicalDip)
+        .toStringAsFixed(0);
+    _toTankDipController.text = (widget.state.tanks
+            .firstWhere((t) => t.code == _toTank,
+                orElse: () => widget.state.tanks[0])
+            .physicalDip)
+        .toStringAsFixed(0);
 
     // Initialize meter controllers for affected nozzles
-    final affected = widget.state.nozzles.where((n) => n.productName == _selectedProduct && n.tankCode == _fromTank).toList();
+    final affected = widget.state.nozzles
+        .where(
+            (n) => n.productName == _selectedProduct && n.tankCode == _fromTank)
+        .toList();
     for (final n in affected) {
-      _meterControllers[n.nozzleNumber] = TextEditingController(text: n.openingReading.toStringAsFixed(1));
+      _meterControllers[n.nozzleNumber] =
+          TextEditingController(text: n.openingReading.toStringAsFixed(1));
     }
   }
 
@@ -84,21 +100,31 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
 
   Future<void> _handleConfirm() async {
     if (_fromTank == null || _toTank == null || _fromTank == _toTank) {
-      setState(() => _errorMessage = 'Please select two different twin tanks for changeover.');
+      setState(() => _errorMessage =
+          'Please select two different twin tanks for changeover.');
       return;
     }
 
-    final affected = widget.state.nozzles.where((n) => n.productName == _selectedProduct && n.tankCode == _fromTank).toList();
+    final affected = widget.state.nozzles
+        .where(
+            (n) => n.productName == _selectedProduct && n.tankCode == _fromTank)
+        .toList();
     final Map<String, double> switchReadings = {};
 
     for (final n in affected) {
       final text = _meterControllers[n.nozzleNumber]?.text.trim() ?? '';
       final reading = double.tryParse(text);
       if (reading == null || reading < n.openingReading) {
-        setState(() => _errorMessage = 'Nozzle ${n.nozzleNumber} meter reading cannot be less than opening (${n.openingReading.toStringAsFixed(1)} L).');
+        setState(() => _errorMessage =
+            '${n.label} meter reading cannot be less than opening (${n.openingReading.toStringAsFixed(1)} L).');
         return;
       }
-      switchReadings['Nozzle ${n.nozzleNumber}'] = reading;
+      if (n.id.isEmpty) {
+        setState(() => _errorMessage =
+            'Pump identity is unavailable. Refresh station equipment.');
+        return;
+      }
+      switchReadings[n.id] = reading;
     }
 
     final fromDip = double.tryParse(_fromTankDipController.text.trim());
@@ -116,7 +142,9 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
       switchReadings: switchReadings,
       fromTankDip: fromDip,
       toTankDip: toDip,
-      notes: _notesController.text.trim().isEmpty ? 'Operational manifold switchover' : _notesController.text.trim(),
+      notes: _notesController.text.trim().isEmpty
+          ? 'Operational manifold switchover'
+          : _notesController.text.trim(),
     );
 
     if (mounted) {
@@ -126,18 +154,23 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: AppColors.ok,
-            content: Text('Manifold Changeover Applied: Nozzles now drawing from Tank $_toTank.'),
+            content: Text(
+                'Manifold Changeover Applied: Pumps now drawing from Tank $_toTank.'),
           ),
         );
       } else {
-        setState(() => _errorMessage = 'Failed to record changeover in remote database. Changes applied locally.');
+        setState(() => _errorMessage =
+            'Failed to record changeover in remote database. Changes applied locally.');
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final affected = widget.state.nozzles.where((n) => n.productName == _selectedProduct && n.tankCode == _fromTank).toList();
+    final affected = widget.state.nozzles
+        .where(
+            (n) => n.productName == _selectedProduct && n.tankCode == _fromTank)
+        .toList();
     final mediaQuery = MediaQuery.of(context);
 
     return DraggableScrollableSheet(
@@ -165,7 +198,8 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
                       color: AppColors.ink,
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Icon(Icons.alt_route, color: Colors.white, size: 20),
+                    child: const Icon(Icons.alt_route,
+                        color: Colors.white, size: 20),
                   ),
                   const SizedBox(width: 12),
                   const Expanded(
@@ -174,13 +208,17 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
                       children: [
                         Text(
                           'Manifold Tank Changeover',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.ink),
+                          style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.ink),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                         Text(
                           'Interlocked UST Operation',
-                          style: TextStyle(fontSize: 12, color: AppColors.muted),
+                          style:
+                              TextStyle(fontSize: 12, color: AppColors.muted),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -207,12 +245,16 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.error_outline, color: AppColors.cherry, size: 20),
+                      const Icon(Icons.error_outline,
+                          color: AppColors.cherry, size: 20),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           _errorMessage!,
-                          style: const TextStyle(color: AppColors.cherry, fontSize: 13, fontWeight: FontWeight.w600),
+                          style: const TextStyle(
+                              color: AppColors.cherry,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600),
                         ),
                       ),
                     ],
@@ -236,45 +278,59 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
                         children: [
                           const Text(
                             'Manifold Product:',
-                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.muted),
+                            style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.muted),
                           ),
                           const SizedBox(height: 6),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
                             decoration: BoxDecoration(
                               color: AppColors.warnSurface,
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: const Text(
                               'PMS (Premium Motor Spirit)',
-                              style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.warnInk),
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.warnInk),
                             ),
                           ),
                           const SizedBox(height: 16),
-
                           Row(
                             children: [
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text('Currently Supplying:', style: TextStyle(fontSize: 12, color: AppColors.muted)),
+                                    const Text('Currently Supplying:',
+                                        style: TextStyle(
+                                            fontSize: 12,
+                                            color: AppColors.muted)),
                                     const SizedBox(height: 4),
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 10),
                                       decoration: BoxDecoration(
                                         color: AppColors.card,
                                         borderRadius: BorderRadius.circular(8),
-                                        border: Border.all(color: AppColors.emerald, width: 2),
+                                        border: Border.all(
+                                            color: AppColors.emerald, width: 2),
                                       ),
                                       child: Row(
                                         children: [
-                                          const Icon(Icons.check_circle, color: AppColors.emerald, size: 18),
+                                          const Icon(Icons.check_circle,
+                                              color: AppColors.emerald,
+                                              size: 18),
                                           const SizedBox(width: 8),
                                           Expanded(
                                             child: Text(
                                               'Tank $_fromTank (Active)',
-                                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                              style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 14),
                                               maxLines: 1,
                                               overflow: TextOverflow.ellipsis,
                                             ),
@@ -287,29 +343,38 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
                               ),
                               const Padding(
                                 padding: EdgeInsets.symmetric(horizontal: 10),
-                                child: Icon(Icons.arrow_forward, color: AppColors.muted),
+                                child: Icon(Icons.arrow_forward,
+                                    color: AppColors.muted),
                               ),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text('Switch Manifold To:', style: TextStyle(fontSize: 12, color: AppColors.muted)),
+                                    const Text('Switch Manifold To:',
+                                        style: TextStyle(
+                                            fontSize: 12,
+                                            color: AppColors.muted)),
                                     const SizedBox(height: 4),
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 10),
                                       decoration: BoxDecoration(
                                         color: AppColors.card,
                                         borderRadius: BorderRadius.circular(8),
-                                        border: Border.all(color: AppColors.amber, width: 2),
+                                        border: Border.all(
+                                            color: AppColors.amber, width: 2),
                                       ),
                                       child: Row(
                                         children: [
-                                          const Icon(Icons.swap_horiz, color: AppColors.amber, size: 18),
+                                          const Icon(Icons.swap_horiz,
+                                              color: AppColors.amber, size: 18),
                                           const SizedBox(width: 8),
                                           Expanded(
                                             child: Text(
                                               'Tank $_toTank (Standby)',
-                                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                              style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 14),
                                               maxLines: 1,
                                               overflow: TextOverflow.ellipsis,
                                             ),
@@ -330,11 +395,14 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
                     // Affected Nozzle Transition Meter Readings (§7)
                     const Text(
                       '1. Transition Meter Readings',
-                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.ink),
+                      style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.ink),
                     ),
                     const SizedBox(height: 4),
                     const Text(
-                      'Input the current meter reading at the exact minute the physical valve was turned. This calculates litres drawn from Tank T1 prior to cutoff.',
+                      'Input the current meter reading at the exact minute the physical valve was turned. This calculates litres drawn from the outgoing tank prior to cutoff.',
                       style: TextStyle(fontSize: 12, color: AppColors.muted),
                     ),
                     const SizedBox(height: 12),
@@ -346,7 +414,8 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
                           color: AppColors.background,
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Text('No nozzles are currently mapped to the active source tank.'),
+                        child: const Text(
+                            'No pumps are currently mapped to the active source tank.'),
                       )
                     else
                       ...affected.map((n) {
@@ -362,14 +431,18 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
                           child: Row(
                             children: [
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 6),
                                 decoration: BoxDecoration(
                                   color: AppColors.ink,
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Text(
-                                  'Nozzle ${n.nozzleNumber}',
-                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                  '${n.label}',
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13),
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -379,15 +452,19 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
                                   children: [
                                     Text(
                                       'Shift Opening: ${CurrencyFormatter.formatLitres(n.openingReading)}',
-                                      style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                                      style: const TextStyle(
+                                          fontSize: 12, color: AppColors.muted),
                                     ),
                                     const SizedBox(height: 4),
                                     TextField(
                                       controller: controller,
-                                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(
+                                              decimal: true),
                                       decoration: const InputDecoration(
                                         isDense: true,
-                                        labelText: 'Current Switch Meter Reading',
+                                        labelText:
+                                            'Current Switch Meter Reading',
                                         suffixText: 'Litres',
                                         border: OutlineInputBorder(),
                                       ),
@@ -405,7 +482,10 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
                     // Physical Dip Rod Verification
                     const Text(
                       '2. Physical Dip Rod Verification (Litres)',
-                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.ink),
+                      style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.ink),
                     ),
                     const SizedBox(height: 10),
                     Row(
@@ -413,7 +493,8 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
                         Expanded(
                           child: TextField(
                             controller: _fromTankDipController,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true),
                             decoration: InputDecoration(
                               labelText: 'Tank $_fromTank Closing Dip',
                               suffixText: 'L',
@@ -425,7 +506,8 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
                         Expanded(
                           child: TextField(
                             controller: _toTankDipController,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true),
                             decoration: InputDecoration(
                               labelText: 'Tank $_toTank Opening Dip',
                               suffixText: 'L',
@@ -441,13 +523,17 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
                     // Reason / Notes
                     const Text(
                       '3. Operational Justification / Reason',
-                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.ink),
+                      style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.ink),
                     ),
                     const SizedBox(height: 8),
                     TextField(
                       controller: _notesController,
                       decoration: const InputDecoration(
-                        hintText: 'e.g. Tank T1 reached 15% reorder point; switching to Tank T2.',
+                        hintText:
+                            'Describe the reason for changing the supply tank.',
                         border: OutlineInputBorder(),
                       ),
                       maxLines: 2,
@@ -461,18 +547,23 @@ class _TankChangeoverDialogState extends State<TankChangeoverDialog> {
                         backgroundColor: AppColors.ink,
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         minimumSize: const Size(double.infinity, 48),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8)),
                       ),
                       onPressed: _isSubmitting ? null : _handleConfirm,
                       child: _isSubmitting
                           ? const SizedBox(
                               height: 20,
                               width: 20,
-                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                              child: CircularProgressIndicator(
+                                  color: Colors.white, strokeWidth: 2),
                             )
                           : Text(
                               'Authorize & Apply Switch to Tank $_toTank',
-                              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+                              style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white),
                             ),
                     ),
                   ],

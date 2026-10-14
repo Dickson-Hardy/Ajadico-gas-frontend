@@ -1,12 +1,12 @@
 # Ajadico Filling Station Management System
 
-Cross-platform Flutter application and Supabase / PostgreSQL production schema for retail fuel station operations and multi-branch management. Built strictly to **BRD Version 3 (1 October 2026)**.
+Flutter application and Supabase / PostgreSQL backend for retail fuel station operations and multi-branch management, based on **BRD Version 3 (1 October 2026)**. Production deployment still requires the checks in [release readiness](docs/PRODUCTION_CLEANUP.md).
 
 ---
 
-## 📱 Complete Screen & Workflow Matrix (17 Screens)
+## 📱 Current Screen & Workflow Matrix (19 Screens)
 
-The codebase implements all operational workflows from pump island to central boardroom:
+The current Dart screens cover the operational workflows below. See [UX redesign and validation notes](docs/UX_REDESIGN.md) and [one-APK login experience](docs/LOGIN_EXPERIENCE.md) for the workspace changes and remaining release checks.
 
 | Screen # | Operational Workflow | Flutter Implementation | User Role | BRD Clause |
 | :---: | :--- | :--- | :--- | :--- |
@@ -27,12 +27,14 @@ The codebase implements all operational workflows from pump island to central bo
 | **20** | **Bank Deposit Approvals** | [`lib/features/admin/bank_deposit_verification_screen.dart`](lib/features/admin/bank_deposit_verification_screen.dart) | Senior (Central) | §4.3, §5.5 |
 | **21** | **Credit Customer Ledger** | [`lib/features/credit/credit_customers_screen.dart`](lib/features/credit/credit_customers_screen.dart) | Manager / Senior | §4.8 – §4.10 |
 | **22** | **Company Consolidated P&L** | [`lib/features/admin/company_reports_screen.dart`](lib/features/admin/company_reports_screen.dart) | Senior & Directors | §6.1, §6.4 |
+| **23** | **Tank & Nozzle Configuration** | [`lib/features/admin/station_setup_screen.dart`](lib/features/admin/station_setup_screen.dart) | Director | Station infrastructure |
+| **24** | **Staff Profiles & Access** | [`lib/features/admin/staff_management_screen.dart`](lib/features/admin/staff_management_screen.dart) | Manager / Director | Staff administration |
 
 ---
 
 ## 🗄️ Supabase / PostgreSQL Database Schema
 
-The complete backend database schema, constraints, indexes, RPCs, and seed test data are located in:  
+The backend database schema, constraints, indexes and RPCs are located in:
 📁 [`supabase/schema.sql`](supabase/schema.sql)
 
 ---
@@ -44,10 +46,12 @@ The complete backend database schema, constraints, indexes, RPCs, and seed test 
    flutter pub get
    ```
 
-2. **Run in Web / Desktop / Mobile:**
+2. **Run on a configured device:**
    ```bash
-   flutter run -d chrome
+   flutter run --dart-define=SUPABASE_URL=https://YOUR-PROJECT.supabase.co --dart-define=SUPABASE_ANON_KEY=YOUR-PUBLISHABLE-KEY
    ```
 
-3. **Interactive Screen Switcher:**
-   Tap the floating **"View: [Screen]"** button at the bottom right to open the interactive sheet and navigate between any of the 17 screens across all roles.
+   See [production configuration and release gates](docs/PRODUCTION_CONFIGURATION.md) for migrations and build secrets, and [web hosting preparation](docs/WEB_DEPLOYMENT.md) for the added Flutter web target and Vercel configuration. Public release remains gated on backend authentication and permission migration.
+
+3. **Operational workspace:**
+   Sign in to open your role's workspace. Use the grouped sidebar on large screens or the navigation drawer on smaller devices. The header provides station context, notifications, queue status and appearance controls. Unsubmitted work is checked before changing pages or stations.

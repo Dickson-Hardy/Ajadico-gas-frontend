@@ -17,7 +17,7 @@ class BankDepositRecord {
 
   BankDepositRecord({
     required this.id,
-    this.stationId = 'LEKKI-01',
+    this.stationId = '',
     required this.stationName,
     required this.amount,
     required this.cashierName,
@@ -36,20 +36,25 @@ class BankDepositRecord {
   String get bearerName => cashierName;
 
   factory BankDepositRecord.fromJson(Map<String, dynamic> json) {
-    final statusStr = json['status'] as String? ?? (json['is_confirmed'] == true ? 'confirmed' : 'awaiting_bank');
+    final statusStr = json['status'] as String? ??
+        (json['is_confirmed'] == true ? 'confirmed' : 'awaiting_bank');
     return BankDepositRecord(
       id: json['id'] as String,
-      stationId: json['station_id'] as String? ?? 'LEKKI-01',
-      stationName: json['stations']?['name'] ?? 'Lekki Road Station',
+      stationId: json['station_id'] as String? ?? '',
+      stationName: json['stations']?['name'] ?? 'Station unavailable',
       amount: (json['amount'] as num).toDouble(),
-      cashierName: json['bearer_name'] ?? json['cashier_name'] ?? 'Branch Manager',
-      bankName: json['bank_name'] as String? ?? 'Zenith Bank',
+      cashierName:
+          json['bearer_name'] ?? json['cashier_name'] ?? 'Branch Manager',
+      bankName: json['bank_name'] as String? ?? 'Bank not recorded',
       tellerNumber: json['teller_number'] as String?,
       slipUrl: json['slip_url'] as String?,
       notes: json['notes'] as String?,
-      handedOverAt: DateTime.tryParse(json['created_at'] ?? '') ?? DateTime.now(),
+      handedOverAt:
+          DateTime.tryParse(json['created_at'] ?? '') ?? DateTime.now(),
       isConfirmed: statusStr == 'confirmed' || json['is_confirmed'] == true,
-      confirmedAt: json['confirmed_at'] != null ? DateTime.tryParse(json['confirmed_at']) : null,
+      confirmedAt: json['confirmed_at'] != null
+          ? DateTime.tryParse(json['confirmed_at'])
+          : null,
       confirmedBy: json['confirmed_by'] as String?,
       status: statusStr,
       directorNotes: json['director_notes'] as String?,

@@ -1,4 +1,7 @@
 -- ============================================================================
+-- DEVELOPMENT COMPATIBILITY ONLY — NOT A PRODUCTION SECURITY MIGRATION
+-- This legacy bootstrap grants anonymous write access and creates public
+-- evidence buckets. Do not use it to provision a public production deployment.
 -- Ajadico Filling Station — backend bootstrap migration
 --
 -- Aligns the Supabase schema with what the Flutter app actually writes
@@ -162,7 +165,7 @@ end $$;
 -- ============================================================================
 -- SECTION 3 — Column type alignment (uuid FKs -> types the app sends)
 --
--- The app sends station CODES ('LEKKI-01') and synthetic text shift ids
+-- The app sends station CODES (operator-assigned branch codes) and synthetic text shift ids
 -- ('SHIFT-<timestamp>'). Drop the FKs that assume uuid, then retype.
 -- None of these columns are embedded in any app read query (verified:
 -- reads join profiles/stations/tanks only where the FK is kept).
@@ -516,15 +519,4 @@ begin
   end loop;
 end $$;
 
--- ============================================================================
--- SECTION 9 — OPTIONAL: reset demo staff PINs (review before running!)
---
--- The 4 seeded profiles (Amaka/Bello/Chidi/Dickson) currently have
--- pin_hash = '1234' in plaintext. After this migration the recommended
--- path is: log in as Director (override PIN), open Staff Management, and
--- reset each PIN there. To force all staff PINs invalid in one shot,
--- uncomment the line below — every login then fails until PINs are
--- re-provisioned:
---
--- update public.profiles set pin_hash = 'REPROVISION-REQUIRED' where pin_hash = '1234';
 -- ============================================================================

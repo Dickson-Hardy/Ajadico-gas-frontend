@@ -57,7 +57,7 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
   String get _selectedNozzleLabel {
     for (final n in state.nozzles) {
       if (n.nozzleNumber == _selectedNozzleNumber) {
-        return 'Nozzle ${n.nozzleNumber} · ${n.productName} (Tank ${n.tankCode})';
+        return '${n.label} · ${n.productName} (Tank ${n.tankCode})';
       }
     }
     return '—';
@@ -127,8 +127,9 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
       _vehicleError = _vehicleController.text.trim().isEmpty
           ? 'Enter the vehicle registration plate number'
           : null;
-      _photoError =
-          !_requisitionUploaded ? 'Attach the signed requisition slip photo' : null;
+      _photoError = !_requisitionUploaded
+          ? 'Attach the signed requisition slip photo'
+          : null;
     });
     return _customerError == null &&
         _litresError == null &&
@@ -148,13 +149,17 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
           children: [
             Text(
               'This debits ${customer.name}\'s ledger and counts toward your shift remittance.',
-              style: const TextStyle(fontSize: 14, color: AppColors.slate),
+              style: TextStyle(
+                  fontSize: 14,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
             const SizedBox(height: 12),
             _buildSummaryLine('Customer', customer.name),
-            _buildSummaryLine('Nozzle', _selectedNozzleLabel),
-            _buildSummaryLine('Litres', CurrencyFormatter.formatLitres(_litres)),
-            _buildSummaryLine('Total', CurrencyFormatter.formatNaira(_totalAmount)),
+            _buildSummaryLine('Pump', _selectedNozzleLabel),
+            _buildSummaryLine(
+                'Litres', CurrencyFormatter.formatLitres(_litres)),
+            _buildSummaryLine(
+                'Total', CurrencyFormatter.formatNaira(_totalAmount)),
             _buildSummaryLine('Vehicle plate', _vehicleController.text.trim()),
           ],
         ),
@@ -189,7 +194,9 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
             width: 110,
             child: Text(
               label,
-              style: const TextStyle(fontSize: 13, color: AppColors.muted),
+              style: TextStyle(
+                  fontSize: 13,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
           ),
           Expanded(
@@ -197,10 +204,10 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
               value,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
-                color: AppColors.ink,
+                color: Theme.of(context).colorScheme.onSurface,
               ),
             ),
           ),
@@ -245,7 +252,8 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
         const SnackBar(
           backgroundColor: AppColors.bad,
           behavior: SnackBarBehavior.floating,
-          content: Text('Could not record the credit sale. Please try again.'),
+          content:
+              const Text('Could not record the credit sale. Please try again.'),
         ),
       );
     } finally {
@@ -268,20 +276,24 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Pump Credit Sale Entry', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text('Pump Credit Sale Entry',
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             Text(
               '${state.currentUser.displayName} · Authorized Fleet Dispensing',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 13, color: Colors.white70),
+              style: TextStyle(
+                  fontSize: 13,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
           ],
         ),
       ),
       body: Column(
         children: [
-          ForecourtSyncBar(stationName: '${state.currentStationName} · Forecourt'),
-
+          ForecourtSyncBar(
+              stationName: '${state.currentStationName} · Forecourt'),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(20),
@@ -291,39 +303,54 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'Record credit fuel dispensing',
                         style: TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
-                          color: AppColors.ink,
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                       ),
                       const SizedBox(height: 4),
-                      const Text(
+                      Text(
                         'Dispensed on signed requisition. Updates the customer ledger balance and ensures attendant shift remittance reconciles without shortage.',
-                        style: TextStyle(fontSize: 15, color: AppColors.muted),
+                        style: TextStyle(
+                            fontSize: 15,
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant),
                       ),
                       const SizedBox(height: 16),
-
                       if (!hasNozzles)
                         Card(
                           child: Padding(
                             padding: const EdgeInsets.all(24),
                             child: Center(
                               child: Column(
-                                children: const [
-                                  Icon(Icons.local_gas_station_outlined, size: 48, color: AppColors.muted),
-                                  SizedBox(height: 12),
+                                children: [
+                                  Icon(Icons.local_gas_station_outlined,
+                                      size: 48,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant),
+                                  const SizedBox(height: 12),
                                   Text(
-                                    'No active nozzles assigned to this shift',
-                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.ink),
+                                    'No active pumps assigned to this shift',
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurface),
                                   ),
-                                  SizedBox(height: 6),
+                                  const SizedBox(height: 6),
                                   Text(
-                                    'Please contact your station manager or setup nozzles in Admin settings.',
+                                    'Please contact your station manager or setup pumps in Admin settings.',
                                     textAlign: TextAlign.center,
-                                    style: TextStyle(color: AppColors.muted, fontSize: 14),
+                                    style: TextStyle(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant,
+                                        fontSize: 14),
                                   ),
                                 ],
                               ),
@@ -337,7 +364,12 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('Authorized Credit Customer *', style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                                Text('Authorized Credit Customer *',
+                                    style: TextStyle(
+                                        fontSize: 13,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant)),
                                 const SizedBox(height: 6),
                                 DropdownButtonFormField<CreditCustomer>(
                                   initialValue: _selectedCustomer,
@@ -365,12 +397,19 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
                                   const SizedBox(height: 6),
                                   Text(
                                     _customerError!,
-                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.bad),
+                                    style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.bad),
                                   ),
                                 ],
                                 const SizedBox(height: 16),
-
-                                const Text('Dispenser Nozzle', style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                                Text('Pump',
+                                    style: TextStyle(
+                                        fontSize: 13,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant)),
                                 const SizedBox(height: 6),
                                 DropdownButtonFormField<int>(
                                   initialValue: _selectedNozzleNumber,
@@ -379,7 +418,7 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
                                     return DropdownMenuItem(
                                       value: n.nozzleNumber,
                                       child: Text(
-                                        'Nozzle ${n.nozzleNumber} · ${n.productName} (${CurrencyFormatter.formatNaira(n.pricePerLitre)})',
+                                        '${n.label} · ${n.productName} (${CurrencyFormatter.formatNaira(n.pricePerLitre)})',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                       ),
@@ -391,13 +430,23 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
                                   }),
                                 ),
                                 const SizedBox(height: 16),
-
-                                const Text('Litres Dispensed *', style: TextStyle(fontSize: 13, color: AppColors.ink, fontWeight: FontWeight.bold)),
+                                Text('Litres Dispensed *',
+                                    style: TextStyle(
+                                        fontSize: 13,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurface,
+                                        fontWeight: FontWeight.bold)),
                                 const SizedBox(height: 6),
                                 TextField(
                                   controller: _litresController,
-                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                          decimal: true),
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.allow(
+                                        RegExp(r'[0-9.,]'))
+                                  ],
                                   decoration: InputDecoration(
                                     hintText: 'e.g. 100.0',
                                     suffixText: 'L',
@@ -410,8 +459,12 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
                                   }),
                                 ),
                                 const SizedBox(height: 16),
-
-                                const Text('Vehicle Number Plate *', style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                                Text('Vehicle Number Plate *',
+                                    style: TextStyle(
+                                        fontSize: 13,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant)),
                                 const SizedBox(height: 6),
                                 TextField(
                                   controller: _vehicleController,
@@ -425,19 +478,23 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
                                   }),
                                 ),
                                 const SizedBox(height: 16),
-
-                                const Text('Driver Name', style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                                Text('Driver Name',
+                                    style: TextStyle(
+                                        fontSize: 13,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant)),
                                 const SizedBox(height: 6),
                                 TextField(
                                   controller: _driverController,
-                                  decoration: const InputDecoration(hintText: 'Driver name'),
-                                  onChanged: (_) => setState(() => _dirty = true),
+                                  decoration: const InputDecoration(
+                                      hintText: 'Driver name'),
+                                  onChanged: (_) =>
+                                      setState(() => _dirty = true),
                                 ),
-
                                 const SizedBox(height: 16),
-
                                 EvidencePhotoPicker(
-                                  title: 'Signed Customer Requisition Slip (<150KB)',
+                                  title: 'Signed Customer Requisition Slip',
                                   photoType: 'requisition',
                                   stationName: state.currentStationName,
                                   staffName: state.currentUser.displayName,
@@ -456,21 +513,25 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
                                   const SizedBox(height: 6),
                                   Text(
                                     _photoError!,
-                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.bad),
+                                    style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.bad),
                                   ),
                                 ],
-                                if (!_requisitionUploaded && _photoError == null) ...[
+                                if (!_requisitionUploaded &&
+                                    _photoError == null) ...[
                                   const SizedBox(height: 6),
                                   const Text(
                                     'The signed requisition photo is required before this sale can be recorded.',
-                                    style: TextStyle(fontSize: 12, color: AppColors.warnInk),
+                                    style: const TextStyle(
+                                        fontSize: 12, color: AppColors.warnInk),
                                   ),
                                 ],
                               ],
                             ),
                           ),
                         ),
-
                       if (hasNozzles)
                         Card(
                           child: Padding(
@@ -478,21 +539,27 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Expanded(
+                                Expanded(
                                   child: Text(
                                     'Total Credit Value',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
+                                    style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurface),
                                   ),
                                 ),
                                 const SizedBox(width: 12),
                                 Text(
                                   CurrencyFormatter.formatNaira(_totalAmount),
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 26,
                                     fontWeight: FontWeight.bold,
-                                    color: AppColors.ink,
+                                    color:
+                                        Theme.of(context).colorScheme.onSurface,
                                   ),
                                 ),
                               ],
@@ -509,9 +576,11 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
       ),
       bottomNavigationBar: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        decoration: const BoxDecoration(
-          color: AppColors.background,
-          border: Border(top: BorderSide(color: AppColors.line)),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerLow,
+          border: Border(
+              top: BorderSide(
+                  color: Theme.of(context).colorScheme.outlineVariant)),
         ),
         child: Row(
           children: [
@@ -522,12 +591,14 @@ class _CreditSaleScreenState extends State<CreditSaleScreen>
                     ? const SizedBox(
                         width: 16,
                         height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        child: const CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white),
                       )
                     : const Icon(Icons.check),
-                onPressed: (_isSubmitting || !hasNozzles || !_requisitionUploaded)
-                    ? null
-                    : _showConfirmation,
+                onPressed:
+                    (_isSubmitting || !hasNozzles || !_requisitionUploaded)
+                        ? null
+                        : _showConfirmation,
                 label: Text(
                   _isSubmitting
                       ? 'Logging Credit Dispensing...'

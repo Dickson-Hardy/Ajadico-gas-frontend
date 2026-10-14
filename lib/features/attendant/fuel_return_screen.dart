@@ -7,6 +7,7 @@ import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/evidence_photo_picker.dart';
 import '../../core/widgets/forecourt_sync_bar.dart';
 import '../../state/station_app_state.dart';
+import '../../models/shift_adjustment.dart';
 
 enum NonSaleType { calibrationTest, generatorFuel, companyVehicle }
 
@@ -44,6 +45,7 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
 
   String? _litresError;
   String? _photoError;
+  String? _reasonError;
 
   @override
   bool get hasUnsavedWork => _dirty;
@@ -99,14 +101,21 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
   }
 
   bool _validate() {
-    final litres = double.tryParse(_litresController.text.trim()) ?? 0.0;
+    final litres =
+        double.tryParse(_litresController.text.trim().replaceAll(',', '')) ??
+            0.0;
     setState(() {
-      _litresError = litres <= 0 ? 'Enter the litres returned to the tank' : null;
+      _litresError = !litres.isFinite || litres <= 0
+          ? 'Enter a valid volume greater than zero'
+          : null;
       _photoError = !_evidenceAttached
-          ? 'Attach at least one pour-back / calibration photo'
+          ? 'Attach evidence of the return or internal fuel use'
+          : null;
+      _reasonError = _reasonController.text.trim().isEmpty
+          ? 'Enter the purpose and authorization reference; include the plate for vehicle fuel.'
           : null;
     });
-    return _litresError == null && _photoError == null;
+    return _litresError == null && _photoError == null && _reasonError == null;
   }
 
   void _submit() {
@@ -117,7 +126,9 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
       (n) => n.nozzleNumber == _selectedNozzleNumber,
       orElse: () => state.nozzles.first,
     );
-    final litres = double.tryParse(_litresController.text.trim()) ?? 0.0;
+    final litres =
+        double.tryParse(_litresController.text.trim().replaceAll(',', '')) ??
+            0.0;
     final friendlyType = _nonSaleLabels[_selectedType] ?? 'Non-sale return';
 
     setState(() => _isSubmitting = true);
@@ -127,13 +138,18 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
           .whereType<String>()
           .toList();
 
-      state.recordFuelReturn(
-        tankCode: nozzle.tankCode,
+      state.recordShiftAdjustment(
+        kind: switch (_selectedType) {
+          NonSaleType.calibrationTest => ShiftAdjustmentKind.calibrationReturn,
+          NonSaleType.generatorFuel => ShiftAdjustmentKind.generatorFuel,
+          NonSaleType.companyVehicle => ShiftAdjustmentKind.companyVehicle,
+        },
+        nozzleNumber: nozzle.nozzleNumber,
         litres: litres,
         reason: _reasonController.text.trim().isEmpty
-            ? '$friendlyType from Nozzle ${nozzle.nozzleNumber}'
+            ? '$friendlyType from ${nozzle.label}'
             : _reasonController.text.trim(),
-        evidencePhotos: photoUrls,
+        evidence: photoUrls,
       );
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -141,7 +157,7 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
           backgroundColor: AppColors.ok,
           behavior: SnackBarBehavior.floating,
           content: Text(
-            'Non-sale return of ${CurrencyFormatter.formatLitres(litres)} recorded to Tank ${nozzle.tankCode}.',
+            '${CurrencyFormatter.formatLitres(litres)} recorded locally; awaiting approval.',
           ),
         ),
       );
@@ -151,7 +167,8 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
         const SnackBar(
           backgroundColor: AppColors.bad,
           behavior: SnackBarBehavior.floating,
-          content: Text('Could not record the fuel return. Please try again.'),
+          content:
+              const Text('Could not record the fuel return. Please try again.'),
         ),
       );
     } finally {
@@ -173,20 +190,24 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Fuel Return / Non-Sale', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text('Fuel Return / Non-Sale',
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             Text(
               '${state.currentUser.displayName} · Calibration Tests & Generator Diesel',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 13, color: Colors.white70),
+              style: TextStyle(
+                  fontSize: 13,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
           ],
         ),
       ),
       body: Column(
         children: [
-          ForecourtSyncBar(stationName: '${state.currentStationName} · Forecourt'),
-
+          ForecourtSyncBar(
+              stationName: '${state.currentStationName} · Forecourt'),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(20),
@@ -196,39 +217,54 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'Record pump test or fuel return',
                         style: TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
-                          color: AppColors.ink,
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                       ),
                       const SizedBox(height: 4),
-                      const Text(
-                        'Prevents calibration returns or internal fuel use from counting as an attendant cash shortage.',
-                        style: TextStyle(fontSize: 15, color: AppColors.muted),
+                      Text(
+                        'Record metered non-sale fuel. Only approved entries reduce your expected sales; calibration returns restore book stock, internal use does not.',
+                        style: TextStyle(
+                            fontSize: 15,
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant),
                       ),
                       const SizedBox(height: 16),
-
                       if (!hasNozzles)
                         Card(
                           child: Padding(
                             padding: const EdgeInsets.all(24),
                             child: Center(
                               child: Column(
-                                children: const [
-                                  Icon(Icons.local_gas_station_outlined, size: 48, color: AppColors.muted),
-                                  SizedBox(height: 12),
+                                children: [
+                                  Icon(Icons.local_gas_station_outlined,
+                                      size: 48,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant),
+                                  const SizedBox(height: 12),
                                   Text(
-                                    'No active nozzles assigned to this shift',
-                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.ink),
+                                    'No active pumps assigned to this shift',
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurface),
                                   ),
-                                  SizedBox(height: 6),
+                                  const SizedBox(height: 6),
                                   Text(
-                                    'Please contact your station manager or setup nozzles in Admin settings.',
+                                    'Please contact your station manager or setup pumps in Admin settings.',
                                     textAlign: TextAlign.center,
-                                    style: TextStyle(color: AppColors.muted, fontSize: 14),
+                                    style: TextStyle(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant,
+                                        fontSize: 14),
                                   ),
                                 ],
                               ),
@@ -242,7 +278,12 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('Entry Type', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                                Text('Entry Type',
+                                    style: TextStyle(
+                                        fontSize: 14,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant)),
                                 const SizedBox(height: 6),
                                 DropdownButtonFormField<NonSaleType>(
                                   initialValue: _selectedType,
@@ -250,7 +291,7 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
                                   items: const [
                                     DropdownMenuItem(
                                       value: NonSaleType.calibrationTest,
-                                      child: Text(
+                                      child: const Text(
                                         'Pump Calibration / Meter Test Return (Poured back into Tank)',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
@@ -258,7 +299,7 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
                                     ),
                                     DropdownMenuItem(
                                       value: NonSaleType.generatorFuel,
-                                      child: Text(
+                                      child: const Text(
                                         'Station Generator Fuel (AGO Diesel Internal Use)',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
@@ -266,8 +307,8 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
                                     ),
                                     DropdownMenuItem(
                                       value: NonSaleType.companyVehicle,
-                                      child: Text(
-                                        'Company Operational Vehicle (Pre-approved fuel)',
+                                      child: const Text(
+                                        'Company Operational Vehicle (Requires approval)',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                       ),
@@ -283,8 +324,12 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
                                   },
                                 ),
                                 const SizedBox(height: 16),
-
-                                const Text('Nozzle Used', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                                Text('Pump Used',
+                                    style: TextStyle(
+                                        fontSize: 14,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant)),
                                 const SizedBox(height: 6),
                                 DropdownButtonFormField<int>(
                                   initialValue: _selectedNozzleNumber,
@@ -293,7 +338,7 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
                                     return DropdownMenuItem<int>(
                                       value: n.nozzleNumber,
                                       child: Text(
-                                        'Nozzle ${n.nozzleNumber} · ${n.productName} (Tank ${n.tankCode})',
+                                        '${n.label} · ${n.productName} (Tank ${n.tankCode})',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                       ),
@@ -309,13 +354,23 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
                                   },
                                 ),
                                 const SizedBox(height: 16),
-
-                                const Text('Litres Withdrawn *', style: TextStyle(fontSize: 14, color: AppColors.ink, fontWeight: FontWeight.bold)),
+                                Text('Litres Withdrawn *',
+                                    style: TextStyle(
+                                        fontSize: 14,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurface,
+                                        fontWeight: FontWeight.bold)),
                                 const SizedBox(height: 6),
                                 TextField(
                                   controller: _litresController,
-                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                          decimal: true),
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.allow(
+                                        RegExp(r'[0-9.,]'))
+                                  ],
                                   decoration: InputDecoration(
                                     hintText: 'e.g. 20.0',
                                     suffixText: 'L',
@@ -327,20 +382,31 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
                                     _dirty = true;
                                   }),
                                 ),
-
                                 const SizedBox(height: 16),
-                                const Text('Notes / Authorized Reason', style: TextStyle(fontSize: 14, color: AppColors.muted)),
+                                Text('Notes / Authorized Reason',
+                                    style: TextStyle(
+                                        fontSize: 14,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant)),
                                 const SizedBox(height: 6),
                                 TextField(
                                   controller: _reasonController,
-                                  decoration: const InputDecoration(hintText: 'e.g. 20L check measure can calibration before shift start'),
+                                  decoration: InputDecoration(
+                                      errorText: _reasonError,
+                                      errorMaxLines: 3,
+                                      hintText:
+                                          'e.g. 20L check measure can calibration before shift start'),
                                   maxLines: 2,
-                                  onChanged: (_) => setState(() => _dirty = true),
+                                  onChanged: (_) =>
+                                      setState(() => _dirty = true),
                                 ),
                                 const SizedBox(height: 16),
-
                                 EvidencePhotoPicker(
-                                  title: 'Pour-back / Calibration Photo (<150KB)',
+                                  title: _selectedType ==
+                                          NonSaleType.calibrationTest
+                                      ? 'Pour-back evidence'
+                                      : 'Internal fuel use evidence',
                                   photoType: 'calibration',
                                   stationName: state.currentStationName,
                                   staffName: state.currentUser.displayName,
@@ -359,14 +425,19 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
                                   const SizedBox(height: 6),
                                   Text(
                                     _photoError!,
-                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.bad),
+                                    style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.bad),
                                   ),
                                 ],
-                                if (_evidenceAttached && _photoError == null) ...[
+                                if (_evidenceAttached &&
+                                    _photoError == null) ...[
                                   const SizedBox(height: 6),
                                   const Text(
                                     'Evidence photo requirement satisfied.',
-                                    style: TextStyle(fontSize: 12, color: AppColors.ok),
+                                    style: const TextStyle(
+                                        fontSize: 12, color: AppColors.ok),
                                   ),
                                 ],
                               ],
@@ -383,9 +454,11 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
       ),
       bottomNavigationBar: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        decoration: const BoxDecoration(
-          color: AppColors.background,
-          border: Border(top: BorderSide(color: AppColors.line)),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerLow,
+          border: Border(
+              top: BorderSide(
+                  color: Theme.of(context).colorScheme.outlineVariant)),
         ),
         child: Row(
           children: [
@@ -396,13 +469,15 @@ class _FuelReturnScreenState extends State<FuelReturnScreen>
                     ? const SizedBox(
                         width: 16,
                         height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        child: const CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white),
                       )
                     : const Icon(Icons.check_circle_outline, size: 18),
                 onPressed: (_isSubmitting || !hasNozzles || !_evidenceAttached)
                     ? null
                     : _submit,
-                label: Text(_isSubmitting ? 'Recording Pour-back...' : 'Log non-sale entry'),
+                label: Text(
+                    _isSubmitting ? 'Saving entry...' : 'Submit for approval'),
               ),
             ),
             const SizedBox(width: 10),

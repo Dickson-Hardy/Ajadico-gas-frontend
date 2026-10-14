@@ -6,7 +6,8 @@ class PosTransaction {
   final String attendantName;
   final String paymentChannel; // 'pos_card', 'pos_transfer', 'bank_transfer'
   final double amount;
-  final String? terminalName; // e.g. 'Moniepoint POS 1', 'OPay POS 2', 'Stanbic'
+  final String?
+      terminalName; // Actual recorded payment terminal or receiving account.
   final String? referenceNumber; // e.g. RRN, Auth code, session ID
   final String? storagePath; // Slip photo URL/path
   final String? customerVehicle; // Vehicle registration plate if entered
@@ -42,12 +43,14 @@ class PosTransaction {
 
   factory PosTransaction.fromJson(Map<String, dynamic> json) {
     final attendantProfile = json['profiles'] as Map?;
-    final attendantName = attendantProfile?['display_name'] ?? attendantProfile?['full_name'] ?? 'Attendant';
+    final attendantName = attendantProfile?['display_name'] ??
+        attendantProfile?['full_name'] ??
+        'Attendant';
 
     return PosTransaction(
       id: json['id'] as String,
       shiftId: json['shift_id'] as String?,
-      stationId: json['station_id'] as String? ?? 'LEKKI-01',
+      stationId: json['station_id'] as String? ?? '',
       attendantId: json['attendant_id'] as String? ?? '',
       attendantName: attendantName,
       paymentChannel: json['payment_channel'] as String? ?? 'pos_card',

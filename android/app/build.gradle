@@ -22,6 +22,26 @@ if (flutterVersionName == null) {
     flutterVersionName = "1.0"
 }
 
+// Release signing is supplied by the build environment, never a debug fallback.
+def releaseSigning = [
+    storeFile: System.getenv("ANDROID_KEYSTORE_PATH"),
+    storePassword: System.getenv("ANDROID_KEYSTORE_PASSWORD"),
+    keyAlias: System.getenv("ANDROID_KEY_ALIAS"),
+    keyPassword: System.getenv("ANDROID_KEY_PASSWORD")
+]
+def hasReleaseSigning = releaseSigning.values().every { it != null && !it.trim().isEmpty() }
+gradle.taskGraph.whenReady { graph ->
+    if (graph.allTasks.any { it.project == project && it.name.toLowerCase().contains("release") }) {
+        if (!hasReleaseSigning || !file(releaseSigning.storeFile).isFile()) {
+            throw new GradleException("Release signing is required. Configure ANDROID_KEYSTORE_PATH, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD.")
+        }
+        if (file(releaseSigning.storeFile).name.equalsIgnoreCase("debug.keystore") ||
+                releaseSigning.keyAlias.trim().equalsIgnoreCase("androiddebugkey")) {
+            throw new GradleException("The default Android debug identity cannot sign a release.")
+        }
+    }
+}
+
 android {
     namespace = "com.ajadico.energy"
     compileSdk = 36
@@ -45,9 +65,20 @@ android {
         multiDexEnabled = true
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(releaseSigning.storeFile)
+                storePassword releaseSigning.storePassword
+                keyAlias releaseSigning.keyAlias
+                keyPassword releaseSigning.keyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig = signingConfigs.debug
+            if (hasReleaseSigning) signingConfig = signingConfigs.release
             minifyEnabled = false
             shrinkResources = false
         }

@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:math';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/bank_deposit.dart';
+import '../../models/operations_policy.dart';
+import '../../models/shift_adjustment.dart';
 import '../../models/credit_customer.dart';
 import '../../models/interim_cash_drop.dart';
 import '../../models/monthly_payroll_settlement.dart';
@@ -11,24 +13,54 @@ import '../../models/pos_transaction.dart';
 import '../../models/station.dart';
 import '../../models/user_profile.dart';
 import '../config/supabase_config.dart';
+import '../storage/evidence_reference.dart';
 import '../notifications/forecourt_notification.dart';
 
 class SupabaseRepository {
   static final SupabaseRepository instance = SupabaseRepository._internal();
   SupabaseRepository._internal();
+  @visibleForTesting
+  factory SupabaseRepository.forTesting(SupabaseClient client,
+      {required String endpoint, required String publishableKey}) {
+    if (kReleaseMode) throw StateError('Test repositories are disabled');
+    return SupabaseRepository._internal()
+      .._client = client
+      .._isConnected = true
+      .._baseUrl = endpoint
+      .._publicKey = publishableKey;
+  }
+  String _baseUrl = SupabaseConfig.url;
+  String _publicKey = SupabaseConfig.anonKey;
 
   SupabaseClient? _client;
   bool _isConnected = false;
 
+  String? configurationError;
   bool get isConnected => _isConnected;
   SupabaseClient get client => _client ?? Supabase.instance.client;
+  String? _snapshotAuthUserId;
+  String? get authUserId =>
+      _snapshotAuthUserId ?? _client?.auth.currentUser?.id;
+  Stream<String?> get authIdentityChanges =>
+      client.auth.onAuthStateChange.map((event) => event.session?.user.id);
 
-  /// Fallback station code used when a payload carries none
-  /// (matches StationAppState's default station).
-  static const String _defaultStationCode = 'LEKKI-01';
+  /// Freeze the JWT for one replay batch; switching users cannot change its actor.
+  SupabaseRepository? snapshotForAuthenticatedSession() {
+    final session = _client?.auth.currentSession;
+    if (!_isConnected || session == null || session.isExpired) return null;
+    final snapshot = SupabaseRepository._internal();
+    snapshot._client = SupabaseClient(_baseUrl, _publicKey,
+        headers: {'Authorization': 'Bearer ${session.accessToken}'},
+        authOptions: const AuthClientOptions(autoRefreshToken: false));
+    snapshot._isConnected = true;
+    snapshot._snapshotAuthUserId = session.user.id;
+    return snapshot;
+  }
 
-  static final RegExp _uuidRe =
-      RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
+  Future<void> closeSessionSnapshot() async => _client?.dispose();
+
+  static final RegExp _uuidRe = RegExp(
+      r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
 
   /// Client-side RFC-4122 v4 id so offline-created rows carry an id the
   /// uuid/text primary keys of every write table accept (and so queue
@@ -42,12 +74,15 @@ class SupabaseRepository {
     return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
   }
 
-  /// Resolve a station code ('LEKKI-01') to its uuid (ids pass through).
+  /// Resolve a station code (or an existing UUID) to its uuid (ids pass through).
   Future<String?> _resolveStationUuid(String idOrCode) async {
     if (_uuidRe.hasMatch(idOrCode)) return idOrCode;
     try {
-      final st =
-          await client.from('stations').select('id').eq('code', idOrCode).maybeSingle();
+      final st = await client
+          .from('stations')
+          .select('id')
+          .eq('code', idOrCode)
+          .maybeSingle();
       return st?['id'] as String?;
     } catch (e) {
       return null;
@@ -67,14 +102,26 @@ class SupabaseRepository {
     final d = DateTime.tryParse(iso)?.toLocal();
     if (d == null) return 'Unknown';
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
     ];
     return '${d.day.toString().padLeft(2, '0')} ${months[d.month - 1]} ${d.year}';
   }
 
   /// Initialize Supabase connection
   Future<bool> initialize() async {
+    configurationError = SupabaseConfig.configurationError;
+    if (configurationError != null) return false;
     try {
       await Supabase.initialize(
         url: SupabaseConfig.url,
@@ -92,6 +139,46 @@ class SupabaseRepository {
   // ---------------------------------------------------------------------------
   // STATIONS & BRANCHES (§1, §2.1)
   // ---------------------------------------------------------------------------
+
+  Future<OperationsPolicy?> fetchOperationsPolicy() async {
+    if (!_isConnected) return null;
+    try {
+      final row = await client
+          .from('operational_policy')
+          .select()
+          .eq('id', 'company')
+          .maybeSingle();
+      return row == null
+          ? null
+          : OperationsPolicy.fromJson(Map<String, dynamic>.from(row));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<OperationsPolicy?> configureOperationsPolicy({
+    required double cashierLimit,
+    required double managerLimit,
+    required List<String> categories,
+    required int expectedRevision,
+  }) async {
+    final snapshot = snapshotForAuthenticatedSession();
+    if (snapshot == null) return null;
+    try {
+      final row =
+          await snapshot.client.rpc('configure_operational_policy', params: {
+        'p_cashier_limit': cashierLimit,
+        'p_manager_limit': managerLimit,
+        'p_categories': categories,
+        'p_expected_revision': expectedRevision,
+      });
+      return OperationsPolicy.fromJson(Map<String, dynamic>.from(row as Map));
+    } catch (_) {
+      return null;
+    } finally {
+      await snapshot.closeSessionSnapshot();
+    }
+  }
 
   /// Fetch all active stations from Supabase
   Future<List<Station>> fetchAllStations() async {
@@ -121,20 +208,26 @@ class SupabaseRepository {
     String? managerName,
     bool hasInterlockedTanks = false,
   }) async {
-    if (!_isConnected) return null;
+    final snapshot = snapshotForAuthenticatedSession();
+    if (snapshot == null) return null;
     try {
-      final res = await client.from('stations').insert({
-        'code': code.toUpperCase().trim(),
-        'name': name.trim(),
-        'address': address?.trim(),
-        'phone': phone?.trim(),
-        'manager_name': managerName?.trim(),
-        'has_interlocked_tanks': hasInterlockedTanks,
-        'is_active': true,
-      }).select().single();
-      return Station.fromJson(Map<String, dynamic>.from(res));
+      final res =
+          await snapshot.client.rpc('register_company_station', params: {
+        'p_station': {
+          'code': code.toUpperCase().trim(),
+          'name': name.trim(),
+          'address': address?.trim(),
+          'phone': phone?.trim(),
+          'manager_name': managerName?.trim(),
+          'has_interlocked_tanks': hasInterlockedTanks,
+          'is_active': true,
+        },
+      });
+      return Station.fromJson(Map<String, dynamic>.from(res as Map));
     } catch (e) {
       return null;
+    } finally {
+      await snapshot.closeSessionSnapshot();
     }
   }
 
@@ -142,40 +235,118 @@ class SupabaseRepository {
   // AUTHENTICATION & PROFILES (§2.1–§2.4)
   // ---------------------------------------------------------------------------
 
+  /// Only existing, administrator-invited accounts can request a code.
+  Future<void> requestManagementCode(String email) async {
+    if (!_isConnected) throw StateError('Connect to request a sign-in code.');
+    await client.auth.signInWithOtp(
+        email: email.trim().toLowerCase(), shouldCreateUser: false);
+  }
+
+  /// Kiosk unlock never replaces the attendant's shared-client token.
+  SupabaseRepository managementVerifier() {
+    if (!_isConnected) throw StateError('Authentication unavailable.');
+    return SupabaseRepository._internal()
+      .._baseUrl = _baseUrl
+      .._publicKey = _publicKey
+      .._client = SupabaseClient(_baseUrl, _publicKey,
+          authOptions: const AuthClientOptions(autoRefreshToken: false))
+      .._isConnected = true;
+  }
+
+  Future<Map<String, dynamic>> companyOnboardingStatus() async {
+    final snapshot = snapshotForAuthenticatedSession();
+    if (snapshot == null) throw StateError('Verified session required.');
+    try {
+      return Map<String, dynamic>.from(
+          await snapshot.client.rpc('company_onboarding_status') as Map);
+    } finally {
+      await snapshot.closeSessionSnapshot();
+    }
+  }
+
+  Future<void> configureCompanyWorkspace(String name, String webUrl) async {
+    final snapshot = snapshotForAuthenticatedSession();
+    if (snapshot == null) throw StateError('Verified session required.');
+    try {
+      await snapshot.client.rpc('configure_company_workspace', params: {
+        'p_name': name.trim(),
+        'p_web_url': webUrl.trim().isEmpty ? null : webUrl.trim(),
+      });
+    } finally {
+      await snapshot.closeSessionSnapshot();
+    }
+  }
+
+  Future<UserProfile> verifyManagementCode(String email, String code) async {
+    if (!_isConnected) throw StateError('Connect to verify your sign-in code.');
+    try {
+      final response = await client.auth.verifyOTP(
+          email: email.trim().toLowerCase(),
+          token: code.trim(),
+          type: OtpType.email);
+      if (response.session == null || response.user?.emailConfirmedAt == null) {
+        throw StateError('Email verification required.');
+      }
+      // Server-owned mapping, never role/email supplied by the login form.
+      final raw = await client.rpc('current_staff_profile');
+      final row = Map<String, dynamic>.from(raw as Map);
+      final role = row['role'];
+      if (row['is_active'] != true ||
+          (role != 'manager' && role != 'director') ||
+          row['auth_user_id'] != response.user!.id) {
+        throw StateError('No active management account is linked.');
+      }
+      return UserProfile(
+        id: row['id'] as String,
+        displayName: row['display_name'] as String,
+        fullName: row['full_name'] as String,
+        role: role == 'director' ? UserRole.director : UserRole.manager,
+        stationName: row['station_name'] as String? ?? '',
+        stationId: row['station_id'] as String?,
+        isActive: true,
+      );
+    } catch (_) {
+      await endAuthenticatedSession();
+      rethrow;
+    }
+  }
+
+  Future<void> endAuthenticatedSession() async {
+    if (_client == null) return;
+    await client.auth.signOut(scope: SignOutScope.local);
+  }
+
   Future<Map<String, dynamic>> verifyAttendantPin({
     required String stationId,
     required String profileId,
     required String pin,
   }) async {
     if (!_isConnected) {
-      return {'success': false, 'message': 'Authentication service unavailable — terminal is offline'};
+      return {
+        'success': false,
+        'message': 'Authentication service unavailable — terminal is offline'
+      };
     }
 
     try {
-      final uuidRegex = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
+      final uuidRegex = RegExp(
+          r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
       String effectiveStationId = stationId;
 
-      // If stationId was passed as a station code (e.g. 'LEKKI-01'), resolve its UUID
       if (!uuidRegex.hasMatch(effectiveStationId)) {
-        try {
-          final st = await client
-              .from('stations')
-              .select('id')
-              .ilike('code', stationId.trim())
-              .maybeSingle();
-          if (st != null && st['id'] != null) {
-            effectiveStationId = st['id'] as String;
-          } else {
-            // Default Lekki Road Station UUID
-            effectiveStationId = '4c960eed-2f2e-461a-a27e-00a41f5f7bd1';
-          }
-        } catch (_) {
-          effectiveStationId = '4c960eed-2f2e-461a-a27e-00a41f5f7bd1';
+        final resolved = await _resolveStationUuid(stationId);
+        if (resolved == null) {
+          return {
+            'success': false,
+            'message': 'Station could not be resolved. Check station setup.'
+          };
         }
+        effectiveStationId = resolved;
       }
 
       // 1. Try PostgreSQL RPC attendant_pin_login if profileId is a UUID
-      if (uuidRegex.hasMatch(profileId) && uuidRegex.hasMatch(effectiveStationId)) {
+      if (uuidRegex.hasMatch(profileId) &&
+          uuidRegex.hasMatch(effectiveStationId)) {
         try {
           final res = await client.rpc('attendant_pin_login', params: {
             'p_station_id': effectiveStationId,
@@ -184,37 +355,42 @@ class SupabaseRepository {
           });
           final map = Map<String, dynamic>.from(res as Map);
           if (map['success'] == true) {
-            return map;
+            // A boolean PIN match is not an authenticated staff session.
+            // Never inherit a manager's token or admit an anonymous client.
+            if (authUserId == null) {
+              return {
+                'success': false,
+                'message': 'Enrolled staff authentication unavailable'
+              };
+            }
+            final raw = await client.rpc('current_staff_profile');
+            final actor = Map<String, dynamic>.from(raw as Map);
+            if (actor['id'] != profileId ||
+                actor['auth_user_id'] != authUserId ||
+                actor['station_id'] != effectiveStationId ||
+                actor['is_active'] != true ||
+                !['attendant', 'cashier'].contains(actor['role'])) {
+              return {
+                'success': false,
+                'message': 'Enrolled staff authentication unavailable'
+              };
+            }
+            return {'success': true};
           }
-        } catch (rpcErr) {
-          // Log RPC failure and proceed to direct profile verification fallback
+        } catch (_) {
+          return {
+            'success': false,
+            'message': 'Authentication service unavailable'
+          };
         }
       }
 
-      // 2. Direct database query fallback against profiles table
-      try {
-        final Map<String, dynamic>? profRow = uuidRegex.hasMatch(profileId)
-            ? await client.from('profiles').select().eq('id', profileId).maybeSingle()
-            : await client
-                .from('profiles')
-                .select()
-                .or('display_name.ilike.%$profileId%,full_name.ilike.%$profileId%')
-                .maybeSingle();
-
-        if (profRow != null) {
-          final storedPin = profRow['pin_hash']?.toString().trim();
-          if (storedPin != null && storedPin.isNotEmpty && storedPin == pin) {
-            return {
-              'success': true,
-              'user': profRow,
-            };
-          }
-        }
-      } catch (_) {}
-
       return {'success': false, 'message': 'Invalid PIN'};
-    } catch (e) {
-      return {'success': false, 'message': e.toString()};
+    } catch (_) {
+      return {
+        'success': false,
+        'message': 'Authentication service unavailable'
+      };
     }
   }
 
@@ -224,7 +400,8 @@ class SupabaseRepository {
     try {
       final data = await client
           .from('profiles')
-          .select('*, stations(name, code)')
+          .select(
+              'id,display_name,full_name,role,station_id,phone,address,surety_name,surety_phone,surety_address,base_salary,is_active,stations(name,code)')
           .order('created_at', ascending: true);
 
       return (data as List).map((row) {
@@ -246,7 +423,8 @@ class SupabaseRepository {
         }
 
         final stationMap = row['stations'] as Map?;
-        final stationName = stationMap?['name'] ?? (role == UserRole.director ? 'HQ · Corporate' : 'Station');
+        final stationName = stationMap?['name'] ??
+            (role == UserRole.director ? 'HQ · Corporate' : 'Station');
 
         return UserProfile(
           id: row['id'] as String,
@@ -304,7 +482,11 @@ class SupabaseRepository {
       String? stationId;
       String stationName = 'Station';
       if (role != UserRole.director) {
-        final st = await client.from('stations').select('id, name').eq('code', stationCode).maybeSingle();
+        final st = await client
+            .from('stations')
+            .select('id, name')
+            .eq('code', stationCode)
+            .maybeSingle();
         stationId = st?['id'];
         stationName = st?['name'] ?? stationCode;
       } else {
@@ -313,20 +495,24 @@ class SupabaseRepository {
 
       final roleStr = role.name;
 
-      final res = await client.from('profiles').insert({
-        'full_name': fullName,
-        'display_name': displayName,
-        'role': roleStr,
-        'pin_hash': pin,
-        'phone': phone,
-        'address': address,
-        'surety_name': suretyName,
-        'surety_phone': suretyPhone,
-        'surety_address': suretyAddress,
-        'station_id': stationId,
-        'base_salary': baseSalary,
-        'is_active': true,
-      }).select().single();
+      final res = await client
+          .from('profiles')
+          .insert({
+            'full_name': fullName,
+            'display_name': displayName,
+            'role': roleStr,
+            'pin_hash': pin,
+            'phone': phone,
+            'address': address,
+            'surety_name': suretyName,
+            'surety_phone': suretyPhone,
+            'surety_address': suretyAddress,
+            'station_id': stationId,
+            'base_salary': baseSalary,
+            'is_active': true,
+          })
+          .select()
+          .single();
 
       return UserProfile(
         id: res['id'] as String,
@@ -349,10 +535,13 @@ class SupabaseRepository {
   }
 
   /// Director only: Update monthly base salary (§4.7, Executive Payroll)
-  Future<bool> updateStaffSalary({required String profileId, required double baseSalary}) async {
-    if (!_isConnected) return true;
+  Future<bool> updateStaffSalary(
+      {required String profileId, required double baseSalary}) async {
+    if (!_isConnected) return false;
     try {
-      await client.from('profiles').update({'base_salary': baseSalary}).eq('id', profileId);
+      await client
+          .from('profiles')
+          .update({'base_salary': baseSalary}).eq('id', profileId);
       return true;
     } catch (e) {
       return false;
@@ -360,10 +549,13 @@ class SupabaseRepository {
   }
 
   /// Reset attendant login PIN (§2.3)
-  Future<bool> resetStaffPin({required String profileId, required String newPin}) async {
-    if (!_isConnected) return true;
+  Future<bool> resetStaffPin(
+      {required String profileId, required String newPin}) async {
+    if (!_isConnected) return false;
     try {
-      await client.from('profiles').update({'pin_hash': newPin}).eq('id', profileId);
+      await client
+          .from('profiles')
+          .update({'pin_hash': newPin}).eq('id', profileId);
       return true;
     } catch (e) {
       return false;
@@ -371,10 +563,13 @@ class SupabaseRepository {
   }
 
   /// Toggle active / inactive status (dismissal or leave)
-  Future<bool> toggleStaffStatus({required String profileId, required bool isActive}) async {
-    if (!_isConnected) return true;
+  Future<bool> toggleStaffStatus(
+      {required String profileId, required bool isActive}) async {
+    if (!_isConnected) return false;
     try {
-      await client.from('profiles').update({'is_active': isActive}).eq('id', profileId);
+      await client
+          .from('profiles')
+          .update({'is_active': isActive}).eq('id', profileId);
       return true;
     } catch (e) {
       return false;
@@ -393,12 +588,16 @@ class SupabaseRepository {
     if (!_isConnected) return 'SHIFT-LOCAL-01';
 
     try {
-      final res = await client.from('shifts').insert({
-        'station_id': stationId,
-        'shift_type': shiftType,
-        'opened_by': openedBy,
-        'status': 'open',
-      }).select('id').single();
+      final res = await client
+          .from('shifts')
+          .insert({
+            'station_id': stationId,
+            'shift_type': shiftType,
+            'opened_by': openedBy,
+            'status': 'open',
+          })
+          .select('id')
+          .single();
 
       return res['id'] as String;
     } catch (e) {
@@ -410,15 +609,19 @@ class SupabaseRepository {
     required String shiftId,
     required List<NozzleItem> nozzles,
   }) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
 
     try {
       for (final n in nozzles) {
         if (n.closingReading != null) {
+          if (!_uuidRe.hasMatch(n.id)) return false;
+          final actor = await client.rpc('current_staff_profile');
+          if (actor is! Map || actor['is_active'] != true) return false;
           await client.from('shift_nozzle_assignments').upsert(
             {
               'shift_id': shiftId,
-              'nozzle_id': n.nozzleNumber,
+              'nozzle_id': n.id,
+              'attendant_id': actor['id'],
               'opening_reading': n.openingReading,
               'closing_reading': n.closingReading,
               'price_per_litre': n.pricePerLitre,
@@ -445,20 +648,24 @@ class SupabaseRepository {
     required double credit,
     required List<String> proofUrls,
   }) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
 
     try {
-      final res = await client.from('remittances').insert({
-        'shift_id': shiftId,
-        'attendant_id': attendantId,
-        'expected_sales_value': expectedSales,
-        'cash_declared': cash,
-        'pos_card_declared': posCard,
-        'pos_transfer_declared': posTransfer,
-        'bank_transfer_declared': bankTransfer,
-        'credit_sales_declared': credit,
-        'status': 'submitted',
-      }).select('id').single();
+      final res = await client
+          .from('remittances')
+          .insert({
+            'shift_id': shiftId,
+            'attendant_id': attendantId,
+            'expected_sales_value': expectedSales,
+            'cash_declared': cash,
+            'pos_card_declared': posCard,
+            'pos_transfer_declared': posTransfer,
+            'bank_transfer_declared': bankTransfer,
+            'credit_sales_declared': credit,
+            'status': 'submitted',
+          })
+          .select('id')
+          .single();
 
       final remittanceId = res['id'] as String;
 
@@ -482,7 +689,8 @@ class SupabaseRepository {
   // ---------------------------------------------------------------------------
 
   /// Fetch today's interim cash drops for the station
-  Future<List<InterimCashDrop>> fetchInterimCashDrops([String? stationCode]) async {
+  Future<List<InterimCashDrop>> fetchInterimCashDrops(
+      [String? stationCode]) async {
     if (!_isConnected) return [];
     try {
       final res = await client
@@ -491,7 +699,8 @@ class SupabaseRepository {
           .order('created_at', ascending: false);
 
       return (res as List)
-          .map((row) => InterimCashDrop.fromJson(Map<String, dynamic>.from(row)))
+          .map(
+              (row) => InterimCashDrop.fromJson(Map<String, dynamic>.from(row)))
           .toList();
     } catch (e) {
       return [];
@@ -522,14 +731,18 @@ class SupabaseRepository {
     }
 
     try {
-      final res = await client.from('interim_cash_drops').insert({
-        'station_id': stationCode,
-        'attendant_id': attendantId,
-        'amount': amount,
-        'notes': notes,
-        'status': 'pending',
-        'shift_id': shiftId,
-      }).select().single();
+      final res = await client
+          .from('interim_cash_drops')
+          .insert({
+            'station_id': stationCode,
+            'attendant_id': attendantId,
+            'amount': amount,
+            'notes': notes,
+            'status': 'pending',
+            'shift_id': shiftId,
+          })
+          .select()
+          .single();
 
       return InterimCashDrop.fromJson(Map<String, dynamic>.from(res));
     } catch (e) {
@@ -542,7 +755,7 @@ class SupabaseRepository {
     required String dropId,
     required String cashierId,
   }) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
       await client.from('interim_cash_drops').update({
         'status': 'acknowledged',
@@ -556,7 +769,8 @@ class SupabaseRepository {
   }
 
   /// Fetch in-between POS & bank transfer transactions
-  Future<List<PosTransaction>> fetchShiftPosTransactions([String? stationCode]) async {
+  Future<List<PosTransaction>> fetchShiftPosTransactions(
+      [String? stationCode]) async {
     if (!_isConnected) return [];
     try {
       final res = await client
@@ -603,17 +817,21 @@ class SupabaseRepository {
     }
 
     try {
-      final res = await client.from('shift_pos_transactions').insert({
-        'station_id': stationCode,
-        'attendant_id': attendantId,
-        'payment_channel': paymentChannel,
-        'amount': amount,
-        'terminal_name': terminalName,
-        'reference_number': referenceNumber,
-        'storage_path': storagePath,
-        'customer_vehicle': customerVehicle,
-        'shift_id': shiftId,
-      }).select().single();
+      final res = await client
+          .from('shift_pos_transactions')
+          .insert({
+            'station_id': stationCode,
+            'attendant_id': attendantId,
+            'payment_channel': paymentChannel,
+            'amount': amount,
+            'terminal_name': terminalName,
+            'reference_number': referenceNumber,
+            'storage_path': storagePath,
+            'customer_vehicle': customerVehicle,
+            'shift_id': shiftId,
+          })
+          .select()
+          .single();
 
       return PosTransaction.fromJson(Map<String, dynamic>.from(res));
     } catch (e) {
@@ -630,7 +848,7 @@ class SupabaseRepository {
     required String cashierId,
     required String comment,
   }) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
 
     try {
       await client.from('remittances').update({
@@ -676,10 +894,15 @@ class SupabaseRepository {
     if (!_isConnected) return [];
 
     try {
-      final stRes = await client.from('stations').select('id, name').eq('code', stationCode).maybeSingle();
+      final stRes = await client
+          .from('stations')
+          .select('id, name')
+          .eq('code', stationCode)
+          .maybeSingle();
       final stationId = stRes?['id'];
-      final stationName = stRes?['name'] ?? 'Lekki Road Station';
+      final stationName = stRes?['name'] ?? stationCode;
 
+      if (stationId == null) return [];
       var query = client.from('bank_deposits').select('*');
       if (stationId != null) {
         query = query.eq('station_id', stationId);
@@ -698,6 +921,7 @@ class SupabaseRepository {
 
   Future<BankDepositRecord?> recordBankDeposit({
     required String stationCode,
+    required String stationName,
     required double amount,
     required String bankName,
     required String bearerName,
@@ -705,10 +929,12 @@ class SupabaseRepository {
     String? slipUrl,
     String? notes,
   }) async {
+    if (stationCode.trim().isEmpty) return null;
     if (!_isConnected) {
       return BankDepositRecord(
         id: generateUuid(),
-        stationName: 'Lekki Road Station',
+        stationId: stationCode,
+        stationName: stationName,
         amount: amount,
         cashierName: bearerName,
         bankName: bankName,
@@ -721,20 +947,29 @@ class SupabaseRepository {
     }
 
     try {
-      final stRes = await client.from('stations').select('id, name').eq('code', stationCode).maybeSingle();
+      final stRes = await client
+          .from('stations')
+          .select('id, name')
+          .eq('code', stationCode)
+          .maybeSingle();
       final stationId = stRes?['id'];
-      final stationName = stRes?['name'] ?? 'Lekki Road Station';
+      final stationName = stRes?['name'] ?? stationCode;
 
-      final res = await client.from('bank_deposits').insert({
-        if (stationId != null) 'station_id': stationId,
-        'amount': amount,
-        'bank_name': bankName,
-        'bearer_name': bearerName,
-        'teller_number': tellerNumber,
-        'slip_url': slipUrl,
-        'notes': notes,
-        'status': 'awaiting_bank',
-      }).select().single();
+      if (stationId == null) return null;
+      final res = await client
+          .from('bank_deposits')
+          .insert({
+            if (stationId != null) 'station_id': stationId,
+            'amount': amount,
+            'bank_name': bankName,
+            'bearer_name': bearerName,
+            'teller_number': tellerNumber,
+            'slip_url': slipUrl,
+            'notes': notes,
+            'status': 'awaiting_bank',
+          })
+          .select()
+          .single();
 
       final map = Map<String, dynamic>.from(res);
       map['stations'] = {'name': stationName};
@@ -749,7 +984,7 @@ class SupabaseRepository {
     required String directorId,
     String? directorNotes,
   }) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
 
     try {
       await client.from('bank_deposits').update({
@@ -771,7 +1006,7 @@ class SupabaseRepository {
     required String directorId,
     required String discrepancyNotes,
   }) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
 
     try {
       await client.from('bank_deposits').update({
@@ -792,16 +1027,16 @@ class SupabaseRepository {
   // ---------------------------------------------------------------------------
 
   Future<List<CreditCustomer>> fetchCreditLedger(String stationId) async {
-    if (!_isConnected) return CreditCustomer.getDefaultCustomers();
+    if (!_isConnected) return <CreditCustomer>[];
 
     try {
       final stationUuid = await _resolveStationUuid(stationId);
       var query = client.from('credit_customers').select();
-      
+
       if (stationUuid != null) {
         query = query.eq('station_id', stationUuid);
       }
-      
+
       final data = await query.order('company_name');
       return (data as List).map((row) {
         final lastPayment = row['last_payment_at'] as String?;
@@ -819,12 +1054,12 @@ class SupabaseRepository {
         );
       }).toList();
     } catch (e) {
-      return CreditCustomer.getDefaultCustomers();
+      return <CreditCustomer>[];
     }
   }
 
   Future<Map<String, double>> fetchLivePrices(String stationId) async {
-    if (!_isConnected) return {'PMS': 1050.0, 'AGO': 1320.0};
+    if (!_isConnected) return {};
     try {
       final stationUuid = await _resolveStationUuid(stationId);
       final data = await client
@@ -833,7 +1068,7 @@ class SupabaseRepository {
           .eq('station_id', stationUuid ?? stationId)
           .order('effective_from', ascending: false);
 
-      final Map<String, double> prices = {'PMS': 1050.0, 'AGO': 1320.0};
+      final Map<String, double> prices = {};
       for (final row in (data as List)) {
         final productMap = row['fuel_products'] as Map?;
         final code = productMap?['code'] as String?;
@@ -843,12 +1078,12 @@ class SupabaseRepository {
       }
       return prices;
     } catch (e) {
-      return {'PMS': 1050.0, 'AGO': 1320.0};
+      return {};
     }
   }
 
   Future<Map<String, dynamic>?> fetchStationInfo(String stationCode) async {
-    if (!_isConnected) return {'has_interlocked_tanks': true, 'name': 'Lekki Road Station'};
+    if (!_isConnected) return null;
     try {
       final res = await client
           .from('stations')
@@ -857,7 +1092,7 @@ class SupabaseRepository {
           .maybeSingle();
       return res != null ? Map<String, dynamic>.from(res) : null;
     } catch (e) {
-      return {'has_interlocked_tanks': true, 'name': 'Lekki Road Station'};
+      return null;
     }
   }
 
@@ -865,14 +1100,13 @@ class SupabaseRepository {
     if (!_isConnected) return [];
     try {
       final stationUuid = await _resolveStationUuid(stationId);
-      var query = client
-          .from('tanks')
-          .select('id, code, capacity_litres, current_dip_litres, calculated_stock_litres, is_interlocked, fuel_products(code)');
-      
+      var query = client.from('tanks').select(
+          'id, code, capacity_litres, current_dip_litres, calculated_stock_litres, is_interlocked, fuel_products(code)');
+
       if (stationUuid != null) {
         query = query.eq('station_id', stationUuid);
       }
-      
+
       final data = await query.order('code');
       return List<Map<String, dynamic>>.from(data as List);
     } catch (e) {
@@ -884,29 +1118,53 @@ class SupabaseRepository {
     if (!_isConnected) return [];
     try {
       final stationUuid = await _resolveStationUuid(stationId);
-      var query = client
+      if (stationUuid == null) return [];
+      final data = await client
           .from('nozzles')
-          .select('id, nozzle_number, latest_meter_reading, supplying_tank_id, tanks(id, code), fuel_products(code)');
-      
-      if (stationUuid != null) {
-        query = query.eq('station_id', stationUuid);
-      }
-      
-      final data = await query.order('nozzle_number');
-      return List<Map<String, dynamic>>.from(data as List);
-    } catch (e) {
+          .select(
+              '*, pumps!inner(station_id), tanks(id,code), fuel_products(code)')
+          .eq('pumps.station_id', stationUuid)
+          .eq('is_active', true)
+          .order('nozzle_number');
+      final rows = List<Map<String, dynamic>>.from(data as List);
+      // Old duplicated numeric keys cannot safely populate legacy local forms.
+      if (rows.map((r) => r['nozzle_number']).toSet().length != rows.length)
+        return [];
+      return rows;
+    } catch (_) {
       return [];
     }
   }
 
+  /// New payloads use UUIDs. Resolve old numeric outbox keys only within a station.
+  Future<String?> _resolvePumpId(String stationRef,
+      {String? id, int? legacyNumber}) async {
+    final stationId = await _resolveStationUuid(stationRef);
+    if (stationId == null || (id?.isNotEmpty != true && legacyNumber == null))
+      return null;
+    var query = client
+        .from('nozzles')
+        .select('id,pumps!inner(station_id)')
+        .eq('pumps.station_id', stationId);
+    if (id?.isNotEmpty == true) {
+      if (!_uuidRe.hasMatch(id!)) return null;
+      query = query.eq('id', id);
+    } else {
+      query = query.eq('nozzle_number', legacyNumber!);
+    }
+    final rows = await query.limit(2);
+    return rows.length == 1 ? rows.single['id'] as String : null;
+  }
+
   /// Director / Admin: Update station interlock capability
-  Future<bool> updateStationInterlockStatus(String stationCode, bool hasInterlockedTanks) async {
-    if (!_isConnected) return true;
+  Future<bool> updateStationInterlockStatus(
+      String stationCode, bool hasInterlockedTanks) async {
+    if (!_isConnected) return false;
     try {
       await client
           .from('stations')
-          .update({'has_interlocked_tanks': hasInterlockedTanks})
-          .eq('code', stationCode);
+          .update({'has_interlocked_tanks': hasInterlockedTanks}).eq(
+              'code', stationCode);
       return true;
     } catch (e) {
       return false;
@@ -915,12 +1173,11 @@ class SupabaseRepository {
 
   /// Director / Admin: Update tank manifold twin flag
   Future<bool> updateTankInterlock(String tankCode, bool isInterlocked) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
       await client
           .from('tanks')
-          .update({'is_interlocked': isInterlocked})
-          .eq('code', tankCode);
+          .update({'is_interlocked': isInterlocked}).eq('code', tankCode);
       return true;
     } catch (e) {
       return false;
@@ -928,23 +1185,29 @@ class SupabaseRepository {
   }
 
   /// Update nozzle supplying tank (used for plumbing mapping and manifold switches)
-  Future<bool> updateNozzleSupplyingTank(int nozzleNumber, String targetTankCode) async {
-    if (!_isConnected) return true;
+  Future<bool> updateNozzleSupplyingTank(
+      String pumpId, String targetTankCode, String stationCode) async {
+    final snapshot = snapshotForAuthenticatedSession();
+    if (snapshot == null) return false;
     try {
-      final targetTank = await client
+      final id = await snapshot._resolvePumpId(stationCode, id: pumpId);
+      final station = await snapshot._resolveStationUuid(stationCode);
+      if (id == null || station == null) return false;
+      final tank = await snapshot.client
           .from('tanks')
           .select('id')
+          .eq('station_id', station)
           .eq('code', targetTankCode)
+          .eq('is_active', true)
           .single();
-      final targetTankId = targetTank['id'];
-
-      await client
+      await snapshot.client
           .from('nozzles')
-          .update({'supplying_tank_id': targetTankId})
-          .eq('nozzle_number', nozzleNumber);
+          .update({'supplying_tank_id': tank['id']}).eq('id', id);
       return true;
-    } catch (e) {
+    } catch (_) {
       return false;
+    } finally {
+      await snapshot.closeSessionSnapshot();
     }
   }
 
@@ -960,10 +1223,14 @@ class SupabaseRepository {
     String? notes,
     String? switchedBy,
   }) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
       // 1. Get station ID
-      final station = await client.from('stations').select('id').eq('code', stationCode).single();
+      final station = await client
+          .from('stations')
+          .select('id')
+          .eq('code', stationCode)
+          .single();
       final stationId = station['id'];
 
       // 2. Insert audit log
@@ -980,17 +1247,21 @@ class SupabaseRepository {
       });
 
       // 3. Update active nozzle supplying_tank_id
-      final targetTank = await client.from('tanks').select('id').eq('code', toTankCode).single();
+      final targetTank = await client
+          .from('tanks')
+          .select('id')
+          .eq('code', toTankCode)
+          .eq('station_id', stationId)
+          .single();
       final targetTankId = targetTank['id'];
 
-      for (final nozzleStr in switchReadings.keys) {
-        final nozzleNum = int.tryParse(nozzleStr.replaceAll(RegExp(r'[^0-9]'), ''));
-        if (nozzleNum != null) {
-          await client.from('nozzles').update({
-            'supplying_tank_id': targetTankId,
-            'latest_meter_reading': switchReadings[nozzleStr],
-          }).eq('nozzle_number', nozzleNum);
-        }
+      for (final pumpId in switchReadings.keys) {
+        final id = await _resolvePumpId(stationCode, id: pumpId);
+        if (id == null) return false;
+        await client.from('nozzles').update({
+          'supplying_tank_id': targetTankId,
+          'latest_meter_reading': switchReadings[pumpId],
+        }).eq('id', id);
       }
 
       return true;
@@ -1004,11 +1275,11 @@ class SupabaseRepository {
     try {
       final stationUuid = await _resolveStationUuid(stationId);
       var query = client.from('branch_expenses').select();
-      
+
       if (stationUuid != null) {
         query = query.eq('station_id', stationUuid);
       }
-      
+
       final data = await query.order('created_at', ascending: false).limit(30);
       return List<Map<String, dynamic>>.from(data as List);
     } catch (e) {
@@ -1016,16 +1287,17 @@ class SupabaseRepository {
     }
   }
 
-  Future<List<Map<String, dynamic>>> fetchLiveSalaryAdjustments(String stationId) async {
+  Future<List<Map<String, dynamic>>> fetchLiveSalaryAdjustments(
+      String stationId) async {
     if (!_isConnected) return [];
     try {
       final stationUuid = await _resolveStationUuid(stationId);
       var query = client.from('attendant_salary_adjustments').select();
-      
+
       if (stationUuid != null) {
         query = query.eq('station_id', stationUuid);
       }
-      
+
       final data = await query.order('created_at', ascending: false).limit(30);
       return List<Map<String, dynamic>>.from(data as List);
     } catch (e) {
@@ -1038,17 +1310,24 @@ class SupabaseRepository {
   // ---------------------------------------------------------------------------
 
   Future<bool> syncClosingReadingsPayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true; // Handled gracefully offline
+    if (!_isConnected)
+      return false; // Keep queued until the service is available
     try {
       final shiftId = p['shiftId'] as String;
       final readings = p['readings'] as List;
-      final stationCode = p['stationCode']?.toString() ?? _defaultStationCode;
+      final stationCode = p['stationCode']?.toString() ?? '';
       final stationUuid = await _resolveStationUuid(stationCode);
+      if (stationUuid == null) return false;
       for (final r in readings) {
+        final pumpId = await _resolvePumpId(stationCode,
+            id: r['pumpId'] as String?,
+            legacyNumber: (r['nozzleNumber'] as num?)?.toInt());
+        if (pumpId == null) return false;
         await client.from('shift_nozzle_assignments').upsert(
           {
             'shift_id': shiftId,
-            'nozzle_id': r['nozzleNumber'],
+            'nozzle_id': pumpId,
+            'attendant_id': p['attendantId'],
             'opening_reading': r['openingReading'],
             'closing_reading': r['closingReading'],
             'price_per_litre': r['pricePerLitre'],
@@ -1062,14 +1341,9 @@ class SupabaseRepository {
         // re-opens at stale numbers and litres-sold is wrong).
         final closing = (r['closingReading'] as num?)?.toDouble();
         if (closing != null) {
-          var meter = client
+          await client
               .from('nozzles')
-              .update({'latest_meter_reading': closing})
-              .eq('nozzle_number', r['nozzleNumber'] as int);
-          if (stationUuid != null) {
-            meter = meter.eq('station_id', stationUuid);
-          }
-          await meter;
+              .update({'latest_meter_reading': closing}).eq('id', pumpId);
         }
       }
       return true;
@@ -1079,7 +1353,7 @@ class SupabaseRepository {
   }
 
   Future<bool> syncRemittancePayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
       // Client-generated uuid keeps retries idempotent and lets the state
       // layer reference this submission before/after sync.
@@ -1090,6 +1364,11 @@ class SupabaseRepository {
           'shift_id': p['shiftId'] ?? 'SHIFT-01',
           'attendant_id': p['attendantId'] ?? 'ATT-01',
           'expected_sales_value': p['expectedSalesValue'] ?? 0.0,
+          if (p.containsKey('approvedPumpExpenses'))
+            'approved_pump_expenses': p['approvedPumpExpenses'],
+          if (p.containsKey('approvedNonSaleFuel'))
+            'approved_non_sale_fuel': p['approvedNonSaleFuel'],
+          if (p.containsKey('meteredStock')) 'metered_stock': p['meteredStock'],
           'cash_declared': p['cashDeclared'] ?? 0.0,
           'pos_card_declared': p['posCardDeclared'] ?? 0.0,
           'pos_transfer_declared': p['posTransferDeclared'] ?? 0.0,
@@ -1127,7 +1406,7 @@ class SupabaseRepository {
   /// Cashier verification result for a remittance (status is plain text
   /// after the migration, so 'verified' / 'flagged_unresolved' are free-form).
   Future<bool> syncRemittanceVerificationPayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
       final id = p['id']?.toString();
       if (id == null) return false;
@@ -1144,24 +1423,32 @@ class SupabaseRepository {
   }
 
   Future<bool> syncCreditSalePayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
       final saleId = p['id']?.toString();
+      final pumpId = await _resolvePumpId(p['stationCode'] as String? ?? '',
+          id: p['pumpId'] as String?,
+          legacyNumber: (p['nozzleNumber'] as num?)?.toInt());
+      if (pumpId == null || p['shiftId'] == null || saleId == null)
+        return false;
+      final photos = p['evidencePhotos'] as List? ?? [];
       final row = {
-        if (saleId != null) 'id': saleId,
+        'id': saleId,
+        'shift_id': p['shiftId'],
         'customer_id': p['customerId'],
         'driver_name': p['driverName'],
-        'vehicle_reg': p['vehicleReg'],
+        'vehicle_number': p['vehicleReg'],
         'litres': p['litres'],
-        'total_amount': p['totalAmount'],
-        'nozzle_number': p['nozzleNumber'],
+        'amount': p['totalAmount'],
+        'nozzle_id': pumpId,
         'attendant_id': p['attendantId'],
-        'recorded_at': DateTime.now().toIso8601String(),
+        if (photos.isNotEmpty) 'signed_requisition_path': photos.first,
       };
+      var inserted = false;
       try {
         await client.from('credit_sales').insert(row);
+        inserted = true;
       } on PostgrestException catch (e) {
-        // Retried after a partial success - the row already exists.
         if (e.code != '23505') rethrow;
       }
 
@@ -1169,7 +1456,7 @@ class SupabaseRepository {
       // device (and every restart) sees the same outstanding amount.
       final customerId = p['customerId']?.toString();
       final amount = (p['totalAmount'] as num?)?.toDouble() ?? 0.0;
-      if (customerId != null && amount != 0) {
+      if (inserted && customerId != null && amount != 0) {
         try {
           await client.rpc('app_add_credit_outstanding', params: {
             'p_customer_id': customerId,
@@ -1180,64 +1467,61 @@ class SupabaseRepository {
         }
       }
 
-      // Link requisition-slip evidence to this sale.
-      final photos = p['evidencePhotos'];
-      if (saleId != null && photos is List) {
-        for (final url in photos.whereType<String>()) {
-          try {
-            await client.from('remittance_evidence').insert({
-              'credit_sale_id': saleId,
-              'storage_path': url,
-              'payment_channel': 'credit_requisition',
-              'created_at': DateTime.now().toIso8601String(),
-            });
-          } on PostgrestException catch (e) {
-            if (e.code != '23505') rethrow;
-          }
-        }
-      }
+      // Requisition proof is attached through the schema's signed_requisition_path.
       return true;
     } catch (e) {
       return false;
     }
   }
 
-  Future<bool> syncFuelReturnPayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true;
+  Future<bool> syncShiftAdjustmentPayload(Map<String, dynamic> p) async {
+    if (!_isConnected || authUserId == null) return false;
     try {
-      final returnId = p['id']?.toString();
-      try {
-        await client.from('fuel_returns').insert({
-          if (returnId != null) 'id': returnId,
-          'tank_id': p['tankCode'],
-          'reason': p['reason'],
-          'litres': p['litres'],
-          'attendant_id': p['attendantId'],
-          'status': 'verified',
-        });
-      } on PostgrestException catch (e) {
-        if (e.code != '23505') rethrow;
-      }
-
-      final photos = p['evidencePhotos'];
-      if (returnId != null && photos is List) {
-        for (final url in photos.whereType<String>()) {
-          try {
-            await client.from('remittance_evidence').insert({
-              'fuel_return_id': returnId,
-              'storage_path': url,
-              'payment_channel': 'fuel_return_evidence',
-              'created_at': DateTime.now().toIso8601String(),
-            });
-          } on PostgrestException catch (e) {
-            if (e.code != '23505') rethrow;
-          }
-        }
-      }
+      await client.rpc('submit_shift_adjustment', params: {'p_entry': p});
       return true;
-    } catch (e) {
+    } catch (_) {
       return false;
     }
+  }
+
+  Future<List<ShiftAdjustment>?> fetchShiftAdjustments(
+      String stationCode) async {
+    if (!_isConnected || authUserId == null) return null;
+    try {
+      final rows = await client
+          .from('shift_adjustments')
+          .select()
+          .eq('station_code', stationCode)
+          .order('created_at');
+      return rows.map((row) => ShiftAdjustment.fromJson(row)).toList();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<ShiftAdjustment?> reviewShiftAdjustment(
+      String id, bool approved, String notes) async {
+    if (!_isConnected || authUserId == null) return null;
+    final snapshot = snapshotForAuthenticatedSession();
+    if (snapshot == null) return null;
+    try {
+      final row = await snapshot.client.rpc('review_shift_adjustment', params: {
+        'p_id': id,
+        'p_approved': approved,
+        'p_notes': notes,
+      });
+      return ShiftAdjustment.fromJson(Map<String, dynamic>.from(row as Map));
+    } catch (_) {
+      return null;
+    } finally {
+      await snapshot.closeSessionSnapshot();
+    }
+  }
+
+  Future<bool> syncFuelReturnPayload(Map<String, dynamic> p) async {
+    // Old outbox entries lack shift/type/approval metadata. Do not silently
+    // publish them as verified returns; re-enter through the new ledger.
+    return false;
   }
 
   Future<bool> syncDailyCashAuditPayload(Map<String, dynamic> p) async {
@@ -1245,7 +1529,7 @@ class SupabaseRepository {
   }
 
   Future<bool> syncBranchExpensePayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
       // Upsert: create payloads carry full rows, approve/waive payloads are
       // {id, status, ...} updates — a plain insert would conflict on the PK.
@@ -1257,7 +1541,7 @@ class SupabaseRepository {
   }
 
   Future<bool> syncTankDipPayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
       await client.from('tank_dips').insert(p);
 
@@ -1279,7 +1563,7 @@ class SupabaseRepository {
   }
 
   Future<bool> syncFuelDeliveryPayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
       try {
         await client.from('tank_deliveries').insert(p);
@@ -1295,7 +1579,7 @@ class SupabaseRepository {
   }
 
   Future<bool> syncPriceChangePayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
       await client.from('fuel_prices').insert(p);
       return true;
@@ -1305,7 +1589,7 @@ class SupabaseRepository {
   }
 
   Future<bool> syncSalaryAdjustmentPayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
       // Upsert: settlement creation inserts a full row; approve/waive queue
       // {id, status, ...} updates that must not conflict on the PK.
@@ -1319,7 +1603,7 @@ class SupabaseRepository {
   /// Per-shift shortage/excess adjustments live in the salary ledger table
   /// (attendant_salary_adjustments) - the table the ledger screen reads.
   Future<bool> syncShortageAdjustmentPayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
       await client
           .from('attendant_salary_adjustments')
@@ -1372,7 +1656,7 @@ class SupabaseRepository {
   /// Credit repayment: decrements the customer's outstanding balance
   /// atomically (floors at zero, stamps last_payment_at).
   Future<bool> syncCreditRepaymentPayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
       final customerId = p['customerId']?.toString();
       final amount = (p['amount'] as num?)?.toDouble() ?? 0.0;
@@ -1388,7 +1672,7 @@ class SupabaseRepository {
   }
 
   Future<bool> syncCreditCustomerCreatePayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
       final row = _cleanPayload(p);
       final stationCode = row.remove('station_code')?.toString();
@@ -1431,7 +1715,7 @@ class SupabaseRepository {
   }
 
   Future<bool> syncTankCreatePayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
       final row = _cleanPayload(p);
       final productCode = row.remove('product_code')?.toString();
@@ -1492,83 +1776,73 @@ class SupabaseRepository {
   }
 
   Future<bool> syncNozzleCreatePayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true;
-    try {
-      final row = _cleanPayload(p);
-      final productCode = row.remove('product_code')?.toString();
-      final tankCode = row.remove('tank_code')?.toString();
-      final stationCode = row.remove('station_code')?.toString();
-      if (productCode != null) {
-        final product = await client
-            .from('fuel_products')
-            .select('id')
-            .ilike('code', productCode)
-            .limit(1)
-            .maybeSingle();
-        if (product != null) row['product_id'] = product['id'];
-      }
-      if (tankCode != null) {
-        final tank = await client
-            .from('tanks')
-            .select('id')
-            .eq('code', tankCode)
-            .limit(1)
-            .maybeSingle();
-        if (tank != null) row['supplying_tank_id'] = tank['id'];
-      }
-      if (stationCode != null) {
-        final uuid = await _resolveStationUuid(stationCode);
-        if (uuid != null) row['station_id'] = uuid;
-      }
-      await client.from('nozzles').insert(row);
-      return true;
-    } catch (e) {
+    // Recover identifiable legacy queued creations without renumbering them.
+    final number = (p['nozzle_number'] as num?)?.toInt();
+    if (number == null || p['id'] == null || p['station_code'] == null)
       return false;
-    }
+    return await createNozzle(
+            id: p['id'] as String,
+            displayName: p['display_name'] as String? ?? 'Pump$number',
+            productCode: p['product_code'] as String? ?? '',
+            tankCode: p['tank_code'] as String? ?? '',
+            latestMeterReading:
+                (p['latest_meter_reading'] as num?)?.toDouble() ?? double.nan,
+            stationCode: p['station_code'] as String,
+            legacyNumber: number) !=
+        null;
   }
 
-  /// Add a pump nozzle from Station Setup (online path).
-  Future<bool> createNozzle({
+  Future<Map<String, dynamic>?> createNozzle({
     required String id,
-    required int nozzleNumber,
+    required String displayName,
     required String productCode,
     required String tankCode,
     required double latestMeterReading,
     required String stationCode,
+    int? legacyNumber,
   }) async {
-    if (!_isConnected) return false;
+    final snapshot = snapshotForAuthenticatedSession();
+    if (snapshot == null) return null;
     try {
-      final product = await client
-          .from('fuel_products')
-          .select('id')
-          .ilike('code', productCode)
-          .limit(1)
-          .maybeSingle();
-      final tank = await client
-          .from('tanks')
-          .select('id')
-          .eq('code', tankCode)
-          .limit(1)
-          .maybeSingle();
-      final stationUuid = await _resolveStationUuid(stationCode);
-      await client.from('nozzles').insert({
-        'id': id,
-        'nozzle_number': nozzleNumber,
-        'latest_meter_reading': latestMeterReading,
-        if (product != null) 'product_id': product['id'],
-        if (tank != null) 'supplying_tank_id': tank['id'],
-        if (stationUuid != null) 'station_id': stationUuid,
+      final row = await snapshot.client.rpc('register_named_pump', params: {
+        'p_station_code': stationCode,
+        'p_id': id,
+        'p_name': NozzleItem.validateName(displayName),
+        'p_product_code': productCode,
+        'p_tank_code': tankCode,
+        'p_opening': latestMeterReading,
+        'p_legacy_number': legacyNumber,
       });
-      return true;
-    } catch (e) {
-      return false;
+      return Map<String, dynamic>.from(row as Map);
+    } catch (_) {
+      return null;
+    } finally {
+      await snapshot.closeSessionSnapshot();
+    }
+  }
+
+  Future<String?> renameNozzle(
+      String id, String stationCode, String name) async {
+    final snapshot = snapshotForAuthenticatedSession();
+    if (snapshot == null) return null;
+    try {
+      final row = await snapshot.client.rpc('rename_named_pump', params: {
+        'p_id': id,
+        'p_station_code': stationCode,
+        'p_name': NozzleItem.validateName(name),
+      });
+      return (row as Map)['display_name'] as String;
+    } catch (_) {
+      return null;
+    } finally {
+      await snapshot.closeSessionSnapshot();
     }
   }
 
   /// Absolute tank book-stock/physical-dip sync (state enqueues after every
   /// stock mutation so all devices converge on the same numbers).
   Future<bool> syncTankStockPayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
       final tankCode = p['tankCode']?.toString();
       if (tankCode == null) return false;
@@ -1585,7 +1859,7 @@ class SupabaseRepository {
   }
 
   Future<bool> syncNotificationPayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
       try {
         await client.from('app_notifications').insert(_cleanPayload(p));
@@ -1599,7 +1873,8 @@ class SupabaseRepository {
   }
 
   /// Operational notifications read back after a restart.
-  Future<List<ForecourtNotification>> fetchNotifications({int limit = 50}) async {
+  Future<List<ForecourtNotification>> fetchNotifications(
+      {int limit = 50}) async {
     if (!_isConnected) return [];
     try {
       final data = await client
@@ -1658,11 +1933,19 @@ class SupabaseRepository {
 
   /// Persist the shift session row (the shared shift id every payload uses).
   Future<bool> syncShiftSessionPayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
+      // Match the verified production schema: opened_by, and lowercase enum.
+      // Normalize older queued rows without changing their shift identifiers.
+      final row = _cleanPayload(p);
+      final attendant = row.remove('attendant_id');
+      if (attendant != null) row.putIfAbsent('opened_by', () => attendant);
+      final shiftType = row['shift_type']?.toString().toLowerCase();
+      if (shiftType == 'morning') row['shift_type'] = 'morning';
+      if (shiftType == 'evening') row['shift_type'] = 'afternoon_evening';
       // shifts.station_id is text after the migration (station code).
       try {
-        await client.from('shifts').insert(_cleanPayload(p));
+        await client.from('shifts').insert(row);
       } on PostgrestException catch (e) {
         if (e.code != '23505') rethrow; // same shift already opened
       }
@@ -1673,7 +1956,7 @@ class SupabaseRepository {
   }
 
   Future<bool> syncBankDepositRecordPayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
       final row = _cleanPayload(p);
       final sid = row['station_id']?.toString();
@@ -1691,7 +1974,7 @@ class SupabaseRepository {
   }
 
   Future<bool> syncInterimCashDropPayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
       // station_id / shift_id are text (station code, 'SHIFT-...' ids).
       await client.from('interim_cash_drops').insert(_cleanPayload(p));
@@ -1702,7 +1985,7 @@ class SupabaseRepository {
   }
 
   Future<bool> syncPosTransactionPayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
       // station_id / shift_id are text (station code, 'SHIFT-...' ids).
       await client.from('shift_pos_transactions').insert(_cleanPayload(p));
@@ -1713,7 +1996,7 @@ class SupabaseRepository {
   }
 
   Future<bool> syncBankDepositPayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
       await client.from('bank_deposits').update({
         'is_confirmed': true,
@@ -1727,7 +2010,7 @@ class SupabaseRepository {
   }
 
   Future<bool> syncEvidencePhotoPayload(Map<String, dynamic> p) async {
-    if (!_isConnected) return true;
+    if (!_isConnected) return false;
     try {
       String? storagePath = p['path']?.toString();
       final bucket = p['bucket']?.toString() ?? 'remittance-evidence';
@@ -1741,13 +2024,8 @@ class SupabaseRepository {
         fileBytes: base64Decode(b64),
       );
       if (uploadedUrl == null) return false; // keep queued, retry later
-      storagePath = uploadedUrl;
-
-      await client.from('remittance_evidence').insert({
-        'storage_path': storagePath,
-        'payment_channel': p['payment_channel'] ?? 'pos_slip',
-        'created_at': DateTime.now().toIso8601String(),
-      });
+      // The business record already owns the durable reference. Do not create
+      // an orphan remittance row for an expense, delivery or teller upload.
       return true;
     } catch (e) {
       return false;
@@ -1758,21 +2036,39 @@ class SupabaseRepository {
   // SUPABASE STORAGE UPLOADS (PHASE 3)
   // ---------------------------------------------------------------------------
 
+  Future<String?> resolveEvidenceUrl(String? reference) async {
+    if (!_isConnected || authUserId == null) return null;
+    final object =
+        EvidenceReference.parse(reference, endpoint: SupabaseConfig.url);
+    if (object == null) return null;
+    try {
+      return await client.storage
+          .from(object.bucket)
+          .createSignedUrl(object.path, 300);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<String?> uploadStorageFile({
     required String bucket,
     required String path,
     required Uint8List fileBytes,
   }) async {
-    if (!_isConnected) return null;
+    if (!_isConnected ||
+        authUserId == null ||
+        EvidenceReference.parse(EvidenceReference(bucket, path).value) == null)
+      return null;
 
     try {
       await client.storage.from(bucket).uploadBinary(
             path,
             fileBytes,
-            fileOptions: const FileOptions(upsert: true, contentType: 'image/jpeg'),
+            fileOptions:
+                const FileOptions(upsert: true, contentType: 'image/jpeg'),
           );
 
-      return client.storage.from(bucket).getPublicUrl(path);
+      return EvidenceReference(bucket, path).value;
     } catch (e) {
       return null;
     }

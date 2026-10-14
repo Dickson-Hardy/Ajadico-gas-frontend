@@ -29,18 +29,22 @@ class InterimCashDrop {
 
   factory InterimCashDrop.fromJson(Map<String, dynamic> json) {
     final attendantProfile = json['profiles'] as Map?;
-    final attendantName = attendantProfile?['display_name'] ?? attendantProfile?['full_name'] ?? 'Attendant';
+    final attendantName = attendantProfile?['display_name'] ??
+        attendantProfile?['full_name'] ??
+        'Attendant';
 
     return InterimCashDrop(
       id: json['id'] as String,
       shiftId: json['shift_id'] as String?,
-      stationId: json['station_id'] as String? ?? 'LEKKI-01',
+      stationId: json['station_id'] as String? ?? '',
       attendantId: json['attendant_id'] as String? ?? '',
       attendantName: attendantName,
       amount: (json['amount'] as num).toDouble(),
       status: json['status'] as String? ?? 'pending',
       acknowledgedBy: json['acknowledged_by'] as String?,
-      acknowledgedAt: json['acknowledged_at'] != null ? DateTime.tryParse(json['acknowledged_at']) : null,
+      acknowledgedAt: json['acknowledged_at'] != null
+          ? DateTime.tryParse(json['acknowledged_at'])
+          : null,
       notes: json['notes'] as String?,
       createdAt: DateTime.tryParse(json['created_at'] ?? '') ?? DateTime.now(),
     );

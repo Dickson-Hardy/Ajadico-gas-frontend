@@ -1,20 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 /// Central typography system for Ajadico Energy.
-/// 
-/// Pairs Manrope (for editorial hierarchy, brand titles, and legibility)
-/// with JetBrains Mono tabular figures (for ₦ currency columns, fuel dials,
-/// and tank volume readings to prevent layout jitter).
+///
+/// Uses the platform typeface and tabular figures for financial and fuel
+/// readings, without requiring fonts to be fetched while the app runs.
 class AppTypography {
-  // Brand & Page Headings (Manrope)
+  // Brand & page headings
   static TextStyle heading({
     double fontSize = 24,
     FontWeight fontWeight = FontWeight.w700,
     Color? color,
     double letterSpacing = -0.5,
   }) {
-    return GoogleFonts.manrope(
+    return TextStyle(
       fontSize: fontSize,
       fontWeight: fontWeight,
       color: color,
@@ -29,7 +27,7 @@ class AppTypography {
     Color? color,
     double letterSpacing = -0.2,
   }) {
-    return GoogleFonts.manrope(
+    return TextStyle(
       fontSize: fontSize,
       fontWeight: fontWeight,
       color: color,
@@ -44,7 +42,7 @@ class AppTypography {
     Color? color,
     double height = 1.4,
   }) {
-    return GoogleFonts.manrope(
+    return TextStyle(
       fontSize: fontSize,
       fontWeight: fontWeight,
       color: color,
@@ -59,7 +57,7 @@ class AppTypography {
     Color? color,
     double letterSpacing = 0.2,
   }) {
-    return GoogleFonts.manrope(
+    return TextStyle(
       fontSize: fontSize,
       fontWeight: fontWeight,
       color: color,
@@ -75,7 +73,7 @@ class AppTypography {
     Color? color,
     double letterSpacing = -0.2,
   }) {
-    return GoogleFonts.jetBrainsMono(
+    return TextStyle(
       fontSize: fontSize,
       fontWeight: fontWeight,
       color: color,
@@ -90,7 +88,7 @@ class AppTypography {
     FontWeight fontWeight = FontWeight.w800,
     Color? color,
   }) {
-    return GoogleFonts.jetBrainsMono(
+    return TextStyle(
       fontSize: fontSize,
       fontWeight: fontWeight,
       color: color,
